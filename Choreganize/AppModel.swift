@@ -54,11 +54,20 @@ final class AppModel: ObservableObject {
         save()
     }
 
-    /// Assigns the specified chores to the given area.
-    func assignChores(_ choreIDs: [UUID], to area: Area) {
+    /// Updates an existing area with new values.
+    func updateArea(_ area: Area) {
+        if let index = areas.firstIndex(where: { $0.id == area.id }) {
+            areas[index] = area
+            save()
+        }
+    }
+
+    /// Assigns the specified chores to the given area identifier. Pass `nil` to
+    /// unassign the chores.
+    func assignChores(_ choreIDs: [UUID], toAreaID areaID: UUID?) {
         for id in choreIDs {
             if let index = chores.firstIndex(where: { $0.id == id }) {
-                chores[index].areaId = area.id
+                chores[index].areaId = areaID
             }
         }
         save()

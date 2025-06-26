@@ -91,9 +91,11 @@ struct AreaListView: View {
     var body: some View {
         List {
             ForEach(model.areas) { area in
-                VStack(alignment: .leading) {
-                    Text(area.name)
-                    Text(area.description).font(.caption)
+                NavigationLink(destination: EditAreaView(area: area)) {
+                    VStack(alignment: .leading) {
+                        Text(area.name)
+                        Text(area.description).font(.caption)
+                    }
                 }
             }
             .onDelete(perform: model.deleteAreas)
@@ -144,10 +146,61 @@ struct NewAreaView: View {
                     Button("Save") {
                         let area = Area(name: name, description: description)
                         model.addArea(area)
-                        model.assignChores(Array(selectedChoreIDs), to: area)
+                        model.assignChores(Array(selectedChoreIDs), toAreaID: area.id)
                         dismiss()
                     }
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+        }
+    }
+}
+
+struct EditAreaView: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) var dismiss
+    @State var area: Area
+    @State private var selectedChoreIDs: Set<UUID> = []
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Name", text: $area.name)
+                TextField("Description", text: $area.description)
+                Section(header: Text("Chores")) {
+                    ForEach(model.chores) { chore in
+                        Toggle(chore.name, isOn: Binding(
+                            get: { selectedChoreIDs.contains(chore.id) },
+                            set: { newValue in
+                                if newValue {
+                                    selectedChoreIDs.insert(chore.id)
+                                } else {
+                                    selectedChoreIDs.remove(chore.id)
+                                }
+                            }
+                        ))
+                    }
+                }
+            }
+            .navigationTitle("Edit Area")
+            .onAppear {
+                selectedChoreIDs = Set(model.chores.filter { $0.areaId == area.id }.map { $0.id })
+            }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        model.updateArea(area)
+                        model.assignChores(Array(selectedChoreIDs), toAreaID: area.id)
+                        let toUnassign = model.chores
+                            .filter { $0.areaId == area.id && !selectedChoreIDs.contains($0.id) }
+                            .map { $0.id }
+                        if !toUnassign.isEmpty {
+                            model.assignChores(toUnassign, toAreaID: nil)
+                        }
+                        dismiss()
+                    }
+                    .disabled(area.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
