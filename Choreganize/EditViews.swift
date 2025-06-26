@@ -11,6 +11,7 @@ struct EditHomeView: View {
 
 struct ChoreListView: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) var dismiss
     @State private var showingNew = false
 
     var body: some View {
@@ -27,7 +28,12 @@ struct ChoreListView: View {
         }
         .navigationTitle("Chores")
         .toolbar {
-            Button("Add") { showingNew = true }
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("Back") { dismiss() }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Add") { showingNew = true }
+            }
         }
         .sheet(isPresented: $showingNew) {
             NewChoreView()
@@ -84,6 +90,7 @@ struct NewChoreView: View {
 
 struct AreaListView: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) var dismiss
     @State private var showingNew = false
 
     var body: some View {
@@ -97,7 +104,14 @@ struct AreaListView: View {
             .onDelete(perform: model.deleteAreas)
         }
         .navigationTitle("Areas")
-        .toolbar { Button("Add") { showingNew = true } }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("Back") { dismiss() }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Add") { showingNew = true }
+            }
+        }
         .sheet(isPresented: $showingNew) { NewAreaView() }
     }
 }
