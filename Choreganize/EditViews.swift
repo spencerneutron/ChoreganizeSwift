@@ -16,16 +16,45 @@ struct ChoreListView: View {
 
     var body: some View {
         List {
-            ForEach(model.chores) { chore in
-                VStack(alignment: .leading) {
-                    Text(chore.name)
-                    if let area = model.areas.first(where: { $0.id == chore.areaId }) {
-                        Text(area.name).font(.caption)
+            ForEach(Weekday.allCases) { day in
+                let choresForDay = model.chores.filter { $0.assignedDay == day }
+                if !choresForDay.isEmpty {
+                    Section(header: Text(day.displayName)) {
+                        ForEach(choresForDay) { chore in
+                            VStack(alignment: .leading) {
+                                Text(chore.name)
+                                if let area = model.areas.first(where: { $0.id == chore.areaId }) {
+                                    Text(area.name).font(.caption)
+                                }
+                            }
+                            .onTapGesture { editingChore = chore }
+                        }
+                        .onDelete { offsets in
+                            let ids = offsets.map { choresForDay[$0].id }
+                            model.deleteChores(withIDs: ids)
+                        }
                     }
                 }
-                .onTapGesture { editingChore = chore }
             }
-            .onDelete(perform: model.deleteChores)
+
+            let unassigned = model.chores.filter { $0.assignedDay == nil }
+            if !unassigned.isEmpty {
+                Section(header: Text("Unassigned")) {
+                    ForEach(unassigned) { chore in
+                        VStack(alignment: .leading) {
+                            Text(chore.name)
+                            if let area = model.areas.first(where: { $0.id == chore.areaId }) {
+                                Text(area.name).font(.caption)
+                            }
+                        }
+                        .onTapGesture { editingChore = chore }
+                    }
+                    .onDelete { offsets in
+                        let ids = offsets.map { unassigned[$0].id }
+                        model.deleteChores(withIDs: ids)
+                    }
+                }
+            }
         }
         .navigationTitle("Chores")
         .toolbar {
@@ -46,7 +75,7 @@ struct NewChoreView: View {
 
     @State private var name = ""
     @State private var frequency: Frequency = .daily
-    @State private var day: Weekday = .monday
+    @State private var day: Weekday? = .monday
     @State private var area: Area?
 
     var body: some View {
@@ -57,7 +86,8 @@ struct NewChoreView: View {
                     ForEach(Frequency.allCases) { Text($0.rawValue.capitalized).tag($0) }
                 }
                 Picker("Day", selection: $day) {
-                    ForEach(Weekday.allCases) { Text($0.displayName).tag($0) }
+                    Text("None").tag(Weekday?.none)
+                    ForEach(Weekday.allCases) { Text($0.displayName).tag(Optional($0)) }
                 }
                 Picker("Area", selection: Binding(
                     get: { area?.id },
@@ -94,7 +124,7 @@ struct EditChoreView: View {
 
     @State private var name: String
     @State private var frequency: Frequency
-    @State private var day: Weekday
+    @State private var day: Weekday?
     @State private var areaId: UUID?
 
     init(chore: Chore) {
@@ -113,7 +143,8 @@ struct EditChoreView: View {
                     ForEach(Frequency.allCases) { Text($0.rawValue.capitalized).tag($0) }
                 }
                 Picker("Day", selection: $day) {
-                    ForEach(Weekday.allCases) { Text($0.displayName).tag($0) }
+                    Text("None").tag(Weekday?.none)
+                    ForEach(Weekday.allCases) { Text($0.displayName).tag(Optional($0)) }
                 }
                 Picker("Area", selection: $areaId) {
                     Text("None").tag(UUID?.none)
