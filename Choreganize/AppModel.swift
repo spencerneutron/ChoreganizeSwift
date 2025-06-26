@@ -82,6 +82,34 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Returns the most recent completion for the given chore, if any.
+    func lastCompletion(for chore: Chore) -> Completion? {
+        completions
+            .filter { $0.choreId == chore.id }
+            .sorted { $0.date > $1.date }
+            .first
+    }
+
+    /// Indicates whether the chore is overdue based on its frequency and last completion date.
+    func isOverdue(_ chore: Chore) -> Bool {
+        guard let last = lastCompletion(for: chore) else { return true }
+        let calendar = Calendar.current
+        let now = Date()
+        switch chore.frequency {
+        case .daily:
+            return !calendar.isDateInToday(last.date)
+        case .weekly:
+            guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: last.date) else { return false }
+            return now >= next
+        case .monthly:
+            guard let next = calendar.date(byAdding: .month, value: 1, to: last.date) else { return false }
+            return now >= next
+        case .yearly:
+            guard let next = calendar.date(byAdding: .year, value: 1, to: last.date) else { return false }
+            return now >= next
+        }
+    }
+
     struct SavedState: Codable {
         var chores: [Chore]
         var areas: [Area]

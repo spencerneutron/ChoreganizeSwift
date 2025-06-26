@@ -1,5 +1,53 @@
 import SwiftUI
 
+/// A single chore row showing completion state and last completion summary.
+struct ChoreRowView: View {
+    @EnvironmentObject var model: AppModel
+    var chore: Chore
+
+    private var lastLine: some View {
+        Group {
+            if let last = model.lastCompletion(for: chore) {
+                HStack(spacing: 4) {
+                    Text(last.date.formatted(date: .abbreviated, time: .omitted))
+                    if let notes = last.notes, !notes.isEmpty {
+                        Text("\u{2013} \(notes)")
+                    }
+                    if model.isOverdue(chore) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                    }
+                }
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundColor(model.isOverdue(chore) ? .red : .secondary)
+            } else {
+                Text("Never completed")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    var body: some View {
+        Toggle(isOn: Binding(
+            get: { model.isCompleted(chore, on: Date()) },
+            set: { newValue in
+                if newValue {
+                    model.recordCompletion(chore)
+                } else {
+                    model.removeCompletionForToday(chore)
+                }
+            })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(chore.name)
+                    lastLine
+                }
+            }
+    }
+}
+
 struct WorkHomeView: View {
     @EnvironmentObject var model: AppModel
     @State private var selectedDay: Weekday? = Weekday.today
@@ -62,17 +110,7 @@ struct DayView: View {
 
             List {
                 ForEach(model.chores.filter { $0.assignedDay == day }) { chore in
-                    Toggle(isOn: Binding(
-                        get: { model.isCompleted(chore, on: Date()) },
-                        set: { newValue in
-                            if newValue {
-                                model.recordCompletion(chore)
-                            } else {
-                                model.removeCompletionForToday(chore)
-                            }
-                        })) {
-                            Text(chore.name)
-                        }
+                    ChoreRowView(chore: chore)
                 }
             }
             Button("Done For Today") {
@@ -117,6 +155,10 @@ struct HistoryView: View {
                         Text(chore.name)
                             .font(.headline)
                         Text(completion.date.formatted(date: .abbreviated, time: .omitted))
+                        if let notes = completion.notes, !notes.isEmpty {
+                            Text(notes)
+                                .font(.caption)
+                        }
                     }
                 }
             }
