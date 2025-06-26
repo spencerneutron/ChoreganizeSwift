@@ -27,7 +27,15 @@ struct ChoreListView: View {
         }
         .navigationTitle("Chores")
         .toolbar {
-            Button("Add") { showingNew = true }
+#if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Add") { showingNew = true }
+            }
+#else
+            ToolbarItem(placement: .primaryAction) {
+                Button("Add") { showingNew = true }
+            }
+#endif
         }
         .sheet(isPresented: $showingNew) {
             NewChoreView()
@@ -97,7 +105,17 @@ struct AreaListView: View {
             .onDelete(perform: model.deleteAreas)
         }
         .navigationTitle("Areas")
-        .toolbar { Button("Add") { showingNew = true } }
+        .toolbar {
+#if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Add") { showingNew = true }
+            }
+#else
+            ToolbarItem(placement: .primaryAction) {
+                Button("Add") { showingNew = true }
+            }
+#endif
+        }
         .sheet(isPresented: $showingNew) { NewAreaView() }
     }
 }
