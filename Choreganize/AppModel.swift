@@ -146,20 +146,25 @@ final class AppModel: ObservableObject {
         var result: [Date: [Chore]] = [:]
         let calendar = Calendar.current
         guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: month)),
-              let range = calendar.range(of: .day, in: .month, for: monthStart)
+              let monthEnd = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart)
         else { return result }
-        let monthEnd = calendar.date(byAdding: DateComponents(day: range.count - 1), to: monthStart)!
 
         for chore in chores {
             guard var due = nextDueDate(for: chore) else { continue }
+            due = calendar.startOfDay(for: due)
             // Advance until the due date is within the visible month range
             while due < monthStart {
-                if let next = nextDueDate(for: chore, after: due) { due = next } else { break }
+                if let next = nextDueDate(for: chore, after: due) {
+                    due = calendar.startOfDay(for: next)
+                } else {
+                    break
+                }
             }
             while due <= monthEnd {
-                result[due, default: []].append(chore)
+                let key = calendar.startOfDay(for: due)
+                result[key, default: []].append(chore)
                 if let next = nextDueDate(for: chore, after: due) {
-                    due = next
+                    due = calendar.startOfDay(for: next)
                 } else {
                     break
                 }

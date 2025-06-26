@@ -80,25 +80,28 @@ private struct DayCell: View {
 
     private var incompleteCount: Int { chores.count - completeCount }
 
-    var body: some View {
-        VStack(alignment: .trailing) {
-            HStack {
-                Text(String(Calendar.current.component(.day, from: date)))
-                Spacer()
-            }
-            Spacer()
+    @ViewBuilder
+    private var badgeViews: some View {
+        if inCurrentWeek {
             HStack(spacing: 2) {
-                if inCurrentWeek {
-                    if completeCount > 0 {
-                        Badge(count: completeCount, color: .green)
-                    }
-                    if incompleteCount > 0 {
-                        Badge(count: incompleteCount, color: .red)
-                    }
-                } else if chores.count > 0 {
-                    Badge(count: chores.count, color: .blue)
+                if completeCount > 0 {
+                    Badge(count: completeCount, color: .green)
+                }
+                if incompleteCount > 0 {
+                    Badge(count: incompleteCount, color: .red)
                 }
             }
+        } else if chores.count > 0 {
+            Badge(count: chores.count, color: .blue)
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Text(String(Calendar.current.component(.day, from: date)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            badgeViews
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
         .padding(4)
         .frame(height: 40)
