@@ -21,14 +21,13 @@ struct ContentView: View {
 
                 if mode == .work {
                     WorkHomeView()
-                        .environmentObject(model)
                 } else {
                     EditHomeView()
-                        .environmentObject(model)
                 }
             }
             .navigationTitle("Choreganize")
         }
+        .environmentObject(model)
     }
 }
 
