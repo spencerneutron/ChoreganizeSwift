@@ -12,6 +12,7 @@ struct EditHomeView: View {
 struct ChoreListView: View {
     @EnvironmentObject var model: AppModel
     @State private var showingNew = false
+    @State private var editingChore: Chore?
 
     var body: some View {
         List {
@@ -22,6 +23,7 @@ struct ChoreListView: View {
                         Text(area.name).font(.caption)
                     }
                 }
+                .onTapGesture { editingChore = chore }
             }
             .onDelete(perform: model.deleteChores)
         }
@@ -34,6 +36,7 @@ struct ChoreListView: View {
         .sheet(isPresented: $showingNew) {
             NewChoreView()
         }
+        .sheet(item: $editingChore) { EditChoreView(chore: $0) }
     }
 }
 
@@ -79,6 +82,57 @@ struct NewChoreView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+            }
+        }
+    }
+}
+
+struct EditChoreView: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) var dismiss
+    private let choreID: UUID
+
+    @State private var name: String
+    @State private var frequency: Frequency
+    @State private var day: Weekday
+    @State private var areaId: UUID?
+
+    init(chore: Chore) {
+        self.choreID = chore.id
+        _name = State(initialValue: chore.name)
+        _frequency = State(initialValue: chore.frequency)
+        _day = State(initialValue: chore.assignedDay)
+        _areaId = State(initialValue: chore.areaId)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Name", text: $name)
+                Picker("Frequency", selection: $frequency) {
+                    ForEach(Frequency.allCases) { Text($0.rawValue.capitalized).tag($0) }
+                }
+                Picker("Day", selection: $day) {
+                    ForEach(Weekday.allCases) { Text($0.displayName).tag($0) }
+                }
+                Picker("Area", selection: $areaId) {
+                    Text("None").tag(UUID?.none)
+                    ForEach(model.areas) { area in
+                        Text(area.name).tag(Optional(area.id))
+                    }
+                }
+            }
+            .navigationTitle("Edit Chore")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let updated = Chore(id: choreID, name: name, frequency: frequency, assignedDay: day, areaId: areaId)
+                        model.updateChore(updated)
+                        dismiss()
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
     }
