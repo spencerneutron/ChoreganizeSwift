@@ -12,6 +12,7 @@ struct EditHomeView: View {
 struct ChoreListView: View {
     @EnvironmentObject var model: AppModel
     @State private var showingNew = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
@@ -27,6 +28,13 @@ struct ChoreListView: View {
         }
         .navigationTitle("Chores")
         .toolbar {
+#if os(macOS)
+            ToolbarItem(placement: .navigation) {
+                Button(action: { dismiss() }) {
+                    Label("Back", systemImage: "chevron.left")
+                }
+            }
+#endif
 #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Add") { showingNew = true }
@@ -93,6 +101,7 @@ struct NewChoreView: View {
 struct AreaListView: View {
     @EnvironmentObject var model: AppModel
     @State private var showingNew = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
@@ -106,6 +115,13 @@ struct AreaListView: View {
         }
         .navigationTitle("Areas")
         .toolbar {
+#if os(macOS)
+            ToolbarItem(placement: .navigation) {
+                Button(action: { dismiss() }) {
+                    Label("Back", systemImage: "chevron.left")
+                }
+            }
+#endif
 #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Add") { showingNew = true }
