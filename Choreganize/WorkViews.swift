@@ -94,6 +94,7 @@ struct DayView: View {
     var day: Weekday
     var onClose: () -> Void
     @State private var showConfirmation = false
+    @State private var showDoneAlert = false
 
     var body: some View {
         VStack {
@@ -113,20 +114,19 @@ struct DayView: View {
                     ChoreRowView(chore: chore)
                 }
             }
-            Button("Done For Today") {
-                for chore in model.chores.filter({ $0.assignedDay == day }) {
-                    model.recordCompletion(chore)
-                }
-                withAnimation {
-                    showConfirmation = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation {
-                        showConfirmation = false
+            Button("Done For Today") { showDoneAlert = true }
+            .padding()
+            .alert("Finish day?", isPresented: $showDoneAlert) {
+                Button("Confirm") {
+                    withAnimation { showConfirmation = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { showConfirmation = false }
                     }
                 }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Any incomplete chores will remain unfinished.")
             }
-            .padding()
         }
         .overlay(
             Group {
