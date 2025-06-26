@@ -38,6 +38,14 @@ final class AppModel: ObservableObject {
         save()
     }
 
+    /// Updates an existing chore with new details.
+    func updateChore(_ chore: Chore) {
+        if let index = chores.firstIndex(where: { $0.id == chore.id }) {
+            chores[index] = chore
+            save()
+        }
+    }
+
     func deleteChores(at offsets: IndexSet) {
         chores.remove(atOffsets: offsets)
         save()
