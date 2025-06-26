@@ -51,6 +51,12 @@ final class AppModel: ObservableObject {
         save()
     }
 
+    /// Deletes chores matching the provided identifiers.
+    func deleteChores(withIDs ids: [UUID]) {
+        chores.removeAll { ids.contains($0.id) }
+        save()
+    }
+
     // MARK: - Area management
     func addArea(_ area: Area) {
         areas.append(area)
@@ -152,8 +158,12 @@ final class AppModel: ObservableObject {
         }
 
         // Move forward until the assigned weekday is hit.
+        guard let targetWeekday = chore.assignedDay?.calendarWeekday else {
+            return nil
+        }
+
         var next = startDate
-        while calendar.component(.weekday, from: next) != chore.assignedDay.calendarWeekday {
+        while calendar.component(.weekday, from: next) != targetWeekday {
             next = calendar.date(byAdding: .day, value: 1, to: next)!
         }
         return next

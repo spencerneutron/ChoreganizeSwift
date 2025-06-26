@@ -57,7 +57,9 @@ struct Chore: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var name: String
     var frequency: Frequency
-    var assignedDay: Weekday
+    /// Optional day this chore is scheduled for. `nil` indicates the chore is
+    /// not currently assigned to a specific day of the week.
+    var assignedDay: Weekday?
     var areaId: UUID?
 }
 
