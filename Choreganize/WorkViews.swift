@@ -2,7 +2,7 @@ import SwiftUI
 
 struct WorkHomeView: View {
     @EnvironmentObject var model: AppModel
-    @State private var selectedDay: Weekday? = nil
+    @State private var selectedDay: Weekday? = Weekday.today
 
     var body: some View {
         if let day = selectedDay {
@@ -45,6 +45,7 @@ struct DayView: View {
     @EnvironmentObject var model: AppModel
     var day: Weekday
     var onClose: () -> Void
+    @State private var showConfirmation = false
 
     var body: some View {
         VStack {
@@ -78,9 +79,27 @@ struct DayView: View {
                 for chore in model.chores.filter({ $0.assignedDay == day }) {
                     model.recordCompletion(chore)
                 }
+                withAnimation {
+                    showConfirmation = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    withAnimation {
+                        showConfirmation = false
+                    }
+                }
             }
             .padding()
         }
+        .overlay(
+            Group {
+                if showConfirmation {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 80))
+                        .foregroundColor(.green)
+                        .transition(.scale)
+                }
+            }
+        )
     }
 }
 

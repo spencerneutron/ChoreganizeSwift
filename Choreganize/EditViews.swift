@@ -27,15 +27,9 @@ struct ChoreListView: View {
         }
         .navigationTitle("Chores")
         .toolbar {
-#if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Add") { showingNew = true }
             }
-#else
-            ToolbarItem(placement: .primaryAction) {
-                Button("Add") { showingNew = true }
-            }
-#endif
         }
         .sheet(isPresented: $showingNew) {
             NewChoreView()
@@ -106,15 +100,9 @@ struct AreaListView: View {
         }
         .navigationTitle("Areas")
         .toolbar {
-#if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Add") { showingNew = true }
             }
-#else
-            ToolbarItem(placement: .primaryAction) {
-                Button("Add") { showingNew = true }
-            }
-#endif
         }
         .sheet(isPresented: $showingNew) { NewAreaView() }
     }
@@ -125,18 +113,38 @@ struct NewAreaView: View {
     @Environment(\.dismiss) var dismiss
     @State private var name = ""
     @State private var description = ""
+    @State private var selectedChoreIDs: Set<UUID> = []
 
     var body: some View {
         NavigationStack {
             Form {
                 TextField("Name", text: $name)
                 TextField("Description", text: $description)
+                let unassigned = model.chores.filter { $0.areaId == nil }
+                if !unassigned.isEmpty {
+                    Section(header: Text("Assign Chores")) {
+                        ForEach(unassigned) { chore in
+                            Toggle(chore.name, isOn: Binding(
+                                get: { selectedChoreIDs.contains(chore.id) },
+                                set: { newValue in
+                                    if newValue {
+                                        selectedChoreIDs.insert(chore.id)
+                                    } else {
+                                        selectedChoreIDs.remove(chore.id)
+                                    }
+                                }
+                            ))
+                        }
+                    }
+                }
             }
             .navigationTitle("New Area")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        model.addArea(Area(name: name, description: description))
+                        let area = Area(name: name, description: description)
+                        model.addArea(area)
+                        model.assignChores(Array(selectedChoreIDs), to: area)
                         dismiss()
                     }
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

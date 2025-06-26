@@ -54,6 +54,16 @@ final class AppModel: ObservableObject {
         save()
     }
 
+    /// Assigns the specified chores to the given area.
+    func assignChores(_ choreIDs: [UUID], to area: Area) {
+        for id in choreIDs {
+            if let index = chores.firstIndex(where: { $0.id == id }) {
+                chores[index].areaId = area.id
+            }
+        }
+        save()
+    }
+
     // MARK: - Completion
     func isCompleted(_ chore: Chore, on date: Date) -> Bool {
         completions.contains { $0.choreId == chore.id && Calendar.current.isDate($0.date, inSameDayAs: date) }

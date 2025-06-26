@@ -21,6 +21,12 @@ enum Weekday: String, CaseIterable, Codable, Identifiable {
     var displayName: String {
         rawValue.capitalized
     }
+
+    /// Returns the weekday for today.
+    static var today: Weekday {
+        let index = Calendar.current.component(.weekday, from: Date()) - 1
+        return Weekday.allCases[index]
+    }
 }
 
 /// A chore item.
