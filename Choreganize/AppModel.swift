@@ -127,6 +127,70 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Calculates the next due date for a chore after the given date.
+    /// If `after` is nil the chore's last completion date is used.
+    /// Calculates the next scheduled date for a chore.
+    /// - Parameter date: The reference date to add a frequency interval to.
+    ///   If `nil`, the chore's last completion date will be used. When there is
+    ///   no prior completion the search starts from today.
+    func nextDueDate(for chore: Chore, after date: Date? = nil) -> Date? {
+        let calendar = Calendar.current
+
+        // Determine the base date from which to calculate the next occurrence.
+        let reference = date ?? lastCompletion(for: chore)?.date
+
+        let startDate: Date
+        if let reference {
+            // Existing reference – advance one interval from that point.
+            guard let advanced = calendar.date(byAdding: chore.frequency.component, value: 1, to: reference) else {
+                return nil
+            }
+            startDate = advanced
+        } else {
+            // No completion history – begin searching from today.
+            startDate = calendar.startOfDay(for: Date())
+        }
+
+        // Move forward until the assigned weekday is hit.
+        var next = startDate
+        while calendar.component(.weekday, from: next) != chore.assignedDay.calendarWeekday {
+            next = calendar.date(byAdding: .day, value: 1, to: next)!
+        }
+        return next
+    }
+
+    /// Returns a dictionary mapping dates within the specified month to the chores due on those dates.
+    func choresByDate(inMonth month: Date) -> [Date: [Chore]] {
+        var result: [Date: [Chore]] = [:]
+        let calendar = Calendar.current
+        guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: month)),
+              let monthEnd = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart)
+        else { return result }
+
+        for chore in chores {
+            guard var due = nextDueDate(for: chore) else { continue }
+            due = calendar.startOfDay(for: due)
+            // Advance until the due date is within the visible month range
+            while due < monthStart {
+                if let next = nextDueDate(for: chore, after: due) {
+                    due = calendar.startOfDay(for: next)
+                } else {
+                    break
+                }
+            }
+            while due <= monthEnd {
+                let key = calendar.startOfDay(for: due)
+                result[key, default: []].append(chore)
+                if let next = nextDueDate(for: chore, after: due) {
+                    due = calendar.startOfDay(for: next)
+                } else {
+                    break
+                }
+            }
+        }
+        return result
+    }
+
     struct SavedState: Codable {
         var chores: [Chore]
         var areas: [Area]

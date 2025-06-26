@@ -3,6 +3,7 @@ import SwiftUI
 enum AppMode: String, CaseIterable, Identifiable {
     case work = "Work"
     case edit = "Edit"
+    case calendar = "Calendar"
     var id: String { rawValue }
 }
 
@@ -19,10 +20,13 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 .padding()
 
-                if mode == .work {
+                switch mode {
+                case .work:
                     WorkHomeView()
-                } else {
+                case .edit:
                     EditHomeView()
+                case .calendar:
+                    CalendarHomeView()
                 }
             }
             .navigationTitle("Choreganize")
