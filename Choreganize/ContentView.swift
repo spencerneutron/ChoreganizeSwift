@@ -1,66 +1,37 @@
-//
-//  ContentView.swift
-//  Choreganize
-//
-//  Created by Spencer Van Keuren on 6/18/25.
-//
-
 import SwiftUI
-import SwiftData
+
+enum AppMode: String, CaseIterable, Identifiable {
+    case work = "Work"
+    case edit = "Edit"
+    var id: String { rawValue }
+}
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @StateObject private var model = AppModel()
+    @State private var mode: AppMode = .work
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
+        NavigationStack {
+            VStack {
+                Picker("Mode", selection: $mode) {
+                    ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
                 }
-                .onDelete(perform: deleteItems)
-            }
-#if os(macOS)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-#endif
-            .toolbar {
-#if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-#endif
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
-        }
-    }
+                .pickerStyle(.segmented)
+                .padding()
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+                if mode == .work {
+                    WorkHomeView()
+                        .environmentObject(model)
+                } else {
+                    EditHomeView()
+                        .environmentObject(model)
+                }
             }
+            .navigationTitle("Choreganize")
         }
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }
