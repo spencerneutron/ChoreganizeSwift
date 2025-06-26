@@ -129,12 +129,30 @@ final class AppModel: ObservableObject {
 
     /// Calculates the next due date for a chore after the given date.
     /// If `after` is nil the chore's last completion date is used.
+    /// Calculates the next scheduled date for a chore.
+    /// - Parameter date: The reference date to add a frequency interval to.
+    ///   If `nil`, the chore's last completion date will be used. When there is
+    ///   no prior completion the search starts from today.
     func nextDueDate(for chore: Chore, after date: Date? = nil) -> Date? {
         let calendar = Calendar.current
-        let start = date ?? lastCompletion(for: chore)?.date ?? .distantPast
-        guard var next = calendar.date(byAdding: chore.frequency.component, value: 1, to: start) else {
-            return nil
+
+        // Determine the base date from which to calculate the next occurrence.
+        let reference = date ?? lastCompletion(for: chore)?.date
+
+        let startDate: Date
+        if let reference {
+            // Existing reference – advance one interval from that point.
+            guard let advanced = calendar.date(byAdding: chore.frequency.component, value: 1, to: reference) else {
+                return nil
+            }
+            startDate = advanced
+        } else {
+            // No completion history – begin searching from today.
+            startDate = calendar.startOfDay(for: Date())
         }
+
+        // Move forward until the assigned weekday is hit.
+        var next = startDate
         while calendar.component(.weekday, from: next) != chore.assignedDay.calendarWeekday {
             next = calendar.date(byAdding: .day, value: 1, to: next)!
         }
