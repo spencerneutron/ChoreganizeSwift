@@ -178,21 +178,37 @@ final class AppModel: ObservableObject {
         else { return result }
 
         for chore in chores {
-            guard var due = nextDueDate(for: chore) else { continue }
-            due = calendar.startOfDay(for: due)
-            // Advance until the due date is within the visible month range
-            while due < monthStart {
-                if let next = nextDueDate(for: chore, after: due) {
-                    due = calendar.startOfDay(for: next)
+            guard let weekday = chore.assignedDay?.calendarWeekday else { continue }
+
+            var next = calendar.startOfDay(for: chore.createdDate)
+            // align to first scheduled weekday on/after creation
+            while calendar.component(.weekday, from: next) != weekday {
+                next = calendar.date(byAdding: .day, value: 1, to: next)!
+            }
+
+            // Advance until within visible range
+            while next < monthStart {
+                if let advanced = calendar.date(byAdding: chore.frequency.component, value: 1, to: next) {
+                    var candidate = advanced
+                    while calendar.component(.weekday, from: candidate) != weekday {
+                        candidate = calendar.date(byAdding: .day, value: 1, to: candidate)!
+                    }
+                    next = candidate
                 } else {
                     break
                 }
             }
-            while due <= monthEnd {
-                let key = calendar.startOfDay(for: due)
+
+            while next <= monthEnd {
+                let key = calendar.startOfDay(for: next)
                 result[key, default: []].append(chore)
-                if let next = nextDueDate(for: chore, after: due) {
-                    due = calendar.startOfDay(for: next)
+
+                if let advanced = calendar.date(byAdding: chore.frequency.component, value: 1, to: next) {
+                    var candidate = advanced
+                    while calendar.component(.weekday, from: candidate) != weekday {
+                        candidate = calendar.date(byAdding: .day, value: 1, to: candidate)!
+                    }
+                    next = candidate
                 } else {
                     break
                 }

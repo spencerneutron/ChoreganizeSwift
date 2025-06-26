@@ -79,10 +79,22 @@ private struct DayCell: View {
     }
 
     private var incompleteCount: Int { chores.count - completeCount }
+    private var isPast: Bool {
+        Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: Date())
+    }
 
     @ViewBuilder
     private var badgeViews: some View {
-        if inCurrentWeek {
+        if isPast {
+            HStack(spacing: 2) {
+                if completeCount > 0 {
+                    Badge(count: completeCount, color: .green)
+                }
+                if incompleteCount > 0 {
+                    Badge(count: incompleteCount, color: .red)
+                }
+            }
+        } else if inCurrentWeek {
             HStack(spacing: 2) {
                 if completeCount > 0 {
                     Badge(count: completeCount, color: .green)
