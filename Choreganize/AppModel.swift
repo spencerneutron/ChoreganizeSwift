@@ -127,6 +127,47 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Calculates the next due date for a chore after the given date.
+    /// If `after` is nil the chore's last completion date is used.
+    func nextDueDate(for chore: Chore, after date: Date? = nil) -> Date? {
+        let calendar = Calendar.current
+        let start = date ?? lastCompletion(for: chore)?.date ?? .distantPast
+        guard var next = calendar.date(byAdding: chore.frequency.component, value: 1, to: start) else {
+            return nil
+        }
+        while calendar.component(.weekday, from: next) != chore.assignedDay.calendarWeekday {
+            next = calendar.date(byAdding: .day, value: 1, to: next)!
+        }
+        return next
+    }
+
+    /// Returns a dictionary mapping dates within the specified month to the chores due on those dates.
+    func choresByDate(inMonth month: Date) -> [Date: [Chore]] {
+        var result: [Date: [Chore]] = [:]
+        let calendar = Calendar.current
+        guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: month)),
+              let range = calendar.range(of: .day, in: .month, for: monthStart)
+        else { return result }
+        let monthEnd = calendar.date(byAdding: DateComponents(day: range.count - 1), to: monthStart)!
+
+        for chore in chores {
+            guard var due = nextDueDate(for: chore) else { continue }
+            // Advance until the due date is within the visible month range
+            while due < monthStart {
+                if let next = nextDueDate(for: chore, after: due) { due = next } else { break }
+            }
+            while due <= monthEnd {
+                result[due, default: []].append(chore)
+                if let next = nextDueDate(for: chore, after: due) {
+                    due = next
+                } else {
+                    break
+                }
+            }
+        }
+        return result
+    }
+
     struct SavedState: Codable {
         var chores: [Chore]
         var areas: [Area]
