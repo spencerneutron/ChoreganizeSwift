@@ -28,12 +28,21 @@ struct ChoreListView: View {
         }
         .navigationTitle("Chores")
         .toolbar {
+#if os(iOS)
             ToolbarItem(placement: .navigationBarLeading) {
                 Button("Back") { dismiss() }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Add") { showingNew = true }
             }
+#else
+            ToolbarItem(placement: .navigation) {
+                Button("Back") { dismiss() }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button("Add") { showingNew = true }
+            }
+#endif
         }
         .sheet(isPresented: $showingNew) {
             NewChoreView()
@@ -105,12 +114,21 @@ struct AreaListView: View {
         }
         .navigationTitle("Areas")
         .toolbar {
+#if os(iOS)
             ToolbarItem(placement: .navigationBarLeading) {
                 Button("Back") { dismiss() }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Add") { showingNew = true }
             }
+#else
+            ToolbarItem(placement: .navigation) {
+                Button("Back") { dismiss() }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button("Add") { showingNew = true }
+            }
+#endif
         }
         .sheet(isPresented: $showingNew) { NewAreaView() }
     }
