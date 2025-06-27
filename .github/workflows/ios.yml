@@ -1,0 +1,26 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Xcode
+      run: sudo xcode-select -s /Applications/Xcode_14.2.app
+
+    - name: Build and test
+      run: |
+        xcodebuild -project Choreganize.xcodeproj \
+          -scheme Choreganize \
+          -destination 'platform=iOS Simulator,name=iPhone 14,OS=16.2' \
+          clean test | xcpretty
+      env:
+        NSUnbufferedIO: YES
