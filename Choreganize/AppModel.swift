@@ -3,6 +3,7 @@ import SwiftUI
 
 @MainActor
 final class AppModel: ObservableObject {
+    let cloudController = SharedCloudKitController.shared
     @Published var chores: [Chore] = []
     @Published var areas: [Area] = []
     @Published var completions: [Completion] = []
@@ -13,6 +14,10 @@ final class AppModel: ObservableObject {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         fileURL = documents.appendingPathComponent("chore_data.json")
         load()
+        Task {
+            await cloudController.subscribeToChanges()
+            await loadSharedState()
+        }
     }
 
     // MARK: - Persistence
@@ -30,6 +35,7 @@ final class AppModel: ObservableObject {
         if let data = try? JSONEncoder().encode(state) {
             try? data.write(to: fileURL)
         }
+        Task { await cloudController.publish(state: state) }
     }
 
     // MARK: - Chore management
@@ -199,6 +205,16 @@ final class AppModel: ObservableObject {
             }
         }
         return result
+    }
+
+    /// Loads any shared app state from CloudKit and merges it into the current state.
+    func loadSharedState() async {
+        guard let record = await cloudController.fetchSharedRootRecord(),
+              let data = record[SharedRecordKeys.jsonKey] as? Data,
+              let decoded = try? JSONDecoder().decode(SavedState.self, from: data) else { return }
+        self.chores = decoded.chores
+        self.areas = decoded.areas
+        self.completions = decoded.completions
     }
 
     struct SavedState: Codable {

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum AppMode: String, CaseIterable, Identifiable {
     case work = "Work"
@@ -8,7 +9,7 @@ enum AppMode: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
-    @StateObject private var model = AppModel()
+    @EnvironmentObject var model: AppModel
     @State private var mode: AppMode = .work
 
     var body: some View {
@@ -30,11 +31,22 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Choreganize")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Share\u{2026}") { share() }
+                }
+            }
         }
-        .environmentObject(model)
+    }
+
+    private func share() {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let root = scene.windows.first?.rootViewController else { return }
+        Task { await model.cloudController.presentShare(from: root) }
     }
 }
 
 #Preview {
     ContentView()
+        .environmentObject(AppModel())
 }
