@@ -106,16 +106,20 @@ private extension CKDatabase {
         try await withCheckedThrowingContinuation { cont in
             let op = CKModifyRecordsOperation(recordsToSave: records, recordIDsToDelete: deleting)
             op.savePolicy = savePolicy
-            op.modifyRecordsCompletionBlock = { saved, deleted, error in
-                if let error { cont.resume(throwing: error) }
-                else { cont.resume(returning: (saved ?? [], deleted ?? [])) }
+            op.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success(let info):
+                    cont.resume(returning: (info.savedRecords ?? [], info.deletedRecordIDs ?? []))
+                case .failure(let error):
+                    cont.resume(throwing: error)
+                }
             }
             add(op)
         }
     }
 
     func llmDeleteRecord(withID id: CKRecord.ID) async throws {
-        try await withCheckedThrowingContinuation { cont in
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             delete(withRecordID: id) { _, error in
                 if let error { cont.resume(throwing: error) }
                 else { cont.resume(returning: ()) }
@@ -124,7 +128,7 @@ private extension CKDatabase {
     }
 
     func llmDeleteSubscription(withID id: String) async throws {
-        try await withCheckedThrowingContinuation { cont in
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             delete(withSubscriptionID: id) { _, error in
                 if let error { cont.resume(throwing: error) }
                 else { cont.resume(returning: ()) }
