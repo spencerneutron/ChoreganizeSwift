@@ -1,0 +1,55 @@
+# Xcode
+.DS_Store
+build/
+DerivedData/
+
+# User settings
+*.xcuserstate
+*.xccheckout
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/project.xcworkspace/
+!*.xcodeproj/xcshareddata/**
+*.xcodeproj/xcuserdata/
+
+# Workspace
+*.xcworkspace/*
+!*.xcworkspace/contents.xcworkspacedata
+
+# SwiftPM
+Packages/
+/.build/
+
+# Misc
+*.moved-aside
+*.xcuserdatad
+# Xcode project files
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# fastlane
+fastlane/report.xml
+fastlane/screenshots/
+fastlane/test_output/
+fastlane/Preview.html
+
+# Swift Playgrounds
+*.playground
+
