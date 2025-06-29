@@ -108,8 +108,8 @@ private extension CKDatabase {
             op.savePolicy = savePolicy
             op.modifyRecordsResultBlock = { result in
                 switch result {
-                case .success(let info):
-                    cont.resume(returning: (info.savedRecords ?? [], info.deletedRecordIDs ?? []))
+                case .success(let (saved, deleted)):
+                    cont.resume(returning: (saved, deleted))
                 case .failure(let error):
                     cont.resume(throwing: error)
                 }
@@ -140,7 +140,7 @@ private extension CKDatabase {
 private extension CKContainer {
     func llmMetadata(for url: URL) async throws -> CKShare.Metadata {
         try await withCheckedThrowingContinuation { cont in
-            fetchShareMetadata(for: url) { metadata, error in
+            fetchShareMetadata(with: url) { metadata, error in
                 if let metadata { cont.resume(returning: metadata) }
                 else { cont.resume(throwing: error ?? CKError(.unknownItem)) }
             }
