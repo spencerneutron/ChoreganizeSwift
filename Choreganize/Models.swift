@@ -61,6 +61,41 @@ struct Chore: Identifiable, Codable, Hashable {
     /// not currently assigned to a specific day of the week.
     var assignedDay: Weekday?
     var areaId: UUID?
+    /// Date the chore was created. Used for filtering history on the calendar.
+    var createdDate: Date = Date()
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, frequency, assignedDay, areaId, createdDate
+    }
+
+    init(id: UUID = UUID(), name: String, frequency: Frequency, assignedDay: Weekday?, areaId: UUID?, createdDate: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.frequency = frequency
+        self.assignedDay = assignedDay
+        self.areaId = areaId
+        self.createdDate = createdDate
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try container.decode(String.self, forKey: .name)
+        frequency = try container.decode(Frequency.self, forKey: .frequency)
+        assignedDay = try container.decodeIfPresent(Weekday.self, forKey: .assignedDay)
+        areaId = try container.decodeIfPresent(UUID.self, forKey: .areaId)
+        createdDate = try container.decodeIfPresent(Date.self, forKey: .createdDate) ?? Date()
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(frequency, forKey: .frequency)
+        try container.encodeIfPresent(assignedDay, forKey: .assignedDay)
+        try container.encodeIfPresent(areaId, forKey: .areaId)
+        try container.encode(createdDate, forKey: .createdDate)
+    }
 }
 
 /// Completion history for a chore.

@@ -103,7 +103,7 @@ struct NewChoreView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let new = Chore(name: name, frequency: frequency, assignedDay: day, areaId: area?.id)
+                        let new = Chore(name: name, frequency: frequency, assignedDay: day, areaId: area?.id, createdDate: Date())
                         model.addChore(new)
                         dismiss()
                     }
@@ -121,6 +121,7 @@ struct EditChoreView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
     private let choreID: UUID
+    private let createdDate: Date
 
     @State private var name: String
     @State private var frequency: Frequency
@@ -129,6 +130,7 @@ struct EditChoreView: View {
 
     init(chore: Chore) {
         self.choreID = chore.id
+        self.createdDate = chore.createdDate
         _name = State(initialValue: chore.name)
         _frequency = State(initialValue: chore.frequency)
         _day = State(initialValue: chore.assignedDay)
@@ -157,7 +159,7 @@ struct EditChoreView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let updated = Chore(id: choreID, name: name, frequency: frequency, assignedDay: day, areaId: areaId)
+                        let updated = Chore(id: choreID, name: name, frequency: frequency, assignedDay: day, areaId: areaId, createdDate: createdDate)
                         model.updateChore(updated)
                         dismiss()
                     }
