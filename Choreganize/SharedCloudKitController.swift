@@ -91,7 +91,6 @@ final class SharedCloudKitController {
     }
 }
 
-// MARK: - Async helpers
 private extension CKDatabase {
     func llmRecord(for id: CKRecord.ID) async throws -> CKRecord {
         try await withCheckedThrowingContinuation { cont in
@@ -102,20 +101,27 @@ private extension CKDatabase {
         }
     }
 
-    func llmModifyRecords(saving records: [CKRecord], deleting: [CKRecord.ID], savePolicy: CKModifyRecordsOperation.RecordSavePolicy) async throws -> ([CKRecord], [CKRecord.ID]) {
-        try await withCheckedThrowingContinuation { cont in
-            let op = CKModifyRecordsOperation(recordsToSave: records, recordIDsToDelete: deleting)
-            op.savePolicy = savePolicy
-            op.modifyRecordsResultBlock = { result in
-                switch result {
-                case .success(let (saved, deleted)):
-                    cont.resume(returning: (saved, deleted))
-                case .failure(let error):
-                    cont.resume(throwing: error)
-                }
-            }
-            add(op)
+    func llmModifyRecords(
+        saving records: [CKRecord],
+        deleting deletingIDs: [CKRecord.ID],
+        savePolicy: CKModifyRecordsOperation.RecordSavePolicy
+    ) async throws -> ([CKRecord], [CKRecord.ID]) {
+        let (saveResults, deleteResults) = try await modifyRecords(
+            saving: records,
+            deleting: deletingIDs,
+            savePolicy: savePolicy,
+            atomically: true
+        )
+
+        let saved = saveResults.compactMap { _, result in
+            try? result.get()
         }
+
+        let deleted = deleteResults.compactMap { id, result in
+            (try? result.get()) != nil ? id : nil
+        }
+
+        return (saved, deleted)
     }
 
     func llmDeleteRecord(withID id: CKRecord.ID) async throws {
