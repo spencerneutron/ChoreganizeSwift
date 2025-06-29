@@ -22,7 +22,7 @@ final class SharedCloudKitController {
             let record = try await fetchOrCreateRootRecord()
             record[SharedRecordKeys.jsonKey] = try JSONEncoder().encode(state) as CKRecordValue
             record[SharedRecordKeys.lastEditedKey] = Date() as CKRecordValue
-            _ = try await privateDB.modifyRecords(saving: [record], deleting: [], savePolicy: .changedKeys)
+            _ = try await privateDB.llmModifyRecords(saving: [record], deleting: [], savePolicy: .changedKeys)
         } catch {
             print("Publish failed: \(error)")
         }
@@ -42,21 +42,23 @@ final class SharedCloudKitController {
     /// Removes the subscription and any shared state from CloudKit.
     func stopSharing() async {
         do {
-            _ = try? await sharedDB.deleteSubscription(withID: SharedRecordKeys.subscriptionID)
-            try? await sharedDB.deleteRecord(withID: SharedRecordKeys.recordID)
-            try? await privateDB.deleteRecord(withID: SharedRecordKeys.recordID)
+            _ = try? await sharedDB.llmDeleteSubscription(withID: SharedRecordKeys.subscriptionID)
+            try? await sharedDB.llmDeleteRecord(withID: SharedRecordKeys.recordID)
+            try? await privateDB.llmDeleteRecord(withID: SharedRecordKeys.recordID)
         }
     }
 
     // MARK: - Share acceptance
-    func acceptShare(url: URL) async {
+    func acceptShare(url: URL) async -> Bool {
         do {
-            let metadata = try await container.metadata(for: url)
+            let metadata = try await container.llmMetadata(for: url)
             let op = CKAcceptSharesOperation(shareMetadatas: [metadata])
             op.qualityOfService = .userInitiated
             container.add(op)
+            return true
         } catch {
             print("Accept share failed: \(error)")
+            return false
         }
     }
 
@@ -67,7 +69,7 @@ final class SharedCloudKitController {
             let record = try await fetchOrCreateRootRecord()
             let share = CKShare(rootRecord: record)
             share.publicPermission = .readWrite
-            let (_, _) = try await privateDB.modifyRecords(saving: [record, share], deleting: [], savePolicy: .ifServerRecordUnchanged)
+            _ = try await privateDB.llmModifyRecords(saving: [record, share], deleting: [], savePolicy: .ifServerRecordUnchanged)
             let controller = UICloudSharingController(share: share, container: container)
             controller.availablePermissions = [.allowReadWrite]
             viewController.present(controller, animated: true)
@@ -78,29 +80,29 @@ final class SharedCloudKitController {
 
     // MARK: - Helpers
     private func fetchOrCreateRootRecord() async throws -> CKRecord {
-        if let existing = try? await privateDB.record(for: SharedRecordKeys.recordID) {
+        if let existing = try? await privateDB.llmRecord(for: SharedRecordKeys.recordID) {
             return existing
         }
         return CKRecord(recordType: "AppState", recordID: SharedRecordKeys.recordID)
     }
 
     func fetchSharedRootRecord() async -> CKRecord? {
-        return try? await sharedDB.record(for: SharedRecordKeys.recordID)
+        return try? await sharedDB.llmRecord(for: SharedRecordKeys.recordID)
     }
 }
 
 // MARK: - Async helpers
 private extension CKDatabase {
-    func record(for id: CKRecord.ID) async throws -> CKRecord {
+    func llmRecord(for id: CKRecord.ID) async throws -> CKRecord {
         try await withCheckedThrowingContinuation { cont in
             fetch(withRecordID: id) { record, error in
                 if let record { cont.resume(returning: record) }
-                else { cont.resume(throwing: error ?? CKError(.unknown)) }
+                else { cont.resume(throwing: error ?? CKError(.unknownItem)) }
             }
         }
     }
 
-    func modifyRecords(saving records: [CKRecord], deleting: [CKRecord.ID], savePolicy: CKModifyRecordsOperation.RecordSavePolicy) async throws -> ([CKRecord], [CKRecord.ID]) {
+    func llmModifyRecords(saving records: [CKRecord], deleting: [CKRecord.ID], savePolicy: CKModifyRecordsOperation.RecordSavePolicy) async throws -> ([CKRecord], [CKRecord.ID]) {
         try await withCheckedThrowingContinuation { cont in
             let op = CKModifyRecordsOperation(recordsToSave: records, recordIDsToDelete: deleting)
             op.savePolicy = savePolicy
@@ -112,7 +114,7 @@ private extension CKDatabase {
         }
     }
 
-    func deleteRecord(withID id: CKRecord.ID) async throws {
+    func llmDeleteRecord(withID id: CKRecord.ID) async throws {
         try await withCheckedThrowingContinuation { cont in
             delete(withRecordID: id) { _, error in
                 if let error { cont.resume(throwing: error) }
@@ -121,7 +123,7 @@ private extension CKDatabase {
         }
     }
 
-    func deleteSubscription(withID id: String) async throws {
+    func llmDeleteSubscription(withID id: String) async throws {
         try await withCheckedThrowingContinuation { cont in
             delete(withSubscriptionID: id) { _, error in
                 if let error { cont.resume(throwing: error) }
@@ -132,11 +134,11 @@ private extension CKDatabase {
 }
 
 private extension CKContainer {
-    func metadata(for url: URL) async throws -> CKShare.Metadata {
+    func llmMetadata(for url: URL) async throws -> CKShare.Metadata {
         try await withCheckedThrowingContinuation { cont in
             fetchShareMetadata(for: url) { metadata, error in
                 if let metadata { cont.resume(returning: metadata) }
-                else { cont.resume(throwing: error ?? CKError(.unknown)) }
+                else { cont.resume(throwing: error ?? CKError(.unknownItem)) }
             }
         }
     }
