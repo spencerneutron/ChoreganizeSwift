@@ -1,9 +1,11 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 @MainActor
 final class AppModel: ObservableObject {
     let cloudController = SharedCloudKitController.shared
+    @AppStorage("sharingEnabled") var sharingEnabled = false
     @Published var chores: [Chore] = []
     @Published var areas: [Area] = []
     @Published var completions: [Completion] = []
@@ -15,8 +17,10 @@ final class AppModel: ObservableObject {
         fileURL = documents.appendingPathComponent("chore_data.json")
         load()
         Task {
-            await cloudController.subscribeToChanges()
             await loadSharedState()
+            if sharingEnabled {
+                await cloudController.subscribeToChanges()
+            }
         }
     }
 
@@ -35,7 +39,9 @@ final class AppModel: ObservableObject {
         if let data = try? JSONEncoder().encode(state) {
             try? data.write(to: fileURL)
         }
-        Task { await cloudController.publish(state: state) }
+        if sharingEnabled {
+            Task { await cloudController.publish(state: state) }
+        }
     }
 
     // MARK: - Chore management
@@ -211,10 +217,28 @@ final class AppModel: ObservableObject {
     func loadSharedState() async {
         guard let record = await cloudController.fetchSharedRootRecord(),
               let data = record[SharedRecordKeys.jsonKey] as? Data,
-              let decoded = try? JSONDecoder().decode(SavedState.self, from: data) else { return }
+              let decoded = try? JSONDecoder().decode(SavedState.self, from: data) else {
+            sharingEnabled = false
+            return
+        }
+        sharingEnabled = true
         self.chores = decoded.chores
         self.areas = decoded.areas
         self.completions = decoded.completions
+    }
+
+    /// Initiates sharing by presenting the CloudKit share UI.
+    @MainActor
+    func startSharing(from controller: UIViewController) async {
+        await cloudController.presentShare(from: controller)
+        sharingEnabled = true
+        await cloudController.subscribeToChanges()
+    }
+
+    /// Removes all shared data and subscriptions.
+    func stopSharing() async {
+        await cloudController.stopSharing()
+        sharingEnabled = false
     }
 
     struct SavedState: Codable {

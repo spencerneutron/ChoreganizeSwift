@@ -33,7 +33,11 @@ struct ContentView: View {
             .navigationTitle("Choreganize")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Share\u{2026}") { share() }
+                    if model.sharingEnabled {
+                        Button("Stop Sharing") { stopSharing() }
+                    } else {
+                        Button("Share\u{2026}") { share() }
+                    }
                 }
             }
         }
@@ -42,7 +46,11 @@ struct ContentView: View {
     private func share() {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let root = scene.windows.first?.rootViewController else { return }
-        Task { await model.cloudController.presentShare(from: root) }
+        Task { await model.startSharing(from: root) }
+    }
+
+    private func stopSharing() {
+        Task { await model.stopSharing() }
     }
 }
 

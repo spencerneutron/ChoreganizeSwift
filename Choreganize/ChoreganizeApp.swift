@@ -9,6 +9,7 @@ struct ChoreganizeApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
+                .onAppear { appDelegate.model = model }
         }
     }
 }

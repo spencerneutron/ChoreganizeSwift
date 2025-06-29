@@ -31,12 +31,21 @@ final class SharedCloudKitController {
     // MARK: - Subscriptions
     /// Creates a database subscription so that CloudKit pushes changes in the background.
     func subscribeToChanges() async {
-        let id = "shared-db-changes"
+        let id = SharedRecordKeys.subscriptionID
         let sub = CKDatabaseSubscription(subscriptionID: id)
         let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true
         sub.notificationInfo = info
         do { _ = try await sharedDB.save(sub) } catch { }
+    }
+
+    /// Removes the subscription and any shared state from CloudKit.
+    func stopSharing() async {
+        do {
+            _ = try? await sharedDB.deleteSubscription(withID: SharedRecordKeys.subscriptionID)
+            try? await sharedDB.deleteRecord(withID: SharedRecordKeys.recordID)
+            try? await privateDB.deleteRecord(withID: SharedRecordKeys.recordID)
+        }
     }
 
     // MARK: - Share acceptance
@@ -100,6 +109,24 @@ private extension CKDatabase {
                 else { cont.resume(returning: (saved ?? [], deleted ?? [])) }
             }
             add(op)
+        }
+    }
+
+    func deleteRecord(withID id: CKRecord.ID) async throws {
+        try await withCheckedThrowingContinuation { cont in
+            delete(withRecordID: id) { _, error in
+                if let error { cont.resume(throwing: error) }
+                else { cont.resume(returning: ()) }
+            }
+        }
+    }
+
+    func deleteSubscription(withID id: String) async throws {
+        try await withCheckedThrowingContinuation { cont in
+            delete(withSubscriptionID: id) { _, error in
+                if let error { cont.resume(throwing: error) }
+                else { cont.resume(returning: ()) }
+            }
         }
     }
 }
