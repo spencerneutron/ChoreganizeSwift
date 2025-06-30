@@ -173,7 +173,10 @@ struct AreaListView: View {
                 NavigationLink(destination: EditAreaView(area: area)) {
                     VStack(alignment: .leading) {
                         Text(area.name)
-                        Text(area.description).font(.caption)
+                        if (!area.description.isEmpty){
+                            Text(area.description)
+                                .font(.caption)
+                        }
                     }
                 }
             }
@@ -245,8 +248,9 @@ struct EditAreaView: View {
         NavigationStack {
             Form {
                 AreaFormFields(name: $area.name, description: $area.description)
+                let available = model.chores.filter { $0.areaId == nil || $0.areaId == area.id }
                 Section(header: Text("Chores")) {
-                    ForEach(model.chores) { chore in
+                    ForEach(available) { chore in
                         Toggle(chore.name, isOn: Binding(
                             get: { selectedChoreIDs.contains(chore.id) },
                             set: { newValue in
@@ -279,7 +283,6 @@ struct EditAreaView: View {
                     }
                     .disabled(area.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
     }
