@@ -175,7 +175,7 @@ private struct DayPage: View {
         }
         .overlay(alignment: .bottom) {
             if !isPast && !model.chores(for: date).isEmpty {
-                Button("Done For Today") { showDoneAlert = true }
+                Button("Done") { showDoneAlert = true }
                     .buttonStyle(.borderedProminent)
                     .padding(.bottom, 40)
             }
