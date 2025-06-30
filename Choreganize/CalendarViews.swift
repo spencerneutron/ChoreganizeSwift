@@ -66,6 +66,7 @@ struct CalendarHomeView: View {
                     }
                 }
             }.frame(maxHeight: .infinity, alignment: .top)
+                .padding(.horizontal)
         }
         .toolbar(.hidden, for: .navigationBar)
     }
