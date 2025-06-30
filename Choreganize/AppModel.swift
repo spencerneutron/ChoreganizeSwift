@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
     @Published var areas: [Area] = []
     @Published var completions: [Completion] = []
     @Published var completionCache: [Date: [Completion]] = [:]
+    @Published var lockedDays: Set<Date> = []
 
     private let fileURL: URL
 
@@ -33,11 +34,14 @@ final class AppModel: ObservableObject {
             self.chores = decoded.chores
             self.areas = decoded.areas
             self.completions = decoded.completions
+            self.lockedDays = decoded.lockedDays
         }
+        pruneLockedDays()
     }
 
     func save() {
-        let state = SavedState(chores: chores, areas: areas, completions: completions)
+        pruneLockedDays()
+        let state = SavedState(chores: chores, areas: areas, completions: completions, lockedDays: lockedDays)
         if let data = try? JSONEncoder().encode(state) {
             try? data.write(to: fileURL)
         }
@@ -321,6 +325,8 @@ final class AppModel: ObservableObject {
         self.chores = decoded.chores
         self.areas = decoded.areas
         self.completions = decoded.completions
+        self.lockedDays.formUnion(decoded.lockedDays)
+        pruneLockedDays()
     }
 
     /// Initiates sharing by presenting the CloudKit share UI.
@@ -376,9 +382,54 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func pruneLockedDays() {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        lockedDays = Set(lockedDays.filter { calendar.startOfDay(for: $0) >= today })
+    }
+
+    // MARK: - Day Locking
+    func isDayLocked(_ date: Date) -> Bool {
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(for: date)
+        let today = calendar.startOfDay(for: Date())
+        if day < today { return true }
+        return lockedDays.contains(day)
+    }
+
+    func lockDay(_ date: Date) {
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(for: date)
+        guard day >= calendar.startOfDay(for: Date()) else { return }
+        lockedDays.insert(day)
+        save()
+    }
+
+    func unlockDay(_ date: Date) {
+        let day = Calendar.current.startOfDay(for: date)
+        lockedDays.remove(day)
+        save()
+    }
+
     struct SavedState: Codable {
         var chores: [Chore]
         var areas: [Area]
         var completions: [Completion]
+        var lockedDays: Set<Date> = []
+
+        init(chores: [Chore], areas: [Area], completions: [Completion], lockedDays: Set<Date> = []) {
+            self.chores = chores
+            self.areas = areas
+            self.completions = completions
+            self.lockedDays = lockedDays
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            chores = try container.decodeIfPresent([Chore].self, forKey: .chores) ?? []
+            areas = try container.decodeIfPresent([Area].self, forKey: .areas) ?? []
+            completions = try container.decodeIfPresent([Completion].self, forKey: .completions) ?? []
+            lockedDays = try container.decodeIfPresent(Set<Date>.self, forKey: .lockedDays) ?? []
+        }
     }
 }
