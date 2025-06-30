@@ -30,21 +30,37 @@ struct ChoreRowView: View {
         }
     }
 
+    private var isCompleted: Bool { model.isCompleted(chore, on: Date()) }
+
     var body: some View {
         Toggle(isOn: Binding(
-            get: { model.isCompleted(chore, on: Date()) },
+            get: { isCompleted },
             set: { newValue in
-                if newValue {
-                    model.recordCompletion(chore)
-                } else {
-                    model.removeCompletionForToday(chore)
+                withAnimation(.easeInOut) {
+                    if newValue {
+                        model.recordCompletion(chore)
+                    } else {
+                        model.removeCompletionForToday(chore)
+                    }
                 }
             })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(chore.name)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(chore.name)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(isCompleted ? .secondary : .primary)
+                            .strikethrough(isCompleted)
+                        Spacer()
+                        if model.isOverdue(chore) && !isCompleted {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundStyle(.red)
+                        }
+                    }
                     lastLine
                 }
+                .padding(.vertical, 4)
             }
+            .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 0))
     }
 }
 
@@ -53,10 +69,14 @@ struct WorkHomeView: View {
     @State private var selectedDay: Weekday? = Weekday.today
 
     var body: some View {
-        if let day = selectedDay {
-            DayView(day: day, onClose: { selectedDay = nil })
-        } else {
-            WeekView(selectDay: { selectedDay = $0 })
+        ZStack {
+            if let day = selectedDay {
+                DayView(day: day, onClose: { withAnimation(.easeInOut) { selectedDay = nil } })
+                    .transition(.move(edge: .trailing))
+            } else {
+                WeekView(selectDay: { withAnimation(.easeInOut) { selectedDay = $0 } })
+                    .transition(.move(edge: .leading))
+            }
         }
     }
 }
@@ -86,6 +106,7 @@ struct WeekView: View {
                 .onTapGesture { selectDay(day) }
             }
         }
+        .listStyle(.insetGrouped)
     }
 }
 
@@ -97,26 +118,27 @@ struct DayView: View {
     @State private var showDoneAlert = false
 
     var body: some View {
-        VStack {
-            HStack {
-                Button("Back") { onClose() }
-                Spacer()
-                Text(day.displayName)
-                Spacer()
-                NavigationLink("History") {
-                    HistoryView(day: day)
+        List {
+            ForEach(model.chores.filter { $0.assignedDay == day }) { chore in
+                ChoreRowView(chore: chore)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle(day.displayName)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: onClose) {
+                    Label("Back", systemImage: "chevron.backward")
                 }
             }
-            .padding()
-
-            List {
-                ForEach(model.chores.filter { $0.assignedDay == day }) { chore in
-                    ChoreRowView(chore: chore)
-                }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink("History") { HistoryView(day: day) }
             }
-            Button("Done For Today") { showDoneAlert = true }
-            .padding()
-            .alert("Finish day?", isPresented: $showDoneAlert) {
+            ToolbarItem(placement: .bottomBar) {
+                Button("Done For Today") { showDoneAlert = true }
+            }
+        }
+        .alert("Finish day?", isPresented: $showDoneAlert) {
                 Button("Confirm") {
                     withAnimation { showConfirmation = true }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -127,7 +149,6 @@ struct DayView: View {
             } message: {
                 Text("Any incomplete chores will remain unfinished.")
             }
-        }
         .overlay(
             Group {
                 if showConfirmation {
@@ -163,6 +184,7 @@ struct HistoryView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
         .navigationTitle("History")
     }
 }

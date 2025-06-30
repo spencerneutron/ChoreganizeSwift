@@ -21,14 +21,17 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 .padding()
 
-                switch mode {
-                case .work:
-                    WorkHomeView()
-                case .edit:
-                    EditHomeView()
-                case .calendar:
-                    CalendarHomeView()
+                ZStack {
+                    switch mode {
+                    case .work:
+                        WorkHomeView()
+                    case .edit:
+                        EditHomeView()
+                    case .calendar:
+                        CalendarHomeView()
+                    }
                 }
+                .transition(.opacity)
             }
             .navigationTitle("Choreganize")
             .toolbar {
@@ -40,6 +43,7 @@ struct ContentView: View {
                     }
                 }
             }
+            .animation(.easeInOut, value: mode)
         }
     }
 

@@ -33,13 +33,14 @@ struct CalendarHomeView: View {
     var body: some View {
         VStack {
             HStack {
-                Button(action: { month = calendar.date(byAdding: .month, value: -1, to: month)! }) {
+                Button(action: { withAnimation(.easeInOut) { month = calendar.date(byAdding: .month, value: -1, to: month)! } }) {
                     Image(systemName: "chevron.left")
                 }
                 Spacer()
                 Text(monthStart, format: Date.FormatStyle().month(.wide).year())
+                    .font(.title3).fontWeight(.semibold)
                 Spacer()
-                Button(action: { month = calendar.date(byAdding: .month, value: 1, to: month)! }) {
+                Button(action: { withAnimation(.easeInOut) { month = calendar.date(byAdding: .month, value: 1, to: month)! } }) {
                     Image(systemName: "chevron.right")
                 }
             }
@@ -66,6 +67,7 @@ struct CalendarHomeView: View {
             }.frame(maxHeight: .infinity, alignment: .top)
         }
         .navigationTitle("Calendar")
+        .animation(.easeInOut, value: month)
     }
 }
 

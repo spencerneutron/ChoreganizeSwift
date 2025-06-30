@@ -56,6 +56,7 @@ struct ChoreListView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
         .navigationTitle("Chores")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -64,8 +65,9 @@ struct ChoreListView: View {
         }
         .sheet(isPresented: $showingNew) {
             NewChoreView()
+                .presentationDetents([.medium, .large])
         }
-        .sheet(item: $editingChore) { EditChoreView(chore: $0) }
+        .sheet(item: $editingChore) { EditChoreView(chore: $0).presentationDetents([.medium, .large]) }
     }
 }
 
@@ -99,7 +101,9 @@ struct NewChoreView: View {
                     }
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle("New Chore")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
@@ -155,7 +159,9 @@ struct EditChoreView: View {
                     }
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle("Edit Chore")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
@@ -187,13 +193,14 @@ struct AreaListView: View {
             }
             .onDelete(perform: model.deleteAreas)
         }
+        .listStyle(.insetGrouped)
         .navigationTitle("Areas")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Add") { showingNew = true }
             }
         }
-        .sheet(isPresented: $showingNew) { NewAreaView() }
+        .sheet(isPresented: $showingNew) { NewAreaView().presentationDetents([.medium, .large]) }
     }
 }
 
@@ -227,7 +234,9 @@ struct NewAreaView: View {
                     }
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle("New Area")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
@@ -270,7 +279,9 @@ struct EditAreaView: View {
                     }
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle("Edit Area")
+            .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 selectedChoreIDs = Set(model.chores.filter { $0.areaId == area.id }.map { $0.id })
             }
