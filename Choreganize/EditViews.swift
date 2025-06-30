@@ -245,8 +245,9 @@ struct EditAreaView: View {
         NavigationStack {
             Form {
                 AreaFormFields(name: $area.name, description: $area.description)
+                let available = model.chores.filter { $0.areaId == nil || $0.areaId == area.id }
                 Section(header: Text("Chores")) {
-                    ForEach(model.chores) { chore in
+                    ForEach(available) { chore in
                         Toggle(chore.name, isOn: Binding(
                             get: { selectedChoreIDs.contains(chore.id) },
                             set: { newValue in
