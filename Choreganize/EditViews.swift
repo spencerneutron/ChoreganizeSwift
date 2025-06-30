@@ -19,7 +19,7 @@ struct ChoreListView: View {
             if !model.chores.filter({ $0.isDaily }).isEmpty {
                 Section(header: Text("Every Day")) {
                     ForEach(model.chores.filter { $0.isDaily }) { chore in
-                        ChoreRowView(chore: chore)
+                        ChoreRowView(chore: chore, showToggle: false)
                             .contentShape(Rectangle())
                             .onTapGesture { editingChore = chore }
                     }
@@ -35,7 +35,7 @@ struct ChoreListView: View {
                 if !choresForDay.isEmpty {
                     Section(header: Text(day.displayName)) {
                         ForEach(choresForDay) { chore in
-                            ChoreRowView(chore: chore)
+                            ChoreRowView(chore: chore, showToggle: false)
                                 .contentShape(Rectangle())
                                 .onTapGesture { editingChore = chore }
                         }
@@ -51,7 +51,7 @@ struct ChoreListView: View {
             if !unassigned.isEmpty {
                 Section(header: Text("Unassigned")) {
                     ForEach(unassigned) { chore in
-                        ChoreRowView(chore: chore)
+                        ChoreRowView(chore: chore, showToggle: false)
                             .contentShape(Rectangle())
                             .onTapGesture { editingChore = chore }
                     }
