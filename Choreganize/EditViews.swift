@@ -16,8 +16,22 @@ struct ChoreListView: View {
 
     var body: some View {
         List {
-            ForEach(Weekday.allCases) { day in
-                let choresForDay = model.chores.filter { $0.assignedDay == day }
+            if !model.chores.filter({ $0.isDaily }).isEmpty {
+                Section(header: Text("Every Day")) {
+                    ForEach(model.chores.filter { $0.isDaily }) { chore in
+                        ChoreRowView(chore: chore)
+                            .contentShape(Rectangle())
+                            .onTapGesture { editingChore = chore }
+                    }
+                    .onDelete { offsets in
+                        let ids = offsets.map { model.chores.filter { $0.isDaily }[$0].id }
+                        model.deleteChores(withIDs: ids)
+                    }
+                }
+            }
+
+            ForEach(Weekday.standardCases) { day in
+                let choresForDay = model.chores.filter { !$0.isDaily && $0.assignedDay == day }
                 if !choresForDay.isEmpty {
                     Section(header: Text(day.displayName)) {
                         ForEach(choresForDay) { chore in
@@ -33,7 +47,7 @@ struct ChoreListView: View {
                 }
             }
 
-            let unassigned = model.chores.filter { $0.assignedDay == nil }
+            let unassigned = model.chores.filter { !$0.isDaily && $0.assignedDay == nil }
             if !unassigned.isEmpty {
                 Section(header: Text("Unassigned")) {
                     ForEach(unassigned) { chore in
@@ -66,7 +80,8 @@ struct NewChoreView: View {
     @Environment(\.dismiss) var dismiss
 
     @State private var name = ""
-    @State private var frequency: Frequency = .daily
+    @State private var isDaily = false
+    @State private var frequency: Frequency = .weekly
     @State private var day: Weekday? = .monday
     @State private var areaId: UUID?
 
@@ -74,6 +89,7 @@ struct NewChoreView: View {
         NavigationStack {
             Form {
                 ChoreFormFields(name: $name,
+                                isDaily: $isDaily,
                                 frequency: $frequency,
                                 day: $day,
                                 areaId: $areaId,
@@ -83,7 +99,8 @@ struct NewChoreView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let new = Chore(name: name, frequency: frequency, assignedDay: day, areaId: areaId, createdDate: Date())
+                        let assigned = isDaily ? Weekday.all : day
+                        let new = Chore(name: name, isDaily: isDaily, frequency: isDaily ? nil : frequency, assignedDay: assigned, areaId: areaId, createdDate: Date())
                         model.addChore(new)
                         dismiss()
                     }
@@ -104,6 +121,7 @@ struct EditChoreView: View {
     private let createdDate: Date
 
     @State private var name: String
+    @State private var isDaily: Bool
     @State private var frequency: Frequency
     @State private var day: Weekday?
     @State private var areaId: UUID?
@@ -112,7 +130,8 @@ struct EditChoreView: View {
         self.choreID = chore.id
         self.createdDate = chore.createdDate
         _name = State(initialValue: chore.name)
-        _frequency = State(initialValue: chore.frequency)
+        _isDaily = State(initialValue: chore.isDaily)
+        _frequency = State(initialValue: chore.frequency ?? .weekly)
         _day = State(initialValue: chore.assignedDay)
         _areaId = State(initialValue: chore.areaId)
     }
@@ -121,6 +140,7 @@ struct EditChoreView: View {
         NavigationStack {
             Form {
                 ChoreFormFields(name: $name,
+                                isDaily: $isDaily,
                                 frequency: $frequency,
                                 day: $day,
                                 areaId: $areaId,
@@ -130,7 +150,8 @@ struct EditChoreView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let updated = Chore(id: choreID, name: name, frequency: frequency, assignedDay: day, areaId: areaId, createdDate: createdDate)
+                        let assigned = isDaily ? Weekday.all : day
+                        let updated = Chore(id: choreID, name: name, isDaily: isDaily, frequency: isDaily ? nil : frequency, assignedDay: assigned, areaId: areaId, createdDate: createdDate)
                         model.updateChore(updated)
                         dismiss()
                     }

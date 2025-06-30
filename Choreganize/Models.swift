@@ -9,13 +9,12 @@ struct Area: Identifiable, Codable, Hashable {
 
 /// How often a chore occurs.
 enum Frequency: String, CaseIterable, Codable, Identifiable {
-    case daily, weekly, monthly, yearly
+    case weekly, monthly, yearly
     var id: String { rawValue }
 
     /// The calendar component associated with this frequency.
     var component: Calendar.Component {
         switch self {
-        case .daily: return .day
         case .weekly: return .weekOfYear
         case .monthly: return .month
         case .yearly: return .year
@@ -24,23 +23,28 @@ enum Frequency: String, CaseIterable, Codable, Identifiable {
 }
 
 /// Day of the week for scheduling chores.
-enum Weekday: String, CaseIterable, Codable, Identifiable {
-    case sunday, monday, tuesday, wednesday, thursday, friday, saturday
+enum Weekday: String, Codable, Identifiable, CaseIterable {
+    case all, sunday, monday, tuesday, wednesday, thursday, friday, saturday
+    static let standardCases: [Weekday] = [.sunday, .monday, .tuesday, .wednesday, .thursday, .friday, .saturday]
     var id: String { rawValue }
 
     var displayName: String {
-        rawValue.capitalized
+        switch self {
+        case .all: return "Every Day"
+        default: return rawValue.capitalized
+        }
     }
 
     /// Returns the weekday for today.
     static var today: Weekday {
         let index = Calendar.current.component(.weekday, from: Date()) - 1
-        return Weekday.allCases[index]
+        return Weekday.standardCases[index]
     }
 
     /// Weekday value compatible with `Calendar` where Sunday is 1.
-    var calendarWeekday: Int {
+    var calendarWeekday: Int? {
         switch self {
+        case .all: return nil
         case .sunday: return 1
         case .monday: return 2
         case .tuesday: return 3
@@ -56,7 +60,8 @@ enum Weekday: String, CaseIterable, Codable, Identifiable {
 struct Chore: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var name: String
-    var frequency: Frequency
+    var isDaily: Bool = false
+    var frequency: Frequency?
     /// Optional day this chore is scheduled for. `nil` indicates the chore is
     /// not currently assigned to a specific day of the week.
     var assignedDay: Weekday?
@@ -65,12 +70,13 @@ struct Chore: Identifiable, Codable, Hashable {
     var createdDate: Date = Date()
 
     enum CodingKeys: String, CodingKey {
-        case id, name, frequency, assignedDay, areaId, createdDate
+        case id, name, isDaily, frequency, assignedDay, areaId, createdDate
     }
 
-    init(id: UUID = UUID(), name: String, frequency: Frequency, assignedDay: Weekday?, areaId: UUID?, createdDate: Date = Date()) {
+    init(id: UUID = UUID(), name: String, isDaily: Bool = false, frequency: Frequency?, assignedDay: Weekday?, areaId: UUID?, createdDate: Date = Date()) {
         self.id = id
         self.name = name
+        self.isDaily = isDaily
         self.frequency = frequency
         self.assignedDay = assignedDay
         self.areaId = areaId
@@ -81,7 +87,13 @@ struct Chore: Identifiable, Codable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decode(String.self, forKey: .name)
-        frequency = try container.decode(Frequency.self, forKey: .frequency)
+        isDaily = try container.decodeIfPresent(Bool.self, forKey: .isDaily) ?? false
+        if let freqString = try? container.decode(String.self, forKey: .frequency) {
+            frequency = Frequency(rawValue: freqString)
+            if freqString == "daily" { isDaily = true; frequency = nil }
+        } else {
+            frequency = try container.decodeIfPresent(Frequency.self, forKey: .frequency)
+        }
         assignedDay = try container.decodeIfPresent(Weekday.self, forKey: .assignedDay)
         areaId = try container.decodeIfPresent(UUID.self, forKey: .areaId)
         createdDate = try container.decodeIfPresent(Date.self, forKey: .createdDate) ?? Date()
@@ -91,7 +103,8 @@ struct Chore: Identifiable, Codable, Hashable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
-        try container.encode(frequency, forKey: .frequency)
+        try container.encode(isDaily, forKey: .isDaily)
+        try container.encodeIfPresent(frequency, forKey: .frequency)
         try container.encodeIfPresent(assignedDay, forKey: .assignedDay)
         try container.encodeIfPresent(areaId, forKey: .areaId)
         try container.encode(createdDate, forKey: .createdDate)
