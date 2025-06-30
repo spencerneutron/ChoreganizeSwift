@@ -138,9 +138,7 @@ private struct DayPage: View {
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
 
-    private var isPast: Bool {
-        Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: Date())
-    }
+    private var isLocked: Bool { model.isDayLocked(date) }
 
     var body: some View {
         List {
@@ -148,7 +146,7 @@ private struct DayPage: View {
             let dateText = date.formatted(date: .abbreviated, time: .omitted)
             Section(header: Text("\(weekdayName), \(dateText)")) {
                 ForEach(model.chores(for: date)) { chore in
-                    ChoreRowView(chore: chore, locked: isPast, date: date)
+                    ChoreRowView(chore: chore, locked: isLocked, date: date)
                 }
             }
         }
@@ -156,6 +154,7 @@ private struct DayPage: View {
         .task { let _ = await model.loadCompletions(for: date) }
         .alert("Finish day?", isPresented: $showDoneAlert) {
             Button("Confirm") {
+                model.lockDay(date)
                 withAnimation { showConfirmation = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     withAnimation { showConfirmation = false }
@@ -174,7 +173,7 @@ private struct DayPage: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if !isPast && !model.chores(for: date).isEmpty {
+            if !isLocked && !model.chores(for: date).isEmpty {
                 Button("Done For Today") { showDoneAlert = true }
                     .buttonStyle(.borderedProminent)
                     .padding(.bottom, 40)
