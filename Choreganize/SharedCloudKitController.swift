@@ -1,18 +1,161 @@
 import CloudKit
 import UIKit
 
+// MARK: - CloudKit abstractions
+
+protocol CloudDatabase {
+    func llmRecord(for id: CKRecord.ID) async throws -> CKRecord
+    func llmModifyRecords(
+        saving records: [CKRecord],
+        deleting deletingIDs: [CKRecord.ID],
+        savePolicy: CKModifyRecordsOperation.RecordSavePolicy
+    ) async throws -> ([CKRecord], [CKRecord.ID])
+    func llmDeleteRecord(withID id: CKRecord.ID) async throws
+    func llmDeleteSubscription(withID id: String) async throws
+    func save(_ subscription: CKSubscription) async throws -> CKSubscription
+}
+
+protocol CloudContainer {
+    var sharedDatabase: CloudDatabase { get }
+    var privateDatabase: CloudDatabase { get }
+    func add(_ op: CKOperation)
+    func llmMetadata(for url: URL) async throws -> CKShare.Metadata
+}
+
+extension CKDatabase: CloudDatabase {
+    func llmRecord(for id: CKRecord.ID) async throws -> CKRecord {
+        try await withCheckedThrowingContinuation { cont in
+            fetch(withRecordID: id) { record, error in
+                if let record { cont.resume(returning: record) }
+                else { cont.resume(throwing: error ?? CKError(.unknownItem)) }
+            }
+        }
+    }
+
+    func llmModifyRecords(
+        saving records: [CKRecord],
+        deleting deletingIDs: [CKRecord.ID],
+        savePolicy: CKModifyRecordsOperation.RecordSavePolicy
+    ) async throws -> ([CKRecord], [CKRecord.ID]) {
+        let (saveResults, deleteResults) = try await modifyRecords(
+            saving: records,
+            deleting: deletingIDs,
+            savePolicy: savePolicy,
+            atomically: true
+        )
+
+        let saved = saveResults.compactMap { _, result in
+            try? result.get()
+        }
+
+        let deleted = deleteResults.compactMap { id, result in
+            (try? result.get()) != nil ? id : nil
+        }
+
+        return (saved, deleted)
+    }
+
+    func llmDeleteRecord(withID id: CKRecord.ID) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            delete(withRecordID: id) { _, error in
+                if let error { cont.resume(throwing: error) }
+                else { cont.resume(returning: ()) }
+            }
+        }
+    }
+
+    func llmDeleteSubscription(withID id: String) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            delete(withSubscriptionID: id) { _, error in
+                if let error { cont.resume(throwing: error) }
+                else { cont.resume(returning: ()) }
+            }
+        }
+    }
+
+    func save(_ subscription: CKSubscription) async throws -> CKSubscription {
+        try await withCheckedThrowingContinuation { cont in
+            save(subscription) { saved, error in
+                if let saved { cont.resume(returning: saved) }
+                else { cont.resume(throwing: error ?? CKError(.unknownItem)) }
+            }
+        }
+    }
+}
+
+extension CKContainer: CloudContainer {
+    var sharedDatabase: CloudDatabase { sharedCloudDatabase }
+    var privateDatabase: CloudDatabase { privateCloudDatabase }
+    func llmMetadata(for url: URL) async throws -> CKShare.Metadata {
+        try await withCheckedThrowingContinuation { cont in
+            fetchShareMetadata(with: url) { metadata, error in
+                if let metadata { cont.resume(returning: metadata) }
+                else { cont.resume(throwing: error ?? CKError(.unknownItem)) }
+            }
+        }
+    }
+}
+
+final class MockCloudDatabase: CloudDatabase {
+    private var records: [CKRecord.ID: CKRecord] = [:]
+
+    func llmRecord(for id: CKRecord.ID) async throws -> CKRecord {
+        guard let record = records[id] else { throw CKError(.unknownItem) }
+        return record
+    }
+
+    func llmModifyRecords(
+        saving records: [CKRecord],
+        deleting deletingIDs: [CKRecord.ID],
+        savePolicy: CKModifyRecordsOperation.RecordSavePolicy
+    ) async throws -> ([CKRecord], [CKRecord.ID]) {
+        for id in deletingIDs { self.records.removeValue(forKey: id) }
+        for record in records { self.records[record.recordID] = record }
+        return (records, deletingIDs)
+    }
+
+    func llmDeleteRecord(withID id: CKRecord.ID) async throws {
+        records.removeValue(forKey: id)
+    }
+
+    func llmDeleteSubscription(withID id: String) async throws {}
+
+    func save(_ subscription: CKSubscription) async throws -> CKSubscription {
+        return subscription
+    }
+}
+
+final class MockCloudContainer: CloudContainer {
+    let sharedDatabase: CloudDatabase
+    let privateDatabase: CloudDatabase
+
+    init(shared: CloudDatabase = MockCloudDatabase(), privateDB: CloudDatabase = MockCloudDatabase()) {
+        self.sharedDatabase = shared
+        self.privateDatabase = privateDB
+    }
+
+    func add(_ op: CKOperation) {}
+    func llmMetadata(for url: URL) async throws -> CKShare.Metadata {
+        throw CKError(.notAuthenticated)
+    }
+}
+
 /// Handles access to the user's shared CloudKit database and sharing APIs.
 final class SharedCloudKitController {
-    static let shared = SharedCloudKitController()
+    static var shared = SharedCloudKitController()
 
-    private let container: CKContainer
-    private let sharedDB: CKDatabase
-    private let privateDB: CKDatabase
+    static func configure(container: CloudContainer) {
+        shared = SharedCloudKitController(container: container)
+    }
 
-    init(container: CKContainer = .default()) {
+    private let container: CloudContainer
+    private let sharedDB: CloudDatabase
+    private let privateDB: CloudDatabase
+
+    init(container: CloudContainer = CKContainer.default()) {
         self.container = container
-        self.sharedDB = container.sharedCloudDatabase
-        self.privateDB = container.privateCloudDatabase
+        self.sharedDB = container.sharedDatabase
+        self.privateDB = container.privateDatabase
     }
 
     // MARK: - Publishing
@@ -70,9 +213,11 @@ final class SharedCloudKitController {
             let share = CKShare(rootRecord: record)
             share.publicPermission = .readWrite
             _ = try await privateDB.llmModifyRecords(saving: [record, share], deleting: [], savePolicy: .ifServerRecordUnchanged)
-            let controller = UICloudSharingController(share: share, container: container)
-            controller.availablePermissions = [.allowReadWrite]
-            viewController.present(controller, animated: true)
+            if let ckContainer = container as? CKContainer {
+                let controller = UICloudSharingController(share: share, container: ckContainer)
+                controller.availablePermissions = [.allowReadWrite]
+                viewController.present(controller, animated: true)
+            }
         } catch {
             print("Share UI failed: \(error)")
         }
@@ -91,65 +236,3 @@ final class SharedCloudKitController {
     }
 }
 
-private extension CKDatabase {
-    func llmRecord(for id: CKRecord.ID) async throws -> CKRecord {
-        try await withCheckedThrowingContinuation { cont in
-            fetch(withRecordID: id) { record, error in
-                if let record { cont.resume(returning: record) }
-                else { cont.resume(throwing: error ?? CKError(.unknownItem)) }
-            }
-        }
-    }
-
-    func llmModifyRecords(
-        saving records: [CKRecord],
-        deleting deletingIDs: [CKRecord.ID],
-        savePolicy: CKModifyRecordsOperation.RecordSavePolicy
-    ) async throws -> ([CKRecord], [CKRecord.ID]) {
-        let (saveResults, deleteResults) = try await modifyRecords(
-            saving: records,
-            deleting: deletingIDs,
-            savePolicy: savePolicy,
-            atomically: true
-        )
-
-        let saved = saveResults.compactMap { _, result in
-            try? result.get()
-        }
-
-        let deleted = deleteResults.compactMap { id, result in
-            (try? result.get()) != nil ? id : nil
-        }
-
-        return (saved, deleted)
-    }
-
-    func llmDeleteRecord(withID id: CKRecord.ID) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            delete(withRecordID: id) { _, error in
-                if let error { cont.resume(throwing: error) }
-                else { cont.resume(returning: ()) }
-            }
-        }
-    }
-
-    func llmDeleteSubscription(withID id: String) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            delete(withSubscriptionID: id) { _, error in
-                if let error { cont.resume(throwing: error) }
-                else { cont.resume(returning: ()) }
-            }
-        }
-    }
-}
-
-private extension CKContainer {
-    func llmMetadata(for url: URL) async throws -> CKShare.Metadata {
-        try await withCheckedThrowingContinuation { cont in
-            fetchShareMetadata(with: url) { metadata, error in
-                if let metadata { cont.resume(returning: metadata) }
-                else { cont.resume(throwing: error ?? CKError(.unknownItem)) }
-            }
-        }
-    }
-}

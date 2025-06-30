@@ -6,11 +6,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
         if url.startAccessingSecurityScopedResource() { defer { url.stopAccessingSecurityScopedResource() } }
         Task {
-            let accepted = await SharedCloudKitController.shared.acceptShare(url: url)
+            let accepted = await model?.cloudController.acceptShare(url: url) ?? false
             if accepted {
                 await model?.loadSharedState()
                 if model?.sharingEnabled == true {
-                    await SharedCloudKitController.shared.subscribeToChanges()
+                    await model?.cloudController.subscribeToChanges()
                 }
             }
         }

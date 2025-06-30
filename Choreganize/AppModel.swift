@@ -4,7 +4,7 @@ import UIKit
 
 @MainActor
 final class AppModel: ObservableObject {
-    let cloudController = SharedCloudKitController.shared
+    let cloudController: SharedCloudKitController
     @AppStorage("sharingEnabled") var sharingEnabled = false
     @Published var chores: [Chore] = []
     @Published var areas: [Area] = []
@@ -12,7 +12,8 @@ final class AppModel: ObservableObject {
 
     private let fileURL: URL
 
-    init() {
+    init(cloudController: SharedCloudKitController = .shared) {
+        self.cloudController = cloudController
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         fileURL = documents.appendingPathComponent("chore_data.json")
         load()
