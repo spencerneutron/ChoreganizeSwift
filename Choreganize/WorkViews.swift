@@ -115,6 +115,12 @@ struct WeekView: View {
 private struct DayPage: View {
     @EnvironmentObject var model: AppModel
     var date: Date
+    @State private var showConfirmation = false
+    @State private var showDoneAlert = false
+
+    private var isPast: Bool {
+        Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: Date())
+    }
 
     var body: some View {
         List {
@@ -127,6 +133,34 @@ private struct DayPage: View {
             }
         }
         .listStyle(.insetGrouped)
+        .alert("Finish day?", isPresented: $showDoneAlert) {
+            Button("Confirm") {
+                withAnimation { showConfirmation = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    withAnimation { showConfirmation = false }
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Any incomplete chores will remain unfinished.")
+        }
+        .toolbar {
+            ToolbarItem(placement: .bottomBar) {
+                if !isPast {
+                    Button("Done For Today") { showDoneAlert = true }
+                }
+            }
+        }
+        .overlay(
+            Group {
+                if showConfirmation {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 80))
+                        .foregroundColor(.green)
+                        .transition(.scale)
+                }
+            }
+        )
     }
 }
 
