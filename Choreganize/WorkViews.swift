@@ -71,7 +71,7 @@ struct WeekView: View {
     var selectDay: (Weekday) -> Void
 
     private var dates: [Date] {
-        model.weekDates(startingFrom: Date(), includePast: 3, includeFuture: 3)
+        model.weekDates(startingFrom: Date(), includePast: 0, includeFuture: 6)
     }
 
     var body: some View {
