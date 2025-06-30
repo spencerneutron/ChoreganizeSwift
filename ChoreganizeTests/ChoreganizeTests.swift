@@ -15,14 +15,17 @@ struct ChoreganizeTests {
 
     @Test func testEditChore() async throws {
         let model = AppModel()
-        let chore = Chore(name: "Test", frequency: .daily, assignedDay: .monday, areaId: nil)
+        let chore = Chore(name: "Test", isDaily: true, frequency: nil, assignedDay: .all, areaId: nil)
         model.addChore(chore)
         var updated = chore
         updated.name = "Updated"
+        updated.isDaily = false
+        updated.frequency = .weekly
         updated.assignedDay = .tuesday
         model.updateChore(updated)
         #expect(model.chores.first?.name == "Updated")
         #expect(model.chores.first?.assignedDay == .tuesday)
+        #expect(model.chores.first?.isDaily == false)
     }
 
     @Test func testWeekDatesHelper() async throws {

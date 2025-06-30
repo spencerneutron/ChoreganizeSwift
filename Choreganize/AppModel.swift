@@ -144,6 +144,7 @@ final class AppModel: ObservableObject {
         let dayStart = calendar.startOfDay(for: date)
 
         return chores.filter { chore in
+            if chore.isDaily { return true }
             guard
                 let weekday = chore.assignedDay?.calendarWeekday,
                 calendar.component(.weekday, from: dayStart) == weekday
@@ -168,9 +169,12 @@ final class AppModel: ObservableObject {
         guard let last = lastCompletion(for: chore) else { return true }
         let calendar = Calendar.current
         let now = Date()
-        switch chore.frequency {
-        case .daily:
+        if chore.isDaily {
             return !calendar.isDateInToday(last.date)
+        }
+
+        guard let freq = chore.frequency else { return false }
+        switch freq {
         case .weekly:
             guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: last.date) else { return false }
             return now >= next
@@ -192,22 +196,27 @@ final class AppModel: ObservableObject {
     func nextDueDate(for chore: Chore, after date: Date? = nil) -> Date? {
         let calendar = Calendar.current
 
+        if chore.isDaily {
+            let reference = date ?? lastCompletion(for: chore)?.date
+            let start = calendar.startOfDay(for: reference ?? Date())
+            return calendar.date(byAdding: .day, value: 1, to: start)
+        }
+
+        guard let freq = chore.frequency else { return nil }
+
         // Determine the base date from which to calculate the next occurrence.
         let reference = date ?? lastCompletion(for: chore)?.date
 
         let startDate: Date
         if let reference {
-            // Existing reference – advance one interval from that point.
-            guard let advanced = calendar.date(byAdding: chore.frequency.component, value: 1, to: reference) else {
+            guard let advanced = calendar.date(byAdding: freq.component, value: 1, to: reference) else {
                 return nil
             }
             startDate = advanced
         } else {
-            // No completion history – begin searching from today.
             startDate = calendar.startOfDay(for: Date())
         }
 
-        // Move forward until the assigned weekday is hit.
         guard let targetWeekday = chore.assignedDay?.calendarWeekday else {
             return nil
         }
@@ -228,7 +237,18 @@ final class AppModel: ObservableObject {
         else { return result }
 
         for chore in chores {
-            guard let weekday = chore.assignedDay?.calendarWeekday else { continue }
+            if chore.isDaily {
+                var next = calendar.startOfDay(for: chore.createdDate)
+                while next < monthStart { next = calendar.date(byAdding: .day, value: 1, to: next)! }
+                while next <= monthEnd {
+                    let key = calendar.startOfDay(for: next)
+                    result[key, default: []].append(chore)
+                    next = calendar.date(byAdding: .day, value: 1, to: next)!
+                }
+                continue
+            }
+
+            guard let weekday = chore.assignedDay?.calendarWeekday, let freq = chore.frequency else { continue }
 
             var next = calendar.startOfDay(for: chore.createdDate)
             // align to first scheduled weekday on/after creation
@@ -238,7 +258,7 @@ final class AppModel: ObservableObject {
 
             // Advance until within visible range
             while next < monthStart {
-                if let advanced = calendar.date(byAdding: chore.frequency.component, value: 1, to: next) {
+                if let advanced = calendar.date(byAdding: freq.component, value: 1, to: next) {
                     var candidate = advanced
                     while calendar.component(.weekday, from: candidate) != weekday {
                         candidate = calendar.date(byAdding: .day, value: 1, to: candidate)!
@@ -253,7 +273,7 @@ final class AppModel: ObservableObject {
                 let key = calendar.startOfDay(for: next)
                 result[key, default: []].append(chore)
 
-                if let advanced = calendar.date(byAdding: chore.frequency.component, value: 1, to: next) {
+                if let advanced = calendar.date(byAdding: freq.component, value: 1, to: next) {
                     var candidate = advanced
                     while calendar.component(.weekday, from: candidate) != weekday {
                         candidate = calendar.date(byAdding: .day, value: 1, to: candidate)!

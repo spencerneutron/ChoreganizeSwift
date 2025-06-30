@@ -79,7 +79,7 @@ struct WeekView: View {
             ForEach(dates, id: \.self) { date in
                 let calendar = Calendar.current
                 let index = calendar.component(.weekday, from: date) - 1
-                let weekday = Weekday.allCases[index]
+                let weekday = Weekday.standardCases[index]
                 let weekdayName = date.formatted(.dateTime.weekday(.wide))
                 let dateText = date.formatted(date: .abbreviated, time: .omitted)
                 Section(header: Text("\(weekdayName), \(dateText)")) {
@@ -102,7 +102,7 @@ struct DayView: View {
 
     var body: some View {
         List {
-            ForEach(model.chores.filter { $0.assignedDay == day }) { chore in
+            ForEach(model.chores.filter { $0.isDaily || $0.assignedDay == day }) { chore in
                 ChoreRowView(chore: chore)
             }
         }
@@ -149,7 +149,7 @@ struct HistoryView: View {
         List {
             ForEach(model.completions.filter { completion in
                 guard let chore = model.chores.first(where: { $0.id == completion.choreId }) else { return false }
-                return chore.assignedDay == day
+                return chore.isDaily || chore.assignedDay == day
             }.sorted(by: { $0.date > $1.date })) { completion in
                 if let chore = model.chores.first(where: { $0.id == completion.choreId }) {
                     VStack(alignment: .leading) {
