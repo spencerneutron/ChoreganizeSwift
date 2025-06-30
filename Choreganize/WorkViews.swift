@@ -153,7 +153,7 @@ private struct DayPage: View {
             }
         }
         .listStyle(.insetGrouped)
-        .task { await model.loadCompletions(for: date) }
+        .task { let _ = await model.loadCompletions(for: date) }
         .alert("Finish day?", isPresented: $showDoneAlert) {
             Button("Confirm") {
                 withAnimation { showConfirmation = true }
