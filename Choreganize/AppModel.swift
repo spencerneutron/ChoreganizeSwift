@@ -197,7 +197,7 @@ final class AppModel: ObservableObject {
               let next = nextDueDate(for: chore, after: last.date) else {
             return true
         }
-        return calendar.startOfDay(for: next) <= calendar.startOfDay(for: date)
+        return calendar.startOfDay(for: next) < calendar.startOfDay(for: date)
     }
 
     /// Calculates the next due date for a chore after the given date.
