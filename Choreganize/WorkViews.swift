@@ -70,15 +70,24 @@ struct WeekView: View {
     @EnvironmentObject var model: AppModel
     var selectDay: (Weekday) -> Void
 
+    private var dates: [Date] {
+        model.weekDates(startingFrom: Date(), includePast: 3, includeFuture: 3)
+    }
+
     var body: some View {
         List {
-            ForEach(Weekday.allCases) { day in
-                Section(header: Text(day.displayName)) {
-                    ForEach(model.chores.filter { $0.assignedDay == day }) { chore in
+            ForEach(dates, id: \.self) { date in
+                let calendar = Calendar.current
+                let index = calendar.component(.weekday, from: date) - 1
+                let weekday = Weekday.allCases[index]
+                let weekdayName = date.formatted(.dateTime.weekday(.wide))
+                let dateText = date.formatted(date: .abbreviated, time: .omitted)
+                Section(header: Text("\(weekdayName), \(dateText)")) {
+                    ForEach(model.chores.filter { $0.assignedDay == weekday }) { chore in
                         ChoreRowView(chore: chore)
                     }
                 }
-                .onTapGesture { selectDay(day) }
+                .onTapGesture { selectDay(weekday) }
             }
         }
         .listStyle(.insetGrouped)

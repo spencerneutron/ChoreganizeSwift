@@ -258,6 +258,24 @@ final class AppModel: ObservableObject {
         sharingEnabled = false
     }
 
+    /// Returns a sequence of dates around the provided start date.
+    /// - Parameters:
+    ///   - date: The reference date from which to generate the range.
+    ///   - includePast: How many days prior to `date` to include.
+    ///   - includeFuture: How many days after `date` to include. The range will
+    ///     never extend more than six days beyond today.
+    func weekDates(startingFrom date: Date, includePast: Int, includeFuture: Int) -> [Date] {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: date)
+        let today = calendar.startOfDay(for: Date())
+        let maxFuture = calendar.date(byAdding: .day, value: 6, to: today) ?? today
+        let upperBound = min(includeFuture, calendar.dateComponents([.day], from: start, to: maxFuture).day ?? 0)
+
+        return (-includePast...upperBound).compactMap { offset in
+            calendar.date(byAdding: .day, value: offset, to: start)
+        }
+    }
+
     struct SavedState: Codable {
         var chores: [Chore]
         var areas: [Area]
