@@ -9,6 +9,7 @@ final class AppModel: ObservableObject {
     @Published var chores: [Chore] = []
     @Published var areas: [Area] = []
     @Published var completions: [Completion] = []
+    @Published var completionCache: [Date: [Completion]] = [:]
 
     private let fileURL: URL
 
@@ -313,6 +314,27 @@ final class AppModel: ObservableObject {
     func stopSharing() async {
         await cloudController.stopSharing()
         sharingEnabled = false
+    }
+
+    /// Loads completions for the specified date from disk or CloudKit and caches them.
+    func loadCompletions(for date: Date) async -> [Completion] {
+        let day = Calendar.current.startOfDay(for: date)
+        if let cached = completionCache[day] { return cached }
+
+        var allCompletions: [Completion] = []
+        if sharingEnabled,
+           let record = await cloudController.fetchSharedRootRecord(),
+           let data = record[SharedRecordKeys.jsonKey] as? Data,
+           let decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
+            allCompletions = decoded.completions
+        } else if let data = try? Data(contentsOf: fileURL),
+                  let decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
+            allCompletions = decoded.completions
+        }
+
+        let matches = allCompletions.filter { Calendar.current.isDate($0.date, inSameDayAs: day) }
+        completionCache[day] = matches
+        return matches
     }
 
     /// Returns a sequence of dates around the provided start date.
