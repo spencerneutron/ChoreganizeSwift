@@ -139,11 +139,12 @@ private struct DayPage: View {
     @State private var showDoneAlert = false
     
     private var isPast: Bool {
-            Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: Date())
-        }
-    private var isLocked: Bool { model.isDayLocked(date) }
+        Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: Date())
+    }
 
     var body: some View {
+        let isLocked = isPast || model.isDayLocked(date)
+
         List {
             let weekdayName = date.formatted(.dateTime.weekday(.wide))
             let dateText = date.formatted(date: .abbreviated, time: .omitted)
@@ -176,7 +177,11 @@ private struct DayPage: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if !isLocked && !model.chores(for: date).isEmpty {
+            if isLocked && !isPast {
+                Button("Unlock") { model.unlockDay(date) }
+                    .buttonStyle(.bordered)
+                    .padding(.bottom, 40)
+            } else if !isLocked && !model.chores(for: date).isEmpty {
                 Button("Done") { showDoneAlert = true }
                     .buttonStyle(.borderedProminent)
                     .padding(.bottom, 40)
