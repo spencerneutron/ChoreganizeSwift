@@ -21,13 +21,9 @@ struct ChoreListView: View {
                 if !choresForDay.isEmpty {
                     Section(header: Text(day.displayName)) {
                         ForEach(choresForDay) { chore in
-                            VStack(alignment: .leading) {
-                                Text(chore.name)
-                                if let area = model.areas.first(where: { $0.id == chore.areaId }) {
-                                    Text(area.name).font(.caption)
-                                }
-                            }
-                            .onTapGesture { editingChore = chore }
+                            ChoreRowView(chore: chore)
+                                .contentShape(Rectangle())
+                                .onTapGesture { editingChore = chore }
                         }
                         .onDelete { offsets in
                             let ids = offsets.map { choresForDay[$0].id }
@@ -41,13 +37,9 @@ struct ChoreListView: View {
             if !unassigned.isEmpty {
                 Section(header: Text("Unassigned")) {
                     ForEach(unassigned) { chore in
-                        VStack(alignment: .leading) {
-                            Text(chore.name)
-                            if let area = model.areas.first(where: { $0.id == chore.areaId }) {
-                                Text(area.name).font(.caption)
-                            }
-                        }
-                        .onTapGesture { editingChore = chore }
+                        ChoreRowView(chore: chore)
+                            .contentShape(Rectangle())
+                            .onTapGesture { editingChore = chore }
                     }
                     .onDelete { offsets in
                         let ids = offsets.map { unassigned[$0].id }
@@ -76,34 +68,22 @@ struct NewChoreView: View {
     @State private var name = ""
     @State private var frequency: Frequency = .daily
     @State private var day: Weekday? = .monday
-    @State private var area: Area?
+    @State private var areaId: UUID?
 
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Name", text: $name)
-                Picker("Frequency", selection: $frequency) {
-                    ForEach(Frequency.allCases) { Text($0.rawValue.capitalized).tag($0) }
-                }
-                Picker("Day", selection: $day) {
-                    Text("None").tag(Weekday?.none)
-                    ForEach(Weekday.allCases) { Text($0.displayName).tag(Optional($0)) }
-                }
-                Picker("Area", selection: Binding(
-                    get: { area?.id },
-                    set: { id in area = model.areas.first(where: { $0.id == id }) }
-                )) {
-                    Text("None").tag(UUID?.none)
-                    ForEach(model.areas) { area in
-                        Text(area.name).tag(Optional(area.id))
-                    }
-                }
+                ChoreFormFields(name: $name,
+                                frequency: $frequency,
+                                day: $day,
+                                areaId: $areaId,
+                                areas: model.areas)
             }
             .navigationTitle("New Chore")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let new = Chore(name: name, frequency: frequency, assignedDay: day, areaId: area?.id, createdDate: Date())
+                        let new = Chore(name: name, frequency: frequency, assignedDay: day, areaId: areaId, createdDate: Date())
                         model.addChore(new)
                         dismiss()
                     }
@@ -140,20 +120,11 @@ struct EditChoreView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Name", text: $name)
-                Picker("Frequency", selection: $frequency) {
-                    ForEach(Frequency.allCases) { Text($0.rawValue.capitalized).tag($0) }
-                }
-                Picker("Day", selection: $day) {
-                    Text("None").tag(Weekday?.none)
-                    ForEach(Weekday.allCases) { Text($0.displayName).tag(Optional($0)) }
-                }
-                Picker("Area", selection: $areaId) {
-                    Text("None").tag(UUID?.none)
-                    ForEach(model.areas) { area in
-                        Text(area.name).tag(Optional(area.id))
-                    }
-                }
+                ChoreFormFields(name: $name,
+                                frequency: $frequency,
+                                day: $day,
+                                areaId: $areaId,
+                                areas: model.areas)
             }
             .navigationTitle("Edit Chore")
             .toolbar {
@@ -207,8 +178,7 @@ struct NewAreaView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Name", text: $name)
-                TextField("Description", text: $description)
+                AreaFormFields(name: $name, description: $description)
                 let unassigned = model.chores.filter { $0.areaId == nil }
                 if !unassigned.isEmpty {
                     Section(header: Text("Assign Chores")) {
@@ -253,8 +223,7 @@ struct EditAreaView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Name", text: $area.name)
-                TextField("Description", text: $area.description)
+                AreaFormFields(name: $area.name, description: $area.description)
                 Section(header: Text("Chores")) {
                     ForEach(model.chores) { chore in
                         Toggle(chore.name, isOn: Binding(

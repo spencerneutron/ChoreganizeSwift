@@ -31,6 +31,7 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Choreganize")
+            .animation(.easeInOut, value: mode)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if model.sharingEnabled {
