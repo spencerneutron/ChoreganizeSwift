@@ -341,7 +341,7 @@ struct LogChoreHistoryView: View {
             .navigationTitle("Log Completion")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button("Add") {
                         model.recordCompletion(chore, date: date)
                         if date < chore.createdDate {
                             var updated = chore
