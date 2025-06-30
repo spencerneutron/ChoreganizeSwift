@@ -38,16 +38,18 @@ struct CalendarHomeView: View {
                 }
                 Spacer()
                 Text(monthStart, format: Date.FormatStyle().month(.wide).year())
+                    .font(.title2)
+                    .fontWeight(.semibold)
                 Spacer()
                 Button(action: { month = calendar.date(byAdding: .month, value: 1, to: month)! }) {
                     Image(systemName: "chevron.right")
                 }
             }
             .padding(.horizontal)
+            .animation(.easeInOut, value: month)
 
             let columns = Array(repeating: GridItem(.flexible()), count: 7)
-            LazyVGrid(columns: columns)
-            {
+            LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(calendar.shortWeekdaySymbols, id: \.self) { day in
                     Text(day)
                         .font(.caption)
@@ -65,7 +67,7 @@ struct CalendarHomeView: View {
                 }
             }.frame(maxHeight: .infinity, alignment: .top)
         }
-        .navigationTitle("Calendar")
+        .toolbar(.hidden, for: .navigationBar)
     }
 }
 

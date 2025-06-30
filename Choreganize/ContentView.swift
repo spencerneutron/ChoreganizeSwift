@@ -15,12 +15,6 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack {
-                Picker("Mode", selection: $mode) {
-                    ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding()
-
                 switch mode {
                 case .work:
                     WorkHomeView()
@@ -30,7 +24,8 @@ struct ContentView: View {
                     CalendarHomeView()
                 }
             }
-            .navigationTitle("Choreganize")
+            .toolbar(.hidden, for: .navigationBar)
+            .animation(.easeInOut, value: mode)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if model.sharingEnabled {
@@ -38,6 +33,13 @@ struct ContentView: View {
                     } else {
                         Button("Share\u{2026}") { share() }
                     }
+                }
+                ToolbarItem(placement: .bottomBar) {
+                    Picker("Mode", selection: $mode) {
+                        ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 280)
                 }
             }
         }
