@@ -188,6 +188,18 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Returns whether the given chore requires attention on the provided date.
+    /// A chore does not need attention if it has been completed and its next
+    /// scheduled date falls after the specified day.
+    func needsAttention(_ chore: Chore, on date: Date) -> Bool {
+        let calendar = Calendar.current
+        guard let last = lastCompletion(for: chore),
+              let next = nextDueDate(for: chore, after: last.date) else {
+            return true
+        }
+        return calendar.startOfDay(for: next) < calendar.startOfDay(for: date)
+    }
+
     /// Calculates the next due date for a chore after the given date.
     /// If `after` is nil the chore's last completion date is used.
     /// Calculates the next scheduled date for a chore.
