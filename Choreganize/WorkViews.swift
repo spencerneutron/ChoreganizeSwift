@@ -90,7 +90,7 @@ struct WeekView: View {
                 }
                 .onTapGesture { selectDay(weekday) }
                 .task {
-                    await model.loadCompletions(for: date)
+                    let cachedCompletions = await model.loadCompletions(for: date)
                     if let index = dates.firstIndex(of: date) {
                         let nextDates = dates.dropFirst(index + 1).prefix(2)
                         for d in nextDates { _ = await model.loadCompletions(for: d) }
