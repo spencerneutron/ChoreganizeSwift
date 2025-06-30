@@ -53,65 +53,83 @@ struct ChoreRowView: View {
 
 struct WorkHomeView: View {
     @EnvironmentObject var model: AppModel
-    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack(path: $path) {
-            WeekView(selectDay: { path.append($0) })
-                .navigationDestination(for: Weekday.self) { day in
-                    DayView(day: day)
-                        .toolbar(.visible, for: .navigationBar)
-                }
-                .toolbar(.hidden, for: .navigationBar)
-        }
+        WeekView()
+            .toolbar(.hidden, for: .navigationBar)
     }
 }
 
 struct WeekView: View {
     @EnvironmentObject var model: AppModel
-    var selectDay: (Weekday) -> Void
 
+    // Expose a range before and after today so the user can page
+    // through recent days.
     private var dates: [Date] {
-        model.weekDates(startingFrom: Date(), includePast: 0, includeFuture: 6)
+        model.weekDates(startingFrom: Date(), includePast: 6, includeFuture: 6)
     }
 
+    // Today sits in the middle of the range
+    @State private var currentIndex: Int = 6
+
     var body: some View {
-        List {
-            ForEach(dates, id: \.self) { date in
-                let calendar = Calendar.current
-                let index = calendar.component(.weekday, from: date) - 1
-                let weekday = Weekday.standardCases[index]
-                let weekdayName = date.formatted(.dateTime.weekday(.wide))
-                let dateText = date.formatted(date: .abbreviated, time: .omitted)
-                Section(header: Text("\(weekdayName), \(dateText)")) {
-                    ForEach(model.chores(for: date)) { chore in
-                        ChoreRowView(chore: chore)
-                    }
-                }
-                .onTapGesture { selectDay(weekday) }
-                .task {
-                    let cachedCompletions = await model.loadCompletions(for: date)
-                    if let index = dates.firstIndex(of: date) {
-                        let nextDates = dates.dropFirst(index + 1).prefix(2)
-                        for d in nextDates { _ = await model.loadCompletions(for: d) }
-                    }
-                }
+        TabView(selection: $currentIndex) {
+            ForEach(Array(dates.enumerated()), id: \.offset) { index, date in
+                DayPage(date: date)
+                    .tag(index)
+                    .task { await prefetch(for: index) }
             }
         }
-        .listStyle(.insetGrouped)
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .overlay(alignment: .center) {
+            HStack {
+                if currentIndex > 0 {
+                    Image(systemName: "chevron.left")
+                }
+                Spacer()
+                if currentIndex < dates.count - 1 {
+                    Image(systemName: "chevron.right")
+                }
+            }
+            .font(.title2)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 6)
+            .opacity(0.5)
+            .allowsHitTesting(false)
+            .animation(.easeInOut, value: currentIndex)
+        }
+    }
+
+    /// Prefetch completion data for the visible day and nearby days.
+    private func prefetch(for index: Int) async {
+        let offsets = [-2, -1, 0, 1, 2]
+        for offset in offsets {
+            let idx = index + offset
+            guard dates.indices.contains(idx) else { continue }
+            _ = await model.loadCompletions(for: dates[idx])
+        }
     }
 }
 
-struct DayView: View {
+/// Single day page used within the horizontally scrolling week view.
+private struct DayPage: View {
     @EnvironmentObject var model: AppModel
-    var day: Weekday
+    var date: Date
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
 
+    private var isPast: Bool {
+        Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: Date())
+    }
+
     var body: some View {
         List {
-            ForEach(model.chores.filter { $0.isDaily || $0.assignedDay == day }) { chore in
-                ChoreRowView(chore: chore)
+            let weekdayName = date.formatted(.dateTime.weekday(.wide))
+            let dateText = date.formatted(date: .abbreviated, time: .omitted)
+            Section(header: Text("\(weekdayName), \(dateText)")) {
+                ForEach(model.chores(for: date)) { chore in
+                    ChoreRowView(chore: chore)
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -126,15 +144,11 @@ struct DayView: View {
         } message: {
             Text("Any incomplete chores will remain unfinished.")
         }
-        .navigationTitle(day.displayName)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                NavigationLink("History") {
-                    HistoryView(day: day)
-                }
-            }
             ToolbarItem(placement: .bottomBar) {
-                Button("Done For Today") { showDoneAlert = true }
+                if !isPast {
+                    Button("Done For Today") { showDoneAlert = true }
+                }
             }
         }
         .overlay(
@@ -147,33 +161,6 @@ struct DayView: View {
                 }
             }
         )
-    }
-}
-
-struct HistoryView: View {
-    @EnvironmentObject var model: AppModel
-    var day: Weekday
-    var body: some View {
-        List {
-            ForEach(model.completions.filter { completion in
-                guard let chore = model.chores.first(where: { $0.id == completion.choreId }) else { return false }
-                return chore.isDaily || chore.assignedDay == day
-            }.sorted(by: { $0.date > $1.date })) { completion in
-                if let chore = model.chores.first(where: { $0.id == completion.choreId }) {
-                    VStack(alignment: .leading) {
-                        Text(chore.name)
-                            .font(.headline)
-                        Text(completion.date.formatted(date: .abbreviated, time: .omitted))
-                        if let notes = completion.notes, !notes.isEmpty {
-                            Text(notes)
-                                .font(.caption)
-                        }
-                    }
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .navigationTitle("History")
     }
 }
 
