@@ -118,17 +118,29 @@ struct EditChoreView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
     private let choreID: UUID
-    private let createdDate: Date
+    @State private var createdDate: Date
 
     @State private var name: String
     @State private var isDaily: Bool
     @State private var frequency: Frequency
     @State private var day: Weekday?
     @State private var areaId: UUID?
+    @State private var showLogSheet = false
+
+    private var currentChore: Chore {
+        let assigned = isDaily ? Weekday.all : day
+        return Chore(id: choreID,
+                    name: name,
+                    isDaily: isDaily,
+                    frequency: isDaily ? nil : frequency,
+                    assignedDay: assigned,
+                    areaId: areaId,
+                    createdDate: createdDate)
+    }
 
     init(chore: Chore) {
         self.choreID = chore.id
-        self.createdDate = chore.createdDate
+        _createdDate = State(initialValue: chore.createdDate)
         _name = State(initialValue: chore.name)
         _isDaily = State(initialValue: chore.isDaily)
         _frequency = State(initialValue: chore.frequency ?? .weekly)
@@ -145,6 +157,29 @@ struct EditChoreView: View {
                                 day: $day,
                                 areaId: $areaId,
                                 areas: model.areas)
+
+                Section("History") {
+                    let completions = model.completions
+                        .filter { $0.choreId == choreID }
+                        .sorted { $0.date > $1.date }
+
+                    ScrollView {
+                        LazyVStack(alignment: .leading) {
+                            ForEach(completions) { completion in
+                                HStack(spacing: 4) {
+                                    Text(completion.date.formatted(date: .abbreviated, time: .omitted))
+                                    if let notes = completion.notes, !notes.isEmpty {
+                                        Text("\u{2013} \(notes)")
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    .frame(height: 200)
+
+                    Button("Log Completion") { showLogSheet = true }
+                }
             }
             .navigationTitle("Edit Chore")
             .toolbar {
@@ -158,6 +193,9 @@ struct EditChoreView: View {
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+            .sheet(isPresented: $showLogSheet) {
+                LogChoreHistoryView(chore: currentChore)
             }
         }
     }
@@ -282,6 +320,39 @@ struct EditAreaView: View {
                         dismiss()
                     }
                     .disabled(area.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+}
+
+/// View for logging a past completion for a chore.
+struct LogChoreHistoryView: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) var dismiss
+    var chore: Chore
+    @State private var date: Date = Date()
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                DatePicker("Completion Date", selection: $date, displayedComponents: .date)
+            }
+            .navigationTitle("Log Completion")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        model.recordCompletion(chore, date: date)
+                        if date < chore.createdDate {
+                            var updated = chore
+                            updated.createdDate = date
+                            model.updateChore(updated)
+                        }
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
                 }
             }
         }
