@@ -71,32 +71,58 @@ struct WeekView: View {
     @EnvironmentObject var model: AppModel
     var selectDay: (Weekday) -> Void
 
+    // Expose a range before and after today so the user can page
+    // through recent days.
     private var dates: [Date] {
-        model.weekDates(startingFrom: Date(), includePast: 0, includeFuture: 6)
+        model.weekDates(startingFrom: Date(), includePast: 6, includeFuture: 6)
+    }
+
+    // Today sits in the middle of the range
+    @State private var currentIndex: Int = 6
+
+    var body: some View {
+        TabView(selection: $currentIndex) {
+            ForEach(Array(dates.enumerated()), id: \.offset) { index, date in
+                DayPage(date: date, selectDay: selectDay)
+                    .tag(index)
+                    .task { await prefetch(for: index) }
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+    }
+
+    /// Prefetch completion data for the visible day and nearby days.
+    private func prefetch(for index: Int) async {
+        let offsets = [-2, -1, 0, 1, 2]
+        for offset in offsets {
+            let idx = index + offset
+            guard dates.indices.contains(idx) else { continue }
+            _ = await model.loadCompletions(for: dates[idx])
+        }
+    }
+}
+
+/// Single day page used within the horizontally scrolling week view.
+private struct DayPage: View {
+    @EnvironmentObject var model: AppModel
+    var date: Date
+    var selectDay: (Weekday) -> Void
+
+    private var weekday: Weekday {
+        let index = Calendar.current.component(.weekday, from: date) - 1
+        return Weekday.standardCases[index]
     }
 
     var body: some View {
         List {
-            ForEach(dates, id: \.self) { date in
-                let calendar = Calendar.current
-                let index = calendar.component(.weekday, from: date) - 1
-                let weekday = Weekday.standardCases[index]
-                let weekdayName = date.formatted(.dateTime.weekday(.wide))
-                let dateText = date.formatted(date: .abbreviated, time: .omitted)
-                Section(header: Text("\(weekdayName), \(dateText)")) {
-                    ForEach(model.chores(for: date)) { chore in
-                        ChoreRowView(chore: chore)
-                    }
-                }
-                .onTapGesture { selectDay(weekday) }
-                .task {
-                    let cachedCompletions = await model.loadCompletions(for: date)
-                    if let index = dates.firstIndex(of: date) {
-                        let nextDates = dates.dropFirst(index + 1).prefix(2)
-                        for d in nextDates { _ = await model.loadCompletions(for: d) }
-                    }
+            let weekdayName = date.formatted(.dateTime.weekday(.wide))
+            let dateText = date.formatted(date: .abbreviated, time: .omitted)
+            Section(header: Text("\(weekdayName), \(dateText)")) {
+                ForEach(model.chores(for: date)) { chore in
+                    ChoreRowView(chore: chore)
                 }
             }
+            .onTapGesture { selectDay(weekday) }
         }
         .listStyle(.insetGrouped)
     }
