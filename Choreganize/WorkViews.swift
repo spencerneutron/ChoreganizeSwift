@@ -45,6 +45,7 @@ struct ChoreRowView: View {
                         .fontWeight(.medium)
                     lastLine
                 }
+                .opacity(model.needsAttention(chore, on: Date()) ? 1 : 0.5)
             }
             .padding(.vertical, 4)
     }
