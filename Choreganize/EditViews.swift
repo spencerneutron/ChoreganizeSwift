@@ -19,7 +19,7 @@ struct ChoreListView: View {
             if !model.chores.filter({ $0.isDaily }).isEmpty {
                 Section(header: Text("Every Day")) {
                     ForEach(model.chores.filter { $0.isDaily }) { chore in
-                        ChoreRowView(chore: chore)
+                        ChoreRowView(chore: chore, showToggle: false)
                             .contentShape(Rectangle())
                             .onTapGesture { editingChore = chore }
                     }
@@ -35,7 +35,7 @@ struct ChoreListView: View {
                 if !choresForDay.isEmpty {
                     Section(header: Text(day.displayName)) {
                         ForEach(choresForDay) { chore in
-                            ChoreRowView(chore: chore)
+                            ChoreRowView(chore: chore, showToggle: false)
                                 .contentShape(Rectangle())
                                 .onTapGesture { editingChore = chore }
                         }
@@ -51,7 +51,7 @@ struct ChoreListView: View {
             if !unassigned.isEmpty {
                 Section(header: Text("Unassigned")) {
                     ForEach(unassigned) { chore in
-                        ChoreRowView(chore: chore)
+                        ChoreRowView(chore: chore, showToggle: false)
                             .contentShape(Rectangle())
                             .onTapGesture { editingChore = chore }
                     }
@@ -211,7 +211,10 @@ struct AreaListView: View {
                 NavigationLink(destination: EditAreaView(area: area)) {
                     VStack(alignment: .leading) {
                         Text(area.name)
-                        Text(area.description).font(.caption)
+                        if (!area.description.isEmpty){
+                            Text(area.description)
+                                .font(.caption)
+                        }
                     }
                 }
             }
@@ -283,8 +286,9 @@ struct EditAreaView: View {
         NavigationStack {
             Form {
                 AreaFormFields(name: $area.name, description: $area.description)
+                let available = model.chores.filter { $0.areaId == nil || $0.areaId == area.id }
                 Section(header: Text("Chores")) {
-                    ForEach(model.chores) { chore in
+                    ForEach(available) { chore in
                         Toggle(chore.name, isOn: Binding(
                             get: { selectedChoreIDs.contains(chore.id) },
                             set: { newValue in
@@ -317,7 +321,6 @@ struct EditAreaView: View {
                     }
                     .disabled(area.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
     }

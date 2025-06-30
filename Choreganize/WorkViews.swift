@@ -4,6 +4,7 @@ import SwiftUI
 struct ChoreRowView: View {
     @EnvironmentObject var model: AppModel
     var chore: Chore
+    var showToggle: Bool = true
 
     private var lastLine: some View {
         Group {
@@ -30,24 +31,34 @@ struct ChoreRowView: View {
         }
     }
 
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(chore.name)
+                .fontWeight(.medium)
+            lastLine
+        }
+        .opacity(model.needsAttention(chore, on: Date()) ? 1 : 0.5)
+    }
+
     var body: some View {
-        Toggle(isOn: Binding(
-            get: { model.isCompleted(chore, on: Date()) },
-            set: { newValue in
-                if newValue {
-                    model.recordCompletion(chore)
-                } else {
-                    model.removeCompletionForToday(chore)
-                }
-            })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(chore.name)
-                        .fontWeight(.medium)
-                    lastLine
-                }
-                .opacity(model.needsAttention(chore, on: Date()) ? 1 : 0.5)
+        Group {
+            if showToggle {
+                Toggle(isOn: Binding(
+                    get: { model.isCompleted(chore, on: Date()) },
+                    set: { newValue in
+                        if newValue {
+                            model.recordCompletion(chore)
+                        } else {
+                            model.removeCompletionForToday(chore)
+                        }
+                    })) {
+                        content
+                    }
+            } else {
+                content
             }
-            .padding(.vertical, 4)
+        }
+        .padding(.vertical, 4)
     }
 }
 
