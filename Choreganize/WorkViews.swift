@@ -83,7 +83,7 @@ struct WeekView: View {
                 let weekdayName = date.formatted(.dateTime.weekday(.wide))
                 let dateText = date.formatted(date: .abbreviated, time: .omitted)
                 Section(header: Text("\(weekdayName), \(dateText)")) {
-                    ForEach(model.chores.filter { $0.assignedDay == weekday }) { chore in
+                    ForEach(model.chores(for: date)) { chore in
                         ChoreRowView(chore: chore)
                     }
                 }
