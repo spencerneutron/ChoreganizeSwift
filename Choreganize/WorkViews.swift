@@ -5,6 +5,10 @@ struct ChoreRowView: View {
     @EnvironmentObject var model: AppModel
     var chore: Chore
     var showToggle: Bool = true
+    /// When enabled the toggle is displayed in a completed state and cannot be changed.
+    var locked: Bool = false
+    /// The date represented by this row when determining completion status.
+    var date: Date = Date()
 
     private var lastLine: some View {
         Group {
@@ -37,23 +41,28 @@ struct ChoreRowView: View {
                 .fontWeight(.medium)
             lastLine
         }
-        .opacity(model.needsAttention(chore, on: Date()) ? 1 : 0.5)
+        .opacity(model.needsAttention(chore, on: date) ? 1 : 0.5)
     }
 
     var body: some View {
         Group {
             if showToggle {
-                Toggle(isOn: Binding(
-                    get: { model.isCompleted(chore, on: Date()) },
-                    set: { newValue in
-                        if newValue {
-                            model.recordCompletion(chore)
-                        } else {
-                            model.removeCompletionForToday(chore)
+                if locked {
+                    Toggle(isOn: .constant(model.isCompleted(chore, on: date))) { content }
+                        .disabled(true)
+                } else {
+                    Toggle(isOn: Binding(
+                        get: { model.isCompleted(chore, on: date) },
+                        set: { newValue in
+                            if newValue {
+                                model.recordCompletion(chore, date: date)
+                            } else {
+                                model.removeCompletion(chore, on: date)
+                            }
+                        })) {
+                            content
                         }
-                    })) {
-                        content
-                    }
+                }
             } else {
                 content
             }
@@ -139,11 +148,12 @@ private struct DayPage: View {
             let dateText = date.formatted(date: .abbreviated, time: .omitted)
             Section(header: Text("\(weekdayName), \(dateText)")) {
                 ForEach(model.chores(for: date)) { chore in
-                    ChoreRowView(chore: chore)
+                    ChoreRowView(chore: chore, locked: isPast, date: date)
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .task { await model.loadCompletions(for: date) }
         .alert("Finish day?", isPresented: $showDoneAlert) {
             Button("Confirm") {
                 withAnimation { showConfirmation = true }
