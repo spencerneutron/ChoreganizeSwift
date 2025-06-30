@@ -46,7 +46,8 @@ struct CalendarHomeView: View {
             .padding(.horizontal)
 
             let columns = Array(repeating: GridItem(.flexible()), count: 7)
-            LazyVGrid(columns: columns) {
+            LazyVGrid(columns: columns)
+            {
                 ForEach(calendar.shortWeekdaySymbols, id: \.self) { day in
                     Text(day)
                         .font(.caption)
@@ -62,7 +63,7 @@ struct CalendarHomeView: View {
                             .frame(height: 40)
                     }
                 }
-            }
+            }.frame(maxHeight: .infinity, alignment: .top)
         }
         .navigationTitle("Calendar")
     }
