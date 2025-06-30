@@ -137,7 +137,10 @@ private struct DayPage: View {
     var date: Date
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
-
+    
+    private var isPast: Bool {
+            Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: Date())
+        }
     private var isLocked: Bool { model.isDayLocked(date) }
 
     var body: some View {
