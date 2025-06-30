@@ -126,6 +126,27 @@ final class AppModel: ObservableObject {
             .first
     }
 
+    /// Returns the most recent completion for the given chore that occurred on
+    /// or before the provided date.
+    private func lastCompletion(for chore: Chore, before date: Date) -> Completion? {
+        completions
+            .filter { $0.choreId == chore.id && $0.date <= date }
+            .sorted { $0.date > $1.date }
+            .first
+    }
+
+    /// Returns chores that are scheduled or overdue for the specified date.
+    func chores(for date: Date) -> [Chore] {
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: date)
+        return chores.filter { chore in
+            guard chore.assignedDay != nil else { return false }
+            let last = lastCompletion(for: chore, before: dayStart)
+            guard let due = nextDueDate(for: chore, after: last?.date) else { return false }
+            return calendar.startOfDay(for: due) <= dayStart
+        }
+    }
+
     /// Indicates whether the chore is overdue based on its frequency and last completion date.
     func isOverdue(_ chore: Chore) -> Bool {
         guard let last = lastCompletion(for: chore) else { return true }
