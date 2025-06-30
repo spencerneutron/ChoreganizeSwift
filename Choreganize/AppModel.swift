@@ -128,16 +128,19 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Returns the most recent completion for the given chore, if any.
+    /// Returns the most recent completion for the given chore, if any. Bounded by the current date.
     func lastCompletion(for chore: Chore) -> Completion? {
-        completions
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        
+        return completions
             .filter { $0.choreId == chore.id }
             .sorted { $0.date > $1.date }
-            .first
+            .first { calendar.startOfDay(for: $0.date) <= today }
     }
 
     /// Returns the most recent completion for the given chore that occurred on
-    /// or before the provided date.
+    /// or before the provided date; unbounded by the current date.
     private func lastCompletion(for chore: Chore, before date: Date) -> Completion? {
         completions
             .filter { $0.choreId == chore.id && $0.date <= date }
