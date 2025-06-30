@@ -129,9 +129,9 @@ final class MockCloudContainer: CloudContainer {
     let sharedDatabase: CloudDatabase
     let privateDatabase: CloudDatabase
 
-    init(shared: CloudDatabase = MockCloudDatabase(), private: CloudDatabase = MockCloudDatabase()) {
+    init(shared: CloudDatabase = MockCloudDatabase(), privateDB: CloudDatabase = MockCloudDatabase()) {
         self.sharedDatabase = shared
-        self.privateDatabase = private
+        self.privateDatabase = privateDB
     }
 
     func add(_ op: CKOperation) {}
