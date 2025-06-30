@@ -113,7 +113,12 @@ final class AppModel: ObservableObject {
     }
 
     func removeCompletionForToday(_ chore: Chore) {
-        if let index = completions.firstIndex(where: { $0.choreId == chore.id && Calendar.current.isDate($0.date, inSameDayAs: Date()) }) {
+        removeCompletion(chore, on: Date())
+    }
+
+    /// Removes the completion for the given chore on the specified date if one exists.
+    func removeCompletion(_ chore: Chore, on date: Date) {
+        if let index = completions.firstIndex(where: { $0.choreId == chore.id && Calendar.current.isDate($0.date, inSameDayAs: date) }) {
             completions.remove(at: index)
             save()
         }
