@@ -173,7 +173,10 @@ struct AreaListView: View {
                 NavigationLink(destination: EditAreaView(area: area)) {
                     VStack(alignment: .leading) {
                         Text(area.name)
-                        Text(area.description).font(.caption)
+                        if (!area.description.isEmpty){
+                            Text(area.description)
+                                .font(.caption)
+                        }
                     }
                 }
             }
@@ -280,7 +283,6 @@ struct EditAreaView: View {
                     }
                     .disabled(area.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
     }
