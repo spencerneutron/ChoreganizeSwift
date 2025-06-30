@@ -193,10 +193,14 @@ final class AppModel: ObservableObject {
     /// scheduled date falls after the specified day.
     func needsAttention(_ chore: Chore, on date: Date) -> Bool {
         let calendar = Calendar.current
+        
         guard let last = lastCompletion(for: chore),
-              let next = nextDueDate(for: chore, after: last.date) else {
+              let next = !chore.isDaily
+                ? nextDueDate(for: chore, after: last.date)
+                : calendar.date(byAdding: .day, value: 1, to: last.date) else {
             return true
         }
+        
         return calendar.startOfDay(for: next) < calendar.startOfDay(for: date)
     }
 
