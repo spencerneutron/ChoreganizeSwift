@@ -71,9 +71,7 @@ struct WeekView: View {
     @EnvironmentObject var model: AppModel
     var selectDay: (Weekday) -> Void
 
-    private var dates: [Date] {
-        model.weekDates(startingFrom: Date(), includePast: 0, includeFuture: 6)
-    }
+    @State private var dates: [Date] = WeekView.initialDates()
 
     var body: some View {
         List {
@@ -89,16 +87,47 @@ struct WeekView: View {
                     }
                 }
                 .onTapGesture { selectDay(weekday) }
-                .task {
-                    let cachedCompletions = await model.loadCompletions(for: date)
-                    if let index = dates.firstIndex(of: date) {
-                        let nextDates = dates.dropFirst(index + 1).prefix(2)
-                        for d in nextDates { _ = await model.loadCompletions(for: d) }
-                    }
-                }
+                .task { await loadAndPrefetch(for: date) }
+                .onAppear { extendIfNeeded(for: date) }
             }
         }
         .listStyle(.insetGrouped)
+    }
+
+    private func loadAndPrefetch(for date: Date) async {
+        _ = await model.loadCompletions(for: date)
+        if let index = dates.firstIndex(of: date) {
+            let nextDates = dates.dropFirst(index + 1).prefix(2)
+            let previousDates = dates.prefix(index).suffix(2)
+            for d in nextDates { _ = await model.loadCompletions(for: d) }
+            for d in previousDates { _ = await model.loadCompletions(for: d) }
+        }
+    }
+
+    private func extendIfNeeded(for date: Date) {
+        guard let index = dates.firstIndex(of: date) else { return }
+        if index <= 1 { prependDays() }
+        if index >= dates.count - 2 { appendDays() }
+    }
+
+    private func appendDays(count: Int = 7) {
+        guard let last = dates.last else { return }
+        let calendar = Calendar.current
+        let newDates = (1...count).compactMap { calendar.date(byAdding: .day, value: $0, to: last) }
+        dates.append(contentsOf: newDates)
+    }
+
+    private func prependDays(count: Int = 7) {
+        guard let first = dates.first else { return }
+        let calendar = Calendar.current
+        let newDates = (1...count).compactMap { calendar.date(byAdding: .day, value: -$0, to: first) }
+        dates.insert(contentsOf: newDates.reversed(), at: 0)
+    }
+
+    private static func initialDates() -> [Date] {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: Date())
+        return (-3...3).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
     }
 }
 
