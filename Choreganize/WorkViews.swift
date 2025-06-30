@@ -144,23 +144,21 @@ private struct DayPage: View {
         } message: {
             Text("Any incomplete chores will remain unfinished.")
         }
-        .toolbar {
-            ToolbarItem(placement: .bottomBar) {
-                if !isPast {
-                    Button("Done For Today") { showDoneAlert = true }
-                }
+        .overlay(alignment: .center) {
+            if showConfirmation {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 80))
+                    .foregroundColor(.green)
+                    .transition(.scale)
             }
         }
-        .overlay(
-            Group {
-                if showConfirmation {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 80))
-                        .foregroundColor(.green)
-                        .transition(.scale)
-                }
+        .overlay(alignment: .bottom) {
+            if !isPast && !model.chores(for: date).isEmpty {
+                Button("Done For Today") { showDoneAlert = true }
+                    .buttonStyle(.borderedProminent)
+                    .padding(.bottom, 40)
             }
-        )
+        }
     }
 }
 
