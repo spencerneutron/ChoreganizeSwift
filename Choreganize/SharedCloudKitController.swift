@@ -152,11 +152,19 @@ final class SharedCloudKitController {
     private let sharedDB: CloudDatabase
     private let privateDB: CloudDatabase
 
-    init(container: CloudContainer = CKContainer.default()) {
-        self.container = container
-        self.sharedDB = container.sharedDatabase
-        self.privateDB = container.privateDatabase
+    init(container: CloudContainer? = nil) {
+        if let container = container {
+            self.container = container
+        } else {
+            guard let defaultContainer = try? CKContainer(identifier: "iCloud.svk.Choreganize") else {
+                fatalError("Missing iCloud container or misconfigured CloudKit environment.")
+            }
+            self.container = defaultContainer
+        }
+        self.sharedDB = self.container.sharedDatabase
+        self.privateDB = self.container.privateDatabase
     }
+
 
     // MARK: - Publishing
     /// Upserts the root record containing the serialized app state.
