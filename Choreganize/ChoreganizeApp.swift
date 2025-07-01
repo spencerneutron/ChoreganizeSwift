@@ -6,9 +6,6 @@ struct ChoreganizeApp: App {
     @StateObject private var model: AppModel
 
     init() {
-#if DEBUG
-        SharedCloudKitController.configure(container: MockCloudContainer())
-#endif
         _model = StateObject(wrappedValue: AppModel())
     }
 
