@@ -209,11 +209,11 @@ final class AppModel: ObservableObject {
         guard let last = lastCompletion(for: chore),
               let next = !chore.isDaily
                 ? nextDueDate(for: chore, after: last.date)
-                : calendar.date(byAdding: .day, value: 1, to: last.date) else {
+                : calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: last.date)) else {
             return true
         }
         
-        return calendar.startOfDay(for: next) < calendar.startOfDay(for: date)
+        return calendar.startOfDay(for: next) <= calendar.startOfDay(for: date)
     }
 
     /// Calculates the next due date for a chore after the given date.

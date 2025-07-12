@@ -239,7 +239,7 @@ final class SharedCloudKitController: NSObject {
     /// Persists identifiers from an accepted share so future operations can
     /// reference the correct CloudKit records.
     func storeShareMetadata(_ metadata: CKShare.Metadata) {
-        storedShareID = metadata.shareRecordID
+        storedShareID = metadata.share.recordID
         storedRootID = metadata.rootRecordID
     }
 
