@@ -181,7 +181,7 @@ private struct DayPage: View {
                 Button("Unlock") { model.unlockDay(date) }
                     .buttonStyle(.bordered)
                     .padding(.bottom, 40)
-            } else if !isLocked && !model.chores(for: date).isEmpty {
+            } else if !isLocked {
                 Button("Done") { showDoneAlert = true }
                     .buttonStyle(.borderedProminent)
                     .padding(.bottom, 40)

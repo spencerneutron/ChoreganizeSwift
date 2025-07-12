@@ -148,34 +148,24 @@ final class AppModel: ObservableObject {
             .first
     }
 
-    /// Returns chores that should appear on the provided date. A chore is shown
-    /// on its assigned weekday when the next scheduled occurrence is on or
-    /// before that day and the chore has not been completed since the last
-    /// scheduled occurrence.
+    /// Filters the list of chores to those scheduled on a given date (ignoring completions).
     func chores(for date: Date) -> [Chore] {
         let calendar = Calendar.current
         let dayStart = calendar.startOfDay(for: date)
 
         return chores.filter { chore in
-            if chore.isDaily { return true }
-            guard
-                let weekday = chore.assignedDay?.calendarWeekday,
-                calendar.component(.weekday, from: dayStart) == weekday
-            else { return false }
-
-            let last = lastCompletion(for: chore, before: dayStart)
-            guard var due = nextDueDate(for: chore, after: last?.date) else { return false }
-
-            // Advance through missed intervals until the due date is on or after
-            // the provided day.
-            while calendar.startOfDay(for: due) < dayStart,
-                  let next = nextDueDate(for: chore, after: due) {
-                due = next
+            // Always include daily chores
+            if chore.isDaily {
+                return true
             }
-
-            return calendar.isDate(due, inSameDayAs: dayStart)
+            // Include if weekday matches assigned day
+            guard let weekday = chore.assignedDay?.calendarWeekday else {
+                return false
+            }
+            return calendar.component(.weekday, from: dayStart) == weekday
         }
     }
+
 
     /// Indicates whether the chore is overdue based on its frequency and last completion date.
     func isOverdue(_ chore: Chore) -> Bool {
