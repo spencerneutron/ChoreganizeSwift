@@ -57,9 +57,14 @@ struct CalendarHomeView: View {
                 }
                 ForEach(Array(days.enumerated()), id: \.offset) { _, date in
                     if let date {
-                        DayCell(date: date,
-                                chores: choresByDate[calendar.startOfDay(for: date)] ?? [],
-                                inCurrentWeek: weekInterval.contains(date))
+                        NavigationLink(destination:
+                            DayPage(date: date)
+                                .toolbar(.visible, for: .navigationBar)
+                        ) {
+                            DayCell(date: date,
+                                    chores: choresByDate[calendar.startOfDay(for: date)] ?? [],
+                                    inCurrentWeek: weekInterval.contains(date))
+                        }
                     } else {
                         Color.clear
                             .frame(height: 40)
