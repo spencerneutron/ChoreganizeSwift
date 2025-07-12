@@ -131,8 +131,9 @@ struct WeekView: View {
     }
 }
 
-/// Single day page used within the horizontally scrolling week view.
-private struct DayPage: View {
+/// Single day page used within the horizontally scrolling week view or as a
+/// standalone view.
+struct DayPage: View {
     @EnvironmentObject var model: AppModel
     var date: Date
     @State private var showConfirmation = false
