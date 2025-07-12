@@ -23,4 +23,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             completionHandler(.newData)
         }
     }
+
+    func application(_ application: UIApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        model?.cloudController.storeShareMetadata(metadata)
+    }
 }

@@ -141,7 +141,7 @@ final class MockCloudContainer: CloudContainer {
 }
 
 /// Handles access to the user's shared CloudKit database and sharing APIs.
-final class SharedCloudKitController {
+final class SharedCloudKitController: NSObject {
     static var shared = SharedCloudKitController()
 
     static func configure(container: CloudContainer) {
@@ -225,6 +225,7 @@ final class SharedCloudKitController {
     func acceptShare(url: URL) async -> Bool {
         do {
             let metadata = try await container.llmMetadata(for: url)
+            storeShareMetadata(metadata)
             let op = CKAcceptSharesOperation(shareMetadatas: [metadata])
             op.qualityOfService = .userInitiated
             container.add(op)
@@ -235,6 +236,13 @@ final class SharedCloudKitController {
         }
     }
 
+    /// Persists identifiers from an accepted share so future operations can
+    /// reference the correct CloudKit records.
+    func storeShareMetadata(_ metadata: CKShare.Metadata) {
+        storedShareID = metadata.shareRecordID
+        storedRootID = metadata.rootRecordID
+    }
+
     // MARK: - Share creation
     @MainActor
     func inviteCollaborator(from viewController: UIViewController) async {
@@ -242,7 +250,7 @@ final class SharedCloudKitController {
             let (_, share) = try await fetchOrCreateShare()
             if let ckContainer = container as? CKContainer {
                 let controller = UICloudSharingController(share: share, container: ckContainer)
-                controller.availablePermissions = [.allowReadWrite, .allowPrivateOwnership]
+                controller.availablePermissions = [.allowReadWrite, .allowPrivate]
                 controller.delegate = self
                 viewController.present(controller, animated: true)
             }
@@ -312,7 +320,6 @@ extension SharedCloudKitController: UICloudSharingControllerDelegate {
     func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
         guard let share = csc.share else { return }
         storedShareID = share.recordID
-        storedRootID = share.rootRecordID
     }
 
     func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) {
