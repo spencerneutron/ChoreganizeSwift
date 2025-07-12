@@ -19,6 +19,16 @@ final class AppModel: ObservableObject {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         fileURL = documents.appendingPathComponent("chore_data.json")
         load()
+        cloudController.onStateChange = { [weak self] state in
+            guard let self else { return }
+            Task { @MainActor in
+                self.chores = state.chores
+                self.areas = state.areas
+                self.completions = state.completions
+                self.lockedDays.formUnion(state.lockedDays)
+                self.pruneLockedDays()
+            }
+        }
         Task {
             await loadSharedState()
             if sharingEnabled {
@@ -325,7 +335,7 @@ final class AppModel: ObservableObject {
     /// Initiates sharing by presenting the CloudKit share UI.
     @MainActor
     func startSharing(from controller: UIViewController) async {
-        await cloudController.presentShare(from: controller)
+        await cloudController.inviteCollaborator(from: controller)
         sharingEnabled = true
         await cloudController.subscribeToChanges()
     }
