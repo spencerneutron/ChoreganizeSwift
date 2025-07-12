@@ -151,6 +151,27 @@ final class SharedCloudKitController {
     private let container: CloudContainer
     private let sharedDB: CloudDatabase
     private let privateDB: CloudDatabase
+    /// Callback fired when new shared state is downloaded.
+    var onStateChange: ((AppModel.SavedState) -> Void)?
+
+    private let defaults = UserDefaults.standard
+    private var activeShare: CKShare?
+
+    private var storedShareID: CKRecord.ID? {
+        get {
+            guard let name = defaults.string(forKey: SharedRecordKeys.savedShareRecordKey) else { return nil }
+            return CKRecord.ID(recordName: name)
+        }
+        set { defaults.setValue(newValue?.recordName, forKey: SharedRecordKeys.savedShareRecordKey) }
+    }
+
+    private var storedRootID: CKRecord.ID? {
+        get {
+            guard let name = defaults.string(forKey: SharedRecordKeys.savedRootRecordKey) else { return nil }
+            return CKRecord.ID(recordName: name)
+        }
+        set { defaults.setValue(newValue?.recordName, forKey: SharedRecordKeys.savedRootRecordKey) }
+    }
 
     init(container: CloudContainer? = nil) {
         if let container = container {
@@ -180,10 +201,11 @@ final class SharedCloudKitController {
     }
 
     // MARK: - Subscriptions
-    /// Creates a database subscription so that CloudKit pushes changes in the background.
+    /// Subscribes for silent push notifications when the shared record changes.
     func subscribeToChanges() async {
         let id = SharedRecordKeys.subscriptionID
-        let sub = CKDatabaseSubscription(subscriptionID: id)
+        let predicate = NSPredicate(value: true)
+        let sub = CKQuerySubscription(recordType: "AppState", predicate: predicate, subscriptionID: id, options: [.firesOnRecordUpdate, .firesOnRecordCreation])
         let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true
         sub.notificationInfo = info
@@ -215,20 +237,24 @@ final class SharedCloudKitController {
 
     // MARK: - Share creation
     @MainActor
-    func presentShare(from viewController: UIViewController) async {
+    func inviteCollaborator(from viewController: UIViewController) async {
         do {
-            let record = try await fetchOrCreateRootRecord()
-            let share = CKShare(rootRecord: record)
-            share.publicPermission = .readWrite
-            _ = try await privateDB.llmModifyRecords(saving: [record, share], deleting: [], savePolicy: .ifServerRecordUnchanged)
+            let (_, share) = try await fetchOrCreateShare()
             if let ckContainer = container as? CKContainer {
                 let controller = UICloudSharingController(share: share, container: ckContainer)
-                controller.availablePermissions = [.allowReadWrite]
+                controller.availablePermissions = [.allowReadWrite, .allowPrivateOwnership]
+                controller.delegate = self
                 viewController.present(controller, animated: true)
             }
         } catch {
             print("Share UI failed: \(error)")
         }
+    }
+
+    /// Retained for backward compatibility with earlier API.
+    @MainActor
+    func presentShare(from viewController: UIViewController) async {
+        await inviteCollaborator(from: viewController)
     }
 
     // MARK: - Helpers
@@ -239,8 +265,62 @@ final class SharedCloudKitController {
         return CKRecord(recordType: "AppState", recordID: SharedRecordKeys.recordID)
     }
 
+    /// Fetches or creates the share + root record pair used for collaboration.
+    private func fetchOrCreateShare() async throws -> (CKRecord, CKShare) {
+        if let shareID = storedShareID,
+           let share = try? await privateDB.llmRecord(for: shareID) as? CKShare,
+           let root = try? await privateDB.llmRecord(for: storedRootID ?? SharedRecordKeys.recordID) {
+            activeShare = share
+            return (root, share)
+        }
+
+        let record = try await fetchOrCreateRootRecord()
+        let share = CKShare(rootRecord: record)
+        share[CKShare.SystemFieldKey.title] = "Choreganize" as CKRecordValue
+        share.publicPermission = .none
+
+        _ = try await privateDB.llmModifyRecords(saving: [record, share], deleting: [], savePolicy: .ifServerRecordUnchanged)
+        _ = try? await sharedDB.llmModifyRecords(saving: [record], deleting: [], savePolicy: .changedKeys)
+
+        storedShareID = share.recordID
+        storedRootID = record.recordID
+        activeShare = share
+        return (record, share)
+    }
+
+    /// Processes a push notification from CloudKit and merges any updates.
+    func handleRemoteNotification(_ userInfo: [AnyHashable : Any]) async {
+        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
+              notification.subscriptionID == SharedRecordKeys.subscriptionID else { return }
+
+        guard let record = try? await sharedDB.llmRecord(for: SharedRecordKeys.recordID),
+              let data = record[SharedRecordKeys.jsonKey] as? Data,
+              let state = try? JSONDecoder().decode(AppModel.SavedState.self, from: data) else { return }
+
+        await MainActor.run { self.onStateChange?(state) }
+    }
+
     func fetchSharedRootRecord() async -> CKRecord? {
         return try? await sharedDB.llmRecord(for: SharedRecordKeys.recordID)
+    }
+}
+
+// MARK: - UICloudSharingControllerDelegate
+extension SharedCloudKitController: UICloudSharingControllerDelegate {
+    func itemTitle(for csc: UICloudSharingController) -> String? { "Choreganize" }
+
+    func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
+        guard let share = csc.share else { return }
+        storedShareID = share.recordID
+        storedRootID = share.rootRecordID
+    }
+
+    func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) {
+        print("Share save failed: \(error)")
+    }
+
+    func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
+        print("Sharing cancelled")
     }
 }
 
