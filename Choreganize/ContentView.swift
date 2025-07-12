@@ -24,14 +24,14 @@ struct ContentView: View {
                     CalendarHomeView()
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .toolbar(.visible, for: .automatic)
             .animation(.easeInOut, value: mode)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .automatic) {
                     if model.sharingEnabled {
                         Button("Stop Sharing") { stopSharing() }
                     } else {
-                        Button("Share\u{2026}") { share() }
+                        Button("Share") { share() }
                     }
                 }
                 ToolbarItem(placement: .bottomBar) {
