@@ -11,7 +11,6 @@
 	<key>com.apple.developer.icloud-services</key>
 	<array>
 		<string>CloudKit</string>
-		<string>CloudKitSharing</string>
 	</array>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
