@@ -240,7 +240,7 @@ final class SharedCloudKitController: NSObject {
     /// reference the correct CloudKit records.
     func storeShareMetadata(_ metadata: CKShare.Metadata) {
         storedShareID = metadata.share.recordID
-        storedRootID = metadata.rootRecordID
+        storedRootID = metadata.rootRecord?.recordID
     }
 
     // MARK: - Share creation
