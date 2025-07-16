@@ -177,7 +177,7 @@ final class SharedCloudKitController: NSObject {
         if let container = container {
             self.container = container
         } else {
-            guard let defaultContainer = try? CKContainer(identifier: "iCloud.svk.Choreganize") else {
+            guard let defaultContainer = try? CKContainer(identifier: "iCloud.com.svk.Choreganize") else {
                 fatalError("Missing iCloud container or misconfigured CloudKit environment.")
             }
             self.container = defaultContainer
