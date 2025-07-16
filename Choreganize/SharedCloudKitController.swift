@@ -13,6 +13,7 @@ protocol CloudDatabase {
     func llmDeleteRecord(withID id: CKRecord.ID) async throws
     func llmDeleteSubscription(withID id: String) async throws
     func save(_ subscription: CKSubscription) async throws -> CKSubscription
+    func llmAllRecords(ofType type: String) async throws -> [CKRecord]
 }
 
 protocol CloudContainer {
@@ -81,6 +82,11 @@ extension CKDatabase: CloudDatabase {
             }
         }
     }
+
+    func llmAllRecords(ofType type: String) async throws -> [CKRecord] {
+        let query = CKQuery(recordType: type, predicate: NSPredicate(value: true))
+        return try await perform(query, inZoneWith: nil)
+    }
 }
 
 extension CKContainer: CloudContainer {
@@ -122,6 +128,10 @@ final class MockCloudDatabase: CloudDatabase {
 
     func save(_ subscription: CKSubscription) async throws -> CKSubscription {
         return subscription
+    }
+
+    func llmAllRecords(ofType type: String) async throws -> [CKRecord] {
+        return records.values.filter { $0.recordType == type }
     }
 }
 
@@ -191,10 +201,15 @@ final class SharedCloudKitController: NSObject {
     /// Upserts the root record containing the serialized app state.
     func publish(state: AppModel.SavedState) async {
         do {
-            let record = try await fetchOrCreateRootRecord()
-            record[SharedRecordKeys.jsonKey] = try JSONEncoder().encode(state) as CKRecordValue
-            record[SharedRecordKeys.lastEditedKey] = Date() as CKRecordValue
-            _ = try await privateDB.llmModifyRecords(saving: [record], deleting: [], savePolicy: .changedKeys)
+            let root = try await fetchOrCreateRootRecord()
+            root[SharedRecordKeys.lastEditedKey] = Date() as CKRecordValue
+
+            var records: [CKRecord] = [root]
+            records += state.chores.map { record(from: $0, parent: root) }
+            records += state.areas.map { record(from: $0, parent: root) }
+            records += state.completions.map { record(from: $0, parent: root) }
+
+            _ = try await privateDB.llmModifyRecords(saving: records, deleting: [], savePolicy: .changedKeys)
         } catch {
             print("Publish failed: \(error)")
         }
@@ -205,7 +220,7 @@ final class SharedCloudKitController: NSObject {
     func subscribeToChanges() async {
         let id = SharedRecordKeys.subscriptionID
         let predicate = NSPredicate(value: true)
-        let sub = CKQuerySubscription(recordType: "AppState", predicate: predicate, subscriptionID: id, options: [.firesOnRecordUpdate, .firesOnRecordCreation])
+        let sub = CKQuerySubscription(recordType: SharedRecordKeys.rootRecordType, predicate: predicate, subscriptionID: id, options: [.firesOnRecordUpdate, .firesOnRecordCreation])
         let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true
         sub.notificationInfo = info
@@ -270,7 +285,7 @@ final class SharedCloudKitController: NSObject {
         if let existing = try? await privateDB.llmRecord(for: SharedRecordKeys.recordID) {
             return existing
         }
-        return CKRecord(recordType: "AppState", recordID: SharedRecordKeys.recordID)
+        return CKRecord(recordType: SharedRecordKeys.rootRecordType, recordID: SharedRecordKeys.recordID)
     }
 
     /// Fetches or creates the share + root record pair used for collaboration.
@@ -300,16 +315,82 @@ final class SharedCloudKitController: NSObject {
     func handleRemoteNotification(_ userInfo: [AnyHashable : Any]) async {
         guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
               notification.subscriptionID == SharedRecordKeys.subscriptionID else { return }
-
-        guard let record = try? await sharedDB.llmRecord(for: SharedRecordKeys.recordID),
-              let data = record[SharedRecordKeys.jsonKey] as? Data,
-              let state = try? JSONDecoder().decode(AppModel.SavedState.self, from: data) else { return }
-
+        guard let state = try? await fetchSharedState() else { return }
         await MainActor.run { self.onStateChange?(state) }
     }
 
     func fetchSharedRootRecord() async -> CKRecord? {
         return try? await sharedDB.llmRecord(for: SharedRecordKeys.recordID)
+    }
+
+    /// Downloads all shared records and assembles an app state.
+    func fetchSharedState() async throws -> AppModel.SavedState {
+        _ = try await fetchOrCreateRootRecord()
+        let choreRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.choreRecordType)
+        let areaRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.areaRecordType)
+        let completionRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.completionRecordType)
+
+        let chores = choreRecords.compactMap(recordToChore)
+        let areas = areaRecords.compactMap(recordToArea)
+        let completions = completionRecords.compactMap(recordToCompletion)
+        return AppModel.SavedState(chores: chores, areas: areas, completions: completions)
+    }
+
+    // MARK: - Record Conversion
+    private func record(from chore: Chore, parent: CKRecord) -> CKRecord {
+        let record = CKRecord(recordType: SharedRecordKeys.choreRecordType, recordID: CKRecord.ID(recordName: chore.id.uuidString))
+        record.parent = CKRecord.Reference(recordID: parent.recordID, action: .deleteSelf)
+        record["name"] = chore.name as CKRecordValue
+        record["isDaily"] = chore.isDaily as CKRecordValue
+        if let freq = chore.frequency { record["frequency"] = freq.rawValue as CKRecordValue }
+        if let day = chore.assignedDay { record["assignedDay"] = day.rawValue as CKRecordValue }
+        if let area = chore.areaId { record["areaId"] = area.uuidString as CKRecordValue }
+        record["createdDate"] = chore.createdDate as CKRecordValue
+        return record
+    }
+
+    private func record(from area: Area, parent: CKRecord) -> CKRecord {
+        let record = CKRecord(recordType: SharedRecordKeys.areaRecordType, recordID: CKRecord.ID(recordName: area.id.uuidString))
+        record.parent = CKRecord.Reference(recordID: parent.recordID, action: .deleteSelf)
+        record["name"] = area.name as CKRecordValue
+        record["description"] = area.description as CKRecordValue
+        return record
+    }
+
+    private func record(from completion: Completion, parent: CKRecord) -> CKRecord {
+        let record = CKRecord(recordType: SharedRecordKeys.completionRecordType, recordID: CKRecord.ID(recordName: completion.id.uuidString))
+        record.parent = CKRecord.Reference(recordID: parent.recordID, action: .deleteSelf)
+        record["choreId"] = completion.choreId.uuidString as CKRecordValue
+        record["date"] = completion.date as CKRecordValue
+        if let notes = completion.notes { record["notes"] = notes as CKRecordValue }
+        return record
+    }
+
+    private func recordToChore(_ record: CKRecord) -> Chore? {
+        guard let name = record["name"] as? String else { return nil }
+        let id = UUID(uuidString: record.recordID.recordName) ?? UUID()
+        let isDaily = record["isDaily"] as? Bool ?? false
+        let freq = (record["frequency"] as? String).flatMap { Frequency(rawValue: $0) }
+        let day = (record["assignedDay"] as? String).flatMap { Weekday(rawValue: $0) }
+        let area = (record["areaId"] as? String).flatMap { UUID(uuidString: $0) }
+        let created = record["createdDate"] as? Date ?? Date()
+        return Chore(id: id, name: name, isDaily: isDaily, frequency: freq, assignedDay: day, areaId: area, createdDate: created)
+    }
+
+    private func recordToArea(_ record: CKRecord) -> Area? {
+        guard let name = record["name"] as? String,
+              let desc = record["description"] as? String else { return nil }
+        let id = UUID(uuidString: record.recordID.recordName) ?? UUID()
+        return Area(id: id, name: name, description: desc)
+    }
+
+    private func recordToCompletion(_ record: CKRecord) -> Completion? {
+        guard let choreStr = record["choreId"] as? String,
+              let choreId = UUID(uuidString: choreStr),
+              let date = record["date"] as? Date else { return nil }
+        let id = UUID(uuidString: record.recordID.recordName) ?? UUID()
+        let notes = record["notes"] as? String
+        return Completion(id: id, choreId: choreId, date: date, notes: notes)
     }
 }
 

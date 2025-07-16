@@ -318,9 +318,7 @@ final class AppModel: ObservableObject {
 
     /// Loads any shared app state from CloudKit and merges it into the current state.
     func loadSharedState() async {
-        guard let record = await cloudController.fetchSharedRootRecord(),
-              let data = record[SharedRecordKeys.jsonKey] as? Data,
-              let decoded = try? JSONDecoder().decode(SavedState.self, from: data) else {
+        guard let decoded = try? await cloudController.fetchSharedState() else {
             sharingEnabled = false
             return
         }
@@ -353,9 +351,7 @@ final class AppModel: ObservableObject {
 
         var allCompletions: [Completion] = []
         if sharingEnabled,
-           let record = await cloudController.fetchSharedRootRecord(),
-           let data = record[SharedRecordKeys.jsonKey] as? Data,
-           let decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
+           let decoded = try? await cloudController.fetchSharedState() {
             allCompletions = decoded.completions
         } else if let data = try? Data(contentsOf: fileURL),
                   let decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
