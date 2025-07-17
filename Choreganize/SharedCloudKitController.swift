@@ -86,8 +86,7 @@ extension CKDatabase: CloudDatabase {
     func llmAllRecords(ofType type: String, in zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
         let query = CKQuery(recordType: type, predicate: NSPredicate(value: true))
 
-        let result = try await records(matching: query, inZoneWith: zoneID)
-        let records = result.matchResults.compactMap { _, r in try? r.get() }
+        let records = try await records(matching: query, inZoneWith: zoneID)
         return records
     }
 }
@@ -216,11 +215,18 @@ final class SharedCloudKitController: NSObject {
             }
             self.container = defaultContainer
         }
-        self.sharedDB = self.container.sharedDatabase
+        self.sharedDB  = self.container.sharedDatabase
         self.privateDB = self.container.privateDatabase
+
+        super.init()   // self is now fully initialised
+
         SharedRecordKeys.ensureAccountObservation()
-        Task { try? await prepareUserContext() }
+
+        Task { [weak self] in
+            try? await self?.prepareUserContext()
+        }
     }
+
 
     private func createZoneIfNeeded(_ zoneID: CKRecordZone.ID) async {
         guard let db = privateDB as? CKDatabase else { return }
@@ -363,28 +369,51 @@ final class SharedCloudKitController: NSObject {
 
     /// Fetches or creates the share + root record pair used for collaboration.
     private func fetchOrCreateShare() async throws -> (CKRecord, CKShare) {
+
+        // Try to reuse an existing share + root.
         if let shareID = try await storedShareID(),
-           let share = try? await privateDB.llmRecord(for: shareID) as? CKShare,
-           let root = try? await privateDB.llmRecord(for: (try await storedRootID()) ?? (try await ensureRootRecordID())) {
-            activeShare = share
-            return (root, share)
+           let share   = try? await privateDB.llmRecord(for: shareID) as? CKShare {
+            
+            let rootID: CKRecord.ID
+            if let stored = try await storedRootID() {
+                rootID = stored
+            } else {
+                rootID = try await ensureRootRecordID()
+            }
+
+            if let root = try? await privateDB.llmRecord(for: rootID) {
+                activeShare = share
+                return (root, share)
+            }
         }
 
-        let record = try await fetchOrCreateRootRecord()
-        let zone = try await ensureZoneID()
-        let share = CKShare(recordZoneID: zone, shareMenuOption: .allowReadWrite)
-        share[CKShare.SystemFieldKey.title] = "Choreganize" as CKRecordValue
-        share.publicPermission = .none
+        // Create a new root record and share.
+        let rootRecord = try await fetchOrCreateRootRecord()
+        let zoneID     = try await ensureZoneID()           // ensure the per‑user zone exists
 
-        _ = try await privateDB.llmModifyRecords(saving: [record, share], deleting: [], savePolicy: .ifServerRecordUnchanged)
-        _ = try? await sharedDB.llmModifyRecords(saving: [record], deleting: [], savePolicy: .changedKeys)
+        let share = CKShare(rootRecord: rootRecord)
+        share[CKShare.SystemFieldKey.title] = "Choreganize" as CKRecordValue
+        share.publicPermission = CKShare.ParticipantPermission.none
+
+        _ = try await privateDB.llmModifyRecords(
+                saving: [rootRecord, share],
+                deleting: [],
+                savePolicy: .ifServerRecordUnchanged)
+
+        try? await sharedDB.llmModifyRecords(
+                saving: [rootRecord],
+                deleting: [],
+                savePolicy: .changedKeys)
 
         storedShareRecordName = share.recordID.recordName
-        storedRootRecordName = record.recordID.recordName
-        storedSubscriptionID = SharedRecordKeys.subscriptionID(for: share.recordID)
-        activeShare = share
-        return (record, share)
+        storedRootRecordName  = rootRecord.recordID.recordName
+        storedSubscriptionID  = SharedRecordKeys.subscriptionID(for: share.recordID)
+        activeShare           = share
+
+        return (rootRecord, share)
     }
+
+
 
     /// Processes a push notification from CloudKit and merges any updates.
     func handleRemoteNotification(_ userInfo: [AnyHashable : Any]) async {
