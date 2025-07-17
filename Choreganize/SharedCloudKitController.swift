@@ -183,6 +183,19 @@ final class SharedCloudKitController: NSObject {
         set { defaults.setValue(newValue?.recordName, forKey: SharedRecordKeys.savedRootRecordKey) }
     }
 
+    private var storedSubscriptionID: String? {
+        get {
+            if let id = defaults.string(forKey: SharedRecordKeys.savedSubscriptionIDKey) {
+                return id
+            } else if let shareID = storedShareID {
+                return SharedRecordKeys.subscriptionID(for: shareID)
+            } else {
+                return nil
+            }
+        }
+        set { defaults.setValue(newValue, forKey: SharedRecordKeys.savedSubscriptionIDKey) }
+    }
+
     init(container: CloudContainer? = nil) {
         if let container = container {
             self.container = container
@@ -218,9 +231,17 @@ final class SharedCloudKitController: NSObject {
     // MARK: - Subscriptions
     /// Subscribes for silent push notifications when the shared record changes.
     func subscribeToChanges() async {
-        let id = SharedRecordKeys.subscriptionID
+        guard let shareID = storedShareID else { return }
+        let subID: String
+        if let existing = storedSubscriptionID {
+            subID = existing
+        } else {
+            let generated = SharedRecordKeys.subscriptionID(for: shareID)
+            storedSubscriptionID = generated
+            subID = generated
+        }
         let predicate = NSPredicate(value: true)
-        let sub = CKQuerySubscription(recordType: SharedRecordKeys.rootRecordType, predicate: predicate, subscriptionID: id, options: [.firesOnRecordUpdate, .firesOnRecordCreation])
+        let sub = CKQuerySubscription(recordType: SharedRecordKeys.rootRecordType, predicate: predicate, subscriptionID: subID, options: [.firesOnRecordUpdate, .firesOnRecordCreation])
         let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true
         sub.notificationInfo = info
@@ -230,7 +251,11 @@ final class SharedCloudKitController: NSObject {
     /// Removes the subscription and any shared state from CloudKit.
     func stopSharing() async {
         do {
-            _ = try? await sharedDB.llmDeleteSubscription(withID: SharedRecordKeys.subscriptionID)
+            if let subID = storedSubscriptionID {
+                _ = try? await sharedDB.llmDeleteSubscription(withID: subID)
+            }
+            // Clean up legacy subscription if present
+            _ = try? await sharedDB.llmDeleteSubscription(withID: SharedRecordKeys.legacySubscriptionID)
             try? await sharedDB.llmDeleteRecord(withID: SharedRecordKeys.recordID)
             try? await privateDB.llmDeleteRecord(withID: SharedRecordKeys.recordID)
         }
@@ -256,6 +281,7 @@ final class SharedCloudKitController: NSObject {
     func storeShareMetadata(_ metadata: CKShare.Metadata) {
         storedShareID = metadata.share.recordID
         storedRootID = metadata.rootRecord?.recordID
+        storedSubscriptionID = SharedRecordKeys.subscriptionID(for: metadata.share.recordID)
     }
 
     // MARK: - Share creation
@@ -307,14 +333,16 @@ final class SharedCloudKitController: NSObject {
 
         storedShareID = share.recordID
         storedRootID = record.recordID
+        storedSubscriptionID = SharedRecordKeys.subscriptionID(for: share.recordID)
         activeShare = share
         return (record, share)
     }
 
     /// Processes a push notification from CloudKit and merges any updates.
     func handleRemoteNotification(_ userInfo: [AnyHashable : Any]) async {
-        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
-              notification.subscriptionID == SharedRecordKeys.subscriptionID else { return }
+        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification else { return }
+        let validIDs = [storedSubscriptionID, SharedRecordKeys.legacySubscriptionID]
+        guard validIDs.contains(notification.subscriptionID) else { return }
         guard let state = try? await fetchSharedState() else { return }
         await MainActor.run { self.onStateChange?(state) }
     }
@@ -401,6 +429,7 @@ extension SharedCloudKitController: UICloudSharingControllerDelegate {
     func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
         guard let share = csc.share else { return }
         storedShareID = share.recordID
+        storedSubscriptionID = SharedRecordKeys.subscriptionID(for: share.recordID)
     }
 
     func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) {

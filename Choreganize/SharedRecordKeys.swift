@@ -2,7 +2,10 @@ import CloudKit
 
 struct SharedRecordKeys {
     static let recordID = CKRecord.ID(recordName: "SharedAppState")
-    static let subscriptionID = "shared-db-changes"
+    static let legacySubscriptionID = "shared-db-changes"
+    static func subscriptionID(for recordID: CKRecord.ID) -> String {
+        recordID.recordName + "-changes"
+    }
     static let jsonKey = "json"
     static let lastEditedKey = "lastEdited"
     static let historyZoneName = "HistoryZone"
@@ -14,4 +17,5 @@ struct SharedRecordKeys {
     // Keys for persisting share information in UserDefaults
     static let savedShareRecordKey = "ckShareRecordName"
     static let savedRootRecordKey = "ckRootRecordName"
+    static let savedSubscriptionIDKey = "ckSubscriptionID"
 }
