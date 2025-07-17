@@ -85,7 +85,19 @@ extension CKDatabase: CloudDatabase {
 
     func llmAllRecords(ofType type: String) async throws -> [CKRecord] {
         let query = CKQuery(recordType: type, predicate: NSPredicate(value: true))
-        return try await perform(query, inZoneWith: nil)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var results: [CKRecord] = []
+            let op = CKQueryOperation(query: query)
+            op.recordFetchedBlock = { record in
+                results.append(record)
+            }
+            op.queryCompletionBlock = { _, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: results) }
+            }
+            self.add(op)
+        }
     }
 }
 
