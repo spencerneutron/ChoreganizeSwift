@@ -13,7 +13,7 @@ protocol CloudDatabase {
     func llmDeleteRecord(withID id: CKRecord.ID) async throws
     func llmDeleteSubscription(withID id: String) async throws
     func save(_ subscription: CKSubscription) async throws -> CKSubscription
-    func llmAllRecords(ofType type: String) async throws -> [CKRecord]
+    func llmAllRecords(ofType type: String, in zoneID: CKRecordZone.ID) async throws -> [CKRecord]
 }
 
 protocol CloudContainer {
@@ -83,21 +83,12 @@ extension CKDatabase: CloudDatabase {
         }
     }
 
-    func llmAllRecords(ofType type: String) async throws -> [CKRecord] {
+    func llmAllRecords(ofType type: String, in zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
         let query = CKQuery(recordType: type, predicate: NSPredicate(value: true))
 
-        return try await withCheckedThrowingContinuation { continuation in
-            var results: [CKRecord] = []
-            let op = CKQueryOperation(query: query)
-            op.recordFetchedBlock = { record in
-                results.append(record)
-            }
-            op.queryCompletionBlock = { _, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: results) }
-            }
-            self.add(op)
-        }
+        let result = try await records(matching: query, inZoneWith: zoneID)
+        let records = result.matchResults.compactMap { _, r in try? r.get() }
+        return records
     }
 }
 
@@ -142,8 +133,8 @@ final class MockCloudDatabase: CloudDatabase {
         return subscription
     }
 
-    func llmAllRecords(ofType type: String) async throws -> [CKRecord] {
-        return records.values.filter { $0.recordType == type }
+    func llmAllRecords(ofType type: String, in zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
+        return records.values.filter { $0.recordType == type && $0.recordID.zoneID == zoneID }
     }
 }
 
@@ -173,6 +164,7 @@ final class SharedCloudKitController: NSObject {
     private let container: CloudContainer
     private let sharedDB: CloudDatabase
     private let privateDB: CloudDatabase
+    private let zoneID = SharedRecordKeys.ownerZoneID
     /// Callback fired when new shared state is downloaded.
     var onStateChange: ((AppModel.SavedState) -> Void)?
 
@@ -182,7 +174,7 @@ final class SharedCloudKitController: NSObject {
     private var storedShareID: CKRecord.ID? {
         get {
             guard let name = defaults.string(forKey: SharedRecordKeys.savedShareRecordKey) else { return nil }
-            return CKRecord.ID(recordName: name)
+            return CKRecord.ID(recordName: name, zoneID: zoneID)
         }
         set { defaults.setValue(newValue?.recordName, forKey: SharedRecordKeys.savedShareRecordKey) }
     }
@@ -190,7 +182,7 @@ final class SharedCloudKitController: NSObject {
     private var storedRootID: CKRecord.ID? {
         get {
             guard let name = defaults.string(forKey: SharedRecordKeys.savedRootRecordKey) else { return nil }
-            return CKRecord.ID(recordName: name)
+            return CKRecord.ID(recordName: name, zoneID: zoneID)
         }
         set { defaults.setValue(newValue?.recordName, forKey: SharedRecordKeys.savedRootRecordKey) }
     }
@@ -219,6 +211,17 @@ final class SharedCloudKitController: NSObject {
         }
         self.sharedDB = self.container.sharedDatabase
         self.privateDB = self.container.privateDatabase
+        Task { await createZoneIfNeeded() }
+    }
+
+    private func createZoneIfNeeded() async {
+        guard let db = privateDB as? CKDatabase else { return }
+        let zone = CKRecordZone(zoneID: zoneID)
+        do {
+            _ = try await db.modifyRecordZones(saving: [zone], deleting: [])
+        } catch {
+            // Ignore failures -- zone may already exist or CloudKit may be unavailable
+        }
     }
 
 
@@ -336,7 +339,7 @@ final class SharedCloudKitController: NSObject {
         }
 
         let record = try await fetchOrCreateRootRecord()
-        let share = CKShare(rootRecord: record)
+        let share = CKShare(rootRecord: record, shareMenuOption: .allowReadWrite)
         share[CKShare.SystemFieldKey.title] = "Choreganize" as CKRecordValue
         share.publicPermission = .none
 
@@ -366,9 +369,9 @@ final class SharedCloudKitController: NSObject {
     /// Downloads all shared records and assembles an app state.
     func fetchSharedState() async throws -> AppModel.SavedState {
         _ = try await fetchOrCreateRootRecord()
-        let choreRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.choreRecordType)
-        let areaRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.areaRecordType)
-        let completionRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.completionRecordType)
+        let choreRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.choreRecordType, in: zoneID)
+        let areaRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.areaRecordType, in: zoneID)
+        let completionRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.completionRecordType, in: zoneID)
 
         let chores = choreRecords.compactMap(recordToChore)
         let areas = areaRecords.compactMap(recordToArea)
@@ -378,7 +381,7 @@ final class SharedCloudKitController: NSObject {
 
     // MARK: - Record Conversion
     private func record(from chore: Chore, parent: CKRecord) -> CKRecord {
-        let record = CKRecord(recordType: SharedRecordKeys.choreRecordType, recordID: CKRecord.ID(recordName: chore.id.uuidString))
+        let record = CKRecord(recordType: SharedRecordKeys.choreRecordType, recordID: CKRecord.ID(recordName: chore.id.uuidString, zoneID: zoneID))
         record.parent = CKRecord.Reference(recordID: parent.recordID, action: .none)
         record["name"] = chore.name as CKRecordValue
         record["isDaily"] = chore.isDaily as CKRecordValue
@@ -390,7 +393,7 @@ final class SharedCloudKitController: NSObject {
     }
 
     private func record(from area: Area, parent: CKRecord) -> CKRecord {
-        let record = CKRecord(recordType: SharedRecordKeys.areaRecordType, recordID: CKRecord.ID(recordName: area.id.uuidString))
+        let record = CKRecord(recordType: SharedRecordKeys.areaRecordType, recordID: CKRecord.ID(recordName: area.id.uuidString, zoneID: zoneID))
         record.parent = CKRecord.Reference(recordID: parent.recordID, action: .none)
         record["name"] = area.name as CKRecordValue
         record["description"] = area.description as CKRecordValue
@@ -398,7 +401,7 @@ final class SharedCloudKitController: NSObject {
     }
 
     private func record(from completion: Completion, parent: CKRecord) -> CKRecord {
-        let record = CKRecord(recordType: SharedRecordKeys.completionRecordType, recordID: CKRecord.ID(recordName: completion.id.uuidString))
+        let record = CKRecord(recordType: SharedRecordKeys.completionRecordType, recordID: CKRecord.ID(recordName: completion.id.uuidString, zoneID: zoneID))
         record.parent = CKRecord.Reference(recordID: parent.recordID, action: .none)
         record["choreId"] = completion.choreId.uuidString as CKRecordValue
         record["date"] = completion.date as CKRecordValue

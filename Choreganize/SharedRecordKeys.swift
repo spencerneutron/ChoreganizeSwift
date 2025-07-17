@@ -1,7 +1,9 @@
 import CloudKit
 
 struct SharedRecordKeys {
-    static let recordID = CKRecord.ID(recordName: "SharedAppState")
+    static let ownerZoneName = "OwnerZone"
+    static let ownerZoneID = CKRecordZone.ID(zoneName: ownerZoneName, ownerName: CKCurrentUserDefaultName)
+    static let recordID = CKRecord.ID(recordName: "SharedAppState", zoneID: ownerZoneID)
     static let legacySubscriptionID = "shared-db-changes"
     static func subscriptionID(for recordID: CKRecord.ID) -> String {
         recordID.recordName + "-changes"
