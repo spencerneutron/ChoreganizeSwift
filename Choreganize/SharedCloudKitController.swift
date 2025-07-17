@@ -371,7 +371,8 @@ final class SharedCloudKitController: NSObject {
         }
 
         let record = try await fetchOrCreateRootRecord()
-        let share = CKShare(rootRecord: record, shareMenuOption: .allowReadWrite)
+        let zone = try await ensureZoneID()
+        let share = CKShare(recordZoneID: zone, shareMenuOption: .allowReadWrite)
         share[CKShare.SystemFieldKey.title] = "Choreganize" as CKRecordValue
         share.publicPermission = .none
 
