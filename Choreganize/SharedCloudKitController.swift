@@ -13,7 +13,7 @@ protocol CloudDatabase {
     func llmDeleteRecord(withID id: CKRecord.ID) async throws
     func llmDeleteSubscription(withID id: String) async throws
     func save(_ subscription: CKSubscription) async throws -> CKSubscription
-    func llmAllRecords(ofType type: String, in zoneID: CKRecordZone.ID) async throws -> [CKRecord]
+    func llmAllRecords(ofType type: String, parentID: CKRecord.ID, in zoneID: CKRecordZone.ID) async throws -> [CKRecord]
 }
 
 protocol CloudContainer {
@@ -83,13 +83,61 @@ extension CKDatabase: CloudDatabase {
         }
     }
 
-    func llmAllRecords(ofType type: String, in zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
-        let query = CKQuery(recordType: type, predicate: NSPredicate(value: true))
+    func llmAllRecords(
+        ofType type: String,
+        parentID: CKRecord.ID,
+        in zoneID: CKRecordZone.ID
+    ) async throws -> [CKRecord] {
+        let parentRef = CKRecord.Reference(recordID: parentID, action: .none)
+        let predicate = NSPredicate(format: "parent == %@", parentRef)
+        let query = CKQuery(recordType: type, predicate: predicate)
 
-        let records = try await records(matching: query, inZoneWith: zoneID)
-        return records
+        var results: [CKRecord] = []
+        for try await record in recordsStream(matching: query, in: zoneID) {
+            results.append(record)
+        }
+        return results
     }
 }
+
+extension CKDatabase {
+    /// Streams records for a query in the given zone, paging under the hood.
+    func recordsStream(
+        matching query: CKQuery,
+        in zoneID: CKRecordZone.ID,
+        desiredKeys: [CKRecord.FieldKey]? = nil,
+        resultsLimit: Int = 400
+    ) -> AsyncThrowingStream<CKRecord, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    var page = try await self.records(
+                        matching: query,
+                        inZoneWith: zoneID,
+                        desiredKeys: desiredKeys,
+                        resultsLimit: resultsLimit
+                    )
+                    for (_, result) in page.matchResults { continuation.yield(try result.get()) }
+
+                    var cursor = page.queryCursor
+                    while let c = cursor {
+                        page = try await self.records(
+                            continuingMatchFrom: c,
+                            desiredKeys: desiredKeys,
+                            resultsLimit: resultsLimit
+                        )
+                        for (_, result) in page.matchResults { continuation.yield(try result.get()) }
+                        cursor = page.queryCursor
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+}
+
 
 extension CKContainer: CloudContainer {
     var sharedDatabase: CloudDatabase { sharedCloudDatabase }
@@ -132,8 +180,12 @@ final class MockCloudDatabase: CloudDatabase {
         return subscription
     }
 
-    func llmAllRecords(ofType type: String, in zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
-        return records.values.filter { $0.recordType == type && $0.recordID.zoneID == zoneID }
+    func llmAllRecords(ofType type: String, parentID: CKRecord.ID, in zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
+        return records.values.filter {
+            $0.recordType == type &&
+            $0.recordID.zoneID == zoneID &&
+            $0.parent?.recordID == parentID
+        }
     }
 }
 
@@ -431,11 +483,12 @@ final class SharedCloudKitController: NSObject {
 
     /// Downloads all shared records and assembles an app state.
     func fetchSharedState() async throws -> AppModel.SavedState {
+        let rootID = try await ensureRootRecordID()
         _ = try await fetchOrCreateRootRecord()
         let zone = try await ensureZoneID()
-        let choreRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.choreRecordType, in: zone)
-        let areaRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.areaRecordType, in: zone)
-        let completionRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.completionRecordType, in: zone)
+        let choreRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.choreRecordType, parentID: rootID, in: zone)
+        let areaRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.areaRecordType, parentID: rootID, in: zone)
+        let completionRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.completionRecordType, parentID: rootID, in: zone)
 
         let chores = choreRecords.compactMap(recordToChore)
         let areas = areaRecords.compactMap(recordToArea)
