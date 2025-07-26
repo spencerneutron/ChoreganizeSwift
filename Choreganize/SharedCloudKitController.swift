@@ -361,9 +361,11 @@ final class SharedCloudKitController: NSObject {
     }
 
     // MARK: - Subscriptions
-    /// Subscribes for silent push notifications when the shared record changes.
+    /// Subscribes for silent push notifications when the shared root record changes.
+    /// Limits the subscription to the specific record to avoid cross‑share notifications.
     func subscribeToChanges() async {
-        guard let shareID = try? await storedShareID() else { return }
+        guard let shareID = try? await storedShareID(),
+              let rootID  = try? await storedRootID() else { return }
         let subID: String
         if let existing = storedSubscriptionID {
             subID = existing
@@ -372,8 +374,9 @@ final class SharedCloudKitController: NSObject {
             storedSubscriptionID = generated
             subID = generated
         }
-        let predicate = NSPredicate(value: true)
+        let predicate = NSPredicate(format: "recordID == %@", rootID)
         let sub = CKQuerySubscription(recordType: SharedRecordKeys.rootRecordType, predicate: predicate, subscriptionID: subID, options: [.firesOnRecordUpdate, .firesOnRecordCreation])
+        sub.zoneID = rootID.zoneID
         let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true
         sub.notificationInfo = info
