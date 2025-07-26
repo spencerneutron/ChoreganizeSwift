@@ -83,23 +83,61 @@ extension CKDatabase: CloudDatabase {
         }
     }
 
-    func llmAllRecords(ofType type: String, parentID: CKRecord.ID, in zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
+    func llmAllRecords(
+        ofType type: String,
+        parentID: CKRecord.ID,
+        in zoneID: CKRecordZone.ID
+    ) async throws -> [CKRecord] {
         let parentRef = CKRecord.Reference(recordID: parentID, action: .none)
         let predicate = NSPredicate(format: "parent == %@", parentRef)
         let query = CKQuery(recordType: type, predicate: predicate)
 
         var results: [CKRecord] = []
-        for try await result in records(matching: query, inZoneWith: zoneID) {
-            switch result {
-            case .success(let record):
-                results.append(record)
-            case .failure(let error):
-                throw error
-            }
+        for try await record in recordsStream(matching: query, in: zoneID) {
+            results.append(record)
         }
         return results
     }
 }
+
+extension CKDatabase {
+    /// Streams records for a query in the given zone, paging under the hood.
+    func recordsStream(
+        matching query: CKQuery,
+        in zoneID: CKRecordZone.ID,
+        desiredKeys: [CKRecord.FieldKey]? = nil,
+        resultsLimit: Int = 400
+    ) -> AsyncThrowingStream<CKRecord, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    var page = try await self.records(
+                        matching: query,
+                        inZoneWith: zoneID,
+                        desiredKeys: desiredKeys,
+                        resultsLimit: resultsLimit
+                    )
+                    for (_, result) in page.matchResults { continuation.yield(try result.get()) }
+
+                    var cursor = page.queryCursor
+                    while let c = cursor {
+                        page = try await self.records(
+                            continuingMatchFrom: c,
+                            desiredKeys: desiredKeys,
+                            resultsLimit: resultsLimit
+                        )
+                        for (_, result) in page.matchResults { continuation.yield(try result.get()) }
+                        cursor = page.queryCursor
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+}
+
 
 extension CKContainer: CloudContainer {
     var sharedDatabase: CloudDatabase { sharedCloudDatabase }
