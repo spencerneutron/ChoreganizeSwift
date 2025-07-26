@@ -30,9 +30,14 @@ final class AppModel: ObservableObject {
             }
         }
         Task {
-            await loadSharedState()
-            if sharingEnabled {
-                await cloudController.subscribeToChanges()
+            let restored = await cloudController.restorePersistedShare()
+            if restored {
+                await loadSharedState()
+                if sharingEnabled {
+                    await cloudController.subscribeToChanges()
+                }
+            } else if sharingEnabled {
+                sharingEnabled = false
             }
         }
     }

@@ -258,6 +258,36 @@ final class SharedCloudKitController: NSObject {
         set { defaults.setValue(newValue, forKey: SharedRecordKeys.savedSubscriptionIDKey) }
     }
 
+    private func clearStoredShareInfo() {
+        storedShareRecordName = nil
+        storedRootRecordName = nil
+        storedSubscriptionID = nil
+        activeShare = nil
+    }
+
+    /// Attempts to restore the previously accepted share. Returns `true` if the
+    /// share and root record still exist and `activeShare` was populated.
+    func restorePersistedShare() async -> Bool {
+        guard let shareID = try? await storedShareID(),
+              let rootID  = try? await storedRootID() else {
+            return false
+        }
+
+        do {
+            guard let share = try await privateDB.llmRecord(for: shareID) as? CKShare else {
+                clearStoredShareInfo()
+                return false
+            }
+
+            _ = try await privateDB.llmRecord(for: rootID)
+            activeShare = share
+            return true
+        } catch {
+            clearStoredShareInfo()
+            return false
+        }
+    }
+
     init(container: CloudContainer? = nil) {
         if let container = container {
             self.container = container
@@ -363,6 +393,7 @@ final class SharedCloudKitController: NSObject {
                 try? await privateDB.llmDeleteRecord(withID: rootID)
             }
         }
+        clearStoredShareInfo()
     }
 
     // MARK: - Share acceptance
