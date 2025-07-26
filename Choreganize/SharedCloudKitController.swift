@@ -222,26 +222,38 @@ final class SharedCloudKitController: NSObject {
 
     private let defaults = UserDefaults.standard
     private var activeShare: CKShare?
+    private var shareOperationInProgress = false
 
-    private var storedShareRecordName: String? {
-        get { defaults.string(forKey: SharedRecordKeys.savedShareRecordKey) }
-        set { defaults.setValue(newValue, forKey: SharedRecordKeys.savedShareRecordKey) }
+    private struct PersistedShare: Codable {
+        let zoneName: String
+        let zoneOwner: String
+        let rootRecordName: String?
+        let shareRecordName: String
     }
 
-    private var storedRootRecordName: String? {
-        get { defaults.string(forKey: SharedRecordKeys.savedRootRecordKey) }
-        set { defaults.setValue(newValue, forKey: SharedRecordKeys.savedRootRecordKey) }
+    private var persistedShare: PersistedShare? {
+        get {
+            guard let data = defaults.data(forKey: SharedRecordKeys.savedShareInfoKey) else { return nil }
+            return try? JSONDecoder().decode(PersistedShare.self, from: data)
+        }
+        set {
+            if let value = newValue, let data = try? JSONEncoder().encode(value) {
+                defaults.setValue(data, forKey: SharedRecordKeys.savedShareInfoKey)
+            } else {
+                defaults.removeObject(forKey: SharedRecordKeys.savedShareInfoKey)
+            }
+        }
     }
 
     private func storedShareID() async throws -> CKRecord.ID? {
-        guard let name = storedShareRecordName else { return nil }
-        let zone = try await ensureZoneID()
-        return CKRecord.ID(recordName: name, zoneID: zone)
+        guard let info = persistedShare else { return nil }
+        let zone = CKRecordZone.ID(zoneName: info.zoneName, ownerName: info.zoneOwner)
+        return CKRecord.ID(recordName: info.shareRecordName, zoneID: zone)
     }
 
     private func storedRootID() async throws -> CKRecord.ID? {
-        guard let name = storedRootRecordName else { return nil }
-        let zone = try await ensureZoneID()
+        guard let info = persistedShare, let name = info.rootRecordName else { return nil }
+        let zone = CKRecordZone.ID(zoneName: info.zoneName, ownerName: info.zoneOwner)
         return CKRecord.ID(recordName: name, zoneID: zone)
     }
 
@@ -249,8 +261,9 @@ final class SharedCloudKitController: NSObject {
         get {
             if let id = defaults.string(forKey: SharedRecordKeys.savedSubscriptionIDKey) {
                 return id
-            } else if let name = storedShareRecordName {
-                return SharedRecordKeys.subscriptionID(for: CKRecord.ID(recordName: name))
+            } else if let info = persistedShare {
+                let shareID = CKRecord.ID(recordName: info.shareRecordName, zoneID: CKRecordZone.ID(zoneName: info.zoneName, ownerName: info.zoneOwner))
+                return SharedRecordKeys.subscriptionID(for: shareID)
             } else {
                 return nil
             }
@@ -259,8 +272,7 @@ final class SharedCloudKitController: NSObject {
     }
 
     private func clearStoredShareInfo() {
-        storedShareRecordName = nil
-        storedRootRecordName = nil
+        persistedShare = nil
         storedSubscriptionID = nil
         activeShare = nil
     }
@@ -401,6 +413,9 @@ final class SharedCloudKitController: NSObject {
 
     // MARK: - Share acceptance
     func acceptShare(url: URL) async -> Bool {
+        guard !shareOperationInProgress else { return false }
+        shareOperationInProgress = true
+        defer { shareOperationInProgress = false }
         do {
             let metadata = try await container.llmMetadata(for: url)
             storeShareMetadata(metadata)
@@ -417,14 +432,22 @@ final class SharedCloudKitController: NSObject {
     /// Persists identifiers from an accepted share so future operations can
     /// reference the correct CloudKit records.
     func storeShareMetadata(_ metadata: CKShare.Metadata) {
-        storedShareRecordName = metadata.share.recordID.recordName
-        storedRootRecordName = metadata.rootRecord?.recordID.recordName
+        let zone = metadata.share.recordID.zoneID
+        persistedShare = PersistedShare(
+            zoneName: zone.zoneName,
+            zoneOwner: zone.ownerName,
+            rootRecordName: metadata.rootRecord?.recordID.recordName,
+            shareRecordName: metadata.share.recordID.recordName
+        )
         storedSubscriptionID = SharedRecordKeys.subscriptionID(for: metadata.share.recordID)
     }
 
     // MARK: - Share creation
     @MainActor
     func inviteCollaborator(from viewController: UIViewController) async {
+        guard !shareOperationInProgress else { return }
+        shareOperationInProgress = true
+        defer { shareOperationInProgress = false }
         do {
             let (_, share) = try await fetchOrCreateShare()
             if let ckContainer = container as? CKContainer {
@@ -491,8 +514,12 @@ final class SharedCloudKitController: NSObject {
                 deleting: [],
                 savePolicy: .changedKeys)
 
-        storedShareRecordName = share.recordID.recordName
-        storedRootRecordName  = rootRecord.recordID.recordName
+        persistedShare = PersistedShare(
+            zoneName: zoneID.zoneName,
+            zoneOwner: zoneID.ownerName,
+            rootRecordName: rootRecord.recordID.recordName,
+            shareRecordName: share.recordID.recordName
+        )
         storedSubscriptionID  = SharedRecordKeys.subscriptionID(for: share.recordID)
         activeShare           = share
 
@@ -594,7 +621,13 @@ extension SharedCloudKitController: UICloudSharingControllerDelegate {
 
     func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
         guard let share = csc.share else { return }
-        storedShareRecordName = share.recordID.recordName
+        let zone = share.recordID.zoneID
+        persistedShare = PersistedShare(
+            zoneName: zone.zoneName,
+            zoneOwner: zone.ownerName,
+            rootRecordName: rootRecordID?.recordName,
+            shareRecordName: share.recordID.recordName
+        )
         storedSubscriptionID = SharedRecordKeys.subscriptionID(for: share.recordID)
     }
 

@@ -64,4 +64,5 @@ struct SharedRecordKeys {
     static let savedShareRecordKey = "ckShareRecordName"
     static let savedRootRecordKey = "ckRootRecordName"
     static let savedSubscriptionIDKey = "ckSubscriptionID"
+    static let savedShareInfoKey = "ckShareInfo"
 }
