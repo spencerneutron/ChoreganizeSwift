@@ -8,6 +8,7 @@ struct ChoreganizeApp: App {
 
     init() {
         _model = StateObject(wrappedValue: AppModel())
+        Log.setLevel(.trace)
     }
 
     var body: some Scene {

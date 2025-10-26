@@ -15,8 +15,7 @@ struct LogViewerView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding([.horizontal, .top])
-                .onChange(of: selectedLevel) { _, newValue in
-                    Log.setLevel(newValue)
+                .onChange(of: selectedLevel) { _, _ in
                     Task { await refresh() }
                 }
 
@@ -54,7 +53,7 @@ struct LogViewerView: View {
     }
 
     private func refresh() async {
-        logs = await Log.bufferSnapshot()
+        logs = await Log.bufferSnapshot(minLevel: selectedLevel)
     }
 }
 

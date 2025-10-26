@@ -41,6 +41,15 @@ public actor LogBuffer {
             "\(formatter.string(from: $0.date)) [\($0.level)] [\($0.category.rawValue)] \($0.message)"
         }
     }
+
+    public func snapshot(minLevel: LogLevel) -> [String] {
+        let formatter = ISO8601DateFormatter()
+        return entries
+            .filter { $0.level.rawValue <= minLevel.rawValue }
+            .map { entry in
+                "\(formatter.string(from: entry.date)) [\(entry.level)] [\(entry.category.rawValue)] \(entry.message)"
+            }
+    }
 }
 
 public struct Log {
@@ -94,4 +103,8 @@ public struct Log {
 
     // Retrieve buffer snapshot
     public static func bufferSnapshot() async -> [String] { await buffer.snapshot() }
+
+    public static func bufferSnapshot(minLevel: LogLevel) async -> [String] {
+        await buffer.snapshot(minLevel: minLevel)
+    }
 }
