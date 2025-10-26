@@ -326,21 +326,39 @@ final class SharedCloudKitController: NSObject {
     /// share and root record still exist and `activeShare` was populated.
     func restorePersistedShare() async -> Bool {
         Log.debug("Attempting to restore persisted share", category: .cloud)
-        guard let shareID = try? await storedShareID(),
-              let rootID  = try? await storedRootID() else {
-            return false
+        guard let infoData = persistedShare else { return false }
+
+        // Build IDs for the private DB (current user) and shared DB (owner) contexts.
+        let shareIDPrivate = CKRecord.ID(
+            recordName: infoData.shareRecordName,
+            zoneID: CKRecordZone.ID(zoneName: infoData.zoneName, ownerName: CKCurrentUserDefaultName)
+        )
+
+        // The root record lives in the owner's zone when accessed via the shared DB.
+        let rootIDShared = infoData.rootRecordName.map {
+            CKRecord.ID(recordName: $0, zoneID: CKRecordZone.ID(zoneName: infoData.zoneName, ownerName: infoData.zoneOwner))
+        }
+        // When checking the private DB (owner case), use the current user's zone owner name placeholder.
+        let rootIDPrivate = infoData.rootRecordName.map {
+            CKRecord.ID(recordName: $0, zoneID: CKRecordZone.ID(zoneName: infoData.zoneName, ownerName: CKCurrentUserDefaultName))
         }
 
         do {
-            guard let share = try await privateDB.llmRecord(for: shareID) as? CKShare else {
+            guard let share = try await privateDB.llmRecord(for: shareIDPrivate) as? CKShare else {
                 Log.warning("Failed to restore persisted share; clearing stored info", category: .cloud)
                 clearStoredShareInfo()
                 return false
             }
 
             // Validate root record in shared DB first (subscriber), then private DB (owner)
-            let hasShared = (try? await sharedDB.llmRecord(for: rootID)) != nil
-            let hasPrivate = (try? await privateDB.llmRecord(for: rootID)) != nil
+            var hasShared = false
+            if let id = rootIDShared {
+                hasShared = (try? await sharedDB.llmRecord(for: id)) != nil
+            }
+            var hasPrivate = false
+            if let id = rootIDPrivate {
+                hasPrivate = (try? await privateDB.llmRecord(for: id)) != nil
+            }
             if hasShared || hasPrivate {
                 activeShare = share
                 Log.info("Restored persisted share successfully", category: .cloud)
@@ -366,6 +384,15 @@ final class SharedCloudKitController: NSObject {
             }
             self.container = defaultContainer
         }
+
+        // Ensure SharedRecordKeys uses the same CloudKit container as this controller.
+        if let ckContainer = self.container as? CKContainer, let identifier = ckContainer.containerIdentifier {
+            SharedRecordKeys.configureContainer(identifier: identifier)
+        } else {
+            // Fallback to known identifier if casting fails
+            SharedRecordKeys.configureContainer(identifier: "iCloud.com.svk.Choreganize")
+        }
+
         self.sharedDB  = self.container.sharedDatabase
         self.privateDB = self.container.privateDatabase
 
@@ -714,9 +741,11 @@ final class SharedCloudKitController: NSObject {
                 deleting: [],
                 savePolicy: .changedKeys)
 
+        // Persist using the actual user record name for accurate role detection.
+        let me = (try? await SharedRecordKeys.userRecordName()) ?? zoneID.ownerName
         persistedShare = PersistedShare(
             zoneName: zoneID.zoneName,
-            zoneOwner: zoneID.ownerName,
+            zoneOwner: me,
             rootRecordName: rootRecord.recordID.recordName,
             shareRecordName: share.recordID.recordName
         )
@@ -839,13 +868,16 @@ extension SharedCloudKitController: UICloudSharingControllerDelegate {
     func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
         guard let share = csc.share else { return }
         let zone = share.recordID.zoneID
-        persistedShare = PersistedShare(
-            zoneName: zone.zoneName,
-            zoneOwner: zone.ownerName,
-            rootRecordName: rootRecordID?.recordName,
-            shareRecordName: share.recordID.recordName
-        )
-        storedSubscriptionID = SharedRecordKeys.subscriptionID(for: share.recordID)
+        Task {
+            let me = (try? await SharedRecordKeys.userRecordName()) ?? zone.ownerName
+            self.persistedShare = PersistedShare(
+                zoneName: zone.zoneName,
+                zoneOwner: me,
+                rootRecordName: self.rootRecordID?.recordName,
+                shareRecordName: share.recordID.recordName
+            )
+            self.storedSubscriptionID = SharedRecordKeys.subscriptionID(for: share.recordID)
+        }
     }
 
     func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) {

@@ -74,12 +74,11 @@ final class AppModel: ObservableObject {
         Task {
             let restored = await cloudController.restorePersistedShare()
             if restored {
+                await MainActor.run { self.sharingEnabled = true }
                 await loadSharedState()
-                if sharingEnabled {
-                    await cloudController.subscribeToChanges()
-                }
-            } else if sharingEnabled {
-                sharingEnabled = false
+                await cloudController.subscribeToChanges()
+            } else {
+                await MainActor.run { self.sharingEnabled = false }
             }
             // Preflight CloudKit schema compatibility before any further interactions.
             do {

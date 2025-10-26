@@ -2,6 +2,20 @@ import CloudKit
 import Foundation
 
 struct SharedRecordKeys {
+    /// The CloudKit container identifier to use across the app.
+    /// This must match the container used by SharedCloudKitController.
+    private static var containerIdentifier: String = "iCloud.com.svk.Choreganize"
+
+    /// Allows the CloudKit container to be configured at runtime. When the
+    /// container changes, the cached user name is cleared to avoid cross‑container
+    /// contamination.
+    static func configureContainer(identifier: String) {
+        if containerIdentifier != identifier {
+            containerIdentifier = identifier
+            clearCachedUserName()
+        }
+    }
+    
     /// Stores the CloudKit user record name so all devices for the same account
     /// share the same zone and record identifiers. Cleared when the user changes
     /// iCloud accounts.
@@ -23,7 +37,8 @@ struct SharedRecordKeys {
     /// `UserDefaults` for subsequent launches.
     static func userRecordName() async throws -> String {
         if let cached = defaults.string(forKey: userNameKey) { return cached }
-        let name = try await CKContainer.default().userRecordID().recordName
+        let container = CKContainer(identifier: containerIdentifier)
+        let name = try await container.userRecordID().recordName
         defaults.set(name, forKey: userNameKey)
         return name
     }
@@ -66,3 +81,4 @@ struct SharedRecordKeys {
     static let savedSubscriptionIDKey = "ckSubscriptionID"
     static let savedShareInfoKey = "ckShareInfo"
 }
+
