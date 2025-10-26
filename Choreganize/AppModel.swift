@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import os
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -12,7 +13,15 @@ final class AppModel: ObservableObject {
     @Published var completionCache: [Date: [Completion]] = [:]
     @Published var lockedDays: Set<Date> = []
 
-    private let fileURL: URL
+    @Published var isSyncing: Bool = false
+    @Published var lastError: String?
+
+    // MARK: - Environment metadata ("Household")
+    @Published var environmentName: String = "Household"
+    @Published var environmentRole: EnvironmentRole = .none
+
+    private let fileURL
+    private var saveTask: Task<Void, Never>?
 
     init(cloudController: SharedCloudKitController = .shared) {
         self.cloudController = cloudController
@@ -39,7 +48,14 @@ final class AppModel: ObservableObject {
             } else if sharingEnabled {
                 sharingEnabled = false
             }
+            await self.refreshEnvironmentInfo()
         }
+    }
+
+    /// Refreshes the current environment's display name and role.
+    func refreshEnvironmentInfo() async {
+        self.environmentName = cloudController.environmentDisplayName()
+        self.environmentRole = await cloudController.currentEnvironmentRole()
     }
 
     // MARK: - Persistence
@@ -55,12 +71,39 @@ final class AppModel: ObservableObject {
     }
 
     func save() {
+        Log.debug(.persistence, "save() requested; debouncing")
+        // Coalesce rapid changes to reduce disk and network churn.
+        saveTask?.cancel()
+        let state = SavedState(chores: chores, areas: areas, completions: completions, lockedDays: lockedDays)
+        saveTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 400_000_000) // 400ms debounce
+            self.pruneLockedDays()
+            let stateToPersist = SavedState(chores: self.chores, areas: self.areas, completions: self.completions, lockedDays: self.lockedDays)
+            Log.info(.persistence, "Persisting state to disk (debounced)")
+            if let data = try? JSONEncoder().encode(stateToPersist) {
+                try? data.write(to: self.fileURL)
+            }
+            if self.sharingEnabled {
+                Log.info(.cloud, "Publishing state after debounced save")
+                await self.cloudController.publish(state: stateToPersist)
+            }
+        }
+    }
+
+    /// Immediately writes the current state to disk and publishes to CloudKit if enabled,
+    /// cancelling any pending debounced save.
+    func flushPendingSavesNow() {
+        Log.info(.persistence, "Flushing pending saves now")
+        // Cancel any pending debounce task and write the most recent state.
+        saveTask?.cancel()
         pruneLockedDays()
         let state = SavedState(chores: chores, areas: areas, completions: completions, lockedDays: lockedDays)
         if let data = try? JSONEncoder().encode(state) {
             try? data.write(to: fileURL)
         }
         if sharingEnabled {
+            Log.info(.cloud, "Publishing state after flush")
             Task { await cloudController.publish(state: state) }
         }
     }
@@ -323,30 +366,54 @@ final class AppModel: ObservableObject {
 
     /// Loads any shared app state from CloudKit and merges it into the current state.
     func loadSharedState() async {
-        guard let decoded = try? await cloudController.fetchSharedState() else {
-            sharingEnabled = false
-            return
+        await MainActor.run { Log.info(.cloud, "Loading shared state") }
+        await MainActor.run { isSyncing = true }
+        defer { Task { @MainActor in isSyncing = false } }
+        do {
+            guard let decoded = try? await cloudController.fetchSharedState() else {
+                await MainActor.run { self.sharingEnabled = false }
+                return
+            }
+            await MainActor.run {
+                sharingEnabled = true
+                self.chores = decoded.chores
+                self.areas = decoded.areas
+                self.completions = decoded.completions
+                self.lockedDays.formUnion(decoded.lockedDays)
+                pruneLockedDays()
+                Log.info(.cloud, "Merged shared state: chores=\(decoded.chores.count), areas=\(decoded.areas.count), completions=\(decoded.completions.count)")
+            }
+            await refreshEnvironmentInfo()
+        } catch {
+            await MainActor.run {
+                self.lastError = "Failed to load shared data: \(error.localizedDescription)"
+                Log.error(.cloud, self.lastError ?? "Failed to load shared data")
+            }
         }
-        sharingEnabled = true
-        self.chores = decoded.chores
-        self.areas = decoded.areas
-        self.completions = decoded.completions
-        self.lockedDays.formUnion(decoded.lockedDays)
-        pruneLockedDays()
     }
 
     /// Initiates sharing by presenting the CloudKit share UI.
     @MainActor
     func startSharing(from controller: UIViewController) async {
+        Log.info(.cloud, "Presenting CloudKit share UI")
+        isSyncing = true
+        defer { isSyncing = false }
         await cloudController.inviteCollaborator(from: controller)
         sharingEnabled = true
         await cloudController.subscribeToChanges()
+        Log.info(.cloud, "Subscribed to changes after starting sharing")
+        await refreshEnvironmentInfo()
     }
 
     /// Removes all shared data and subscriptions.
     func stopSharing() async {
+        await MainActor.run { Log.info(.cloud, "Stopping sharing and cleaning up") }
+        await MainActor.run { isSyncing = true }
+        defer { Task { @MainActor in isSyncing = false } }
         await cloudController.stopSharing()
-        sharingEnabled = false
+        await MainActor.run { sharingEnabled = false }
+        await MainActor.run { Log.info(.cloud, "Sharing disabled locally") }
+        await refreshEnvironmentInfo()
     }
 
     /// Loads completions for the specified date from disk or CloudKit and caches them.
@@ -410,7 +477,8 @@ final class AppModel: ObservableObject {
     }
 
     func unlockDay(_ date: Date) {
-        let day = Calendar.current.startOfDay(for: date)
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(for: date)
         lockedDays.remove(day)
         save()
     }
