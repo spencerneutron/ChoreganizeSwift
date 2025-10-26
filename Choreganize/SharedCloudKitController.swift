@@ -338,10 +338,18 @@ final class SharedCloudKitController: NSObject {
                 return false
             }
 
-            _ = try await privateDB.llmRecord(for: rootID)
-            activeShare = share
-            Log.info("Restored persisted share successfully", category: .cloud)
-            return true
+            // Validate root record in shared DB first (subscriber), then private DB (owner)
+            let hasShared = (try? await sharedDB.llmRecord(for: rootID)) != nil
+            let hasPrivate = (try? await privateDB.llmRecord(for: rootID)) != nil
+            if hasShared || hasPrivate {
+                activeShare = share
+                Log.info("Restored persisted share successfully", category: .cloud)
+                return true
+            } else {
+                Log.warning("Root record not found in shared or private DB; clearing stored info", category: .cloud)
+                clearStoredShareInfo()
+                return false
+            }
         } catch {
             Log.warning("Failed to restore persisted share; clearing stored info", category: .cloud)
             clearStoredShareInfo()
@@ -390,7 +398,7 @@ final class SharedCloudKitController: NSObject {
         Log.debug("Prepared user context: zone=\(zone.zoneName)", category: .cloud)
         await createZoneIfNeeded(zone)
     }
-
+    
     /// Compares the app's local schema version to the remote CloudKit root record's version and reconciles.
     /// - Returns: A status indicating whether it's safe to proceed, whether an upgrade occurred, or a block is required.
     func ensureSchemaCompatibility(appSchemaVersion: Int, localState: AppModel.SavedState) async throws -> SchemaCompatibilityStatus? {
@@ -512,26 +520,44 @@ final class SharedCloudKitController: NSObject {
     /// Subscribes for silent push notifications when the shared root record changes.
     /// Limits the subscription to the specific record to avoid cross‑share notifications.
     func subscribeToChanges() async {
-        Log.info("Subscribing to changes for rootID and shareID", category: .cloud)
+        Log.info("Subscribing to changes (role-specific)", category: .cloud)
         guard let shareID = try? await storedShareID(),
               let rootID  = try? await storedRootID() else { return }
-        let subID: String
-        if let existing = storedSubscriptionID {
-            subID = existing
-        } else {
+
+        let role = await currentEnvironmentRole()
+
+        // Ensure we have a stable subscription ID derived from the share.
+        let subID: String = {
+            if let existing = storedSubscriptionID { return existing }
             let generated = SharedRecordKeys.subscriptionID(for: shareID)
             storedSubscriptionID = generated
-            subID = generated
-        }
-        let predicate = NSPredicate(format: "recordID == %@", rootID)
-        let sub = CKQuerySubscription(recordType: SharedRecordKeys.rootRecordType, predicate: predicate, subscriptionID: subID, options: [.firesOnRecordUpdate, .firesOnRecordCreation])
-        sub.zoneID = rootID.zoneID
-        let info = CKSubscription.NotificationInfo()
-        info.shouldSendContentAvailable = true
-        sub.notificationInfo = info
+            return generated
+        }()
+
         do {
-            _ = try await sharedDB.save(sub)
-            Log.info("Subscription saved: id=\(subID)", category: .cloud)
+            switch role {
+            case .owner:
+                // Owner: subscribe to changes in the owner's private zone.
+                let zoneID = try await ensureZoneID()
+                let zoneSub = CKRecordZoneSubscription(zoneID: zoneID, subscriptionID: subID)
+                let info = CKSubscription.NotificationInfo()
+                info.shouldSendContentAvailable = true
+                zoneSub.notificationInfo = info
+                _ = try await privateDB.save(zoneSub)
+                Log.info("Private zone subscription saved: id=\(subID)", category: .cloud)
+
+            case .subscriber:
+                // Subscriber: shared DB only allows database subscriptions (no queries/predicates).
+                let dbSub = CKDatabaseSubscription(subscriptionID: subID)
+                let info = CKSubscription.NotificationInfo()
+                info.shouldSendContentAvailable = true
+                dbSub.notificationInfo = info
+                _ = try await sharedDB.save(dbSub)
+                Log.info("Shared database subscription saved: id=\(subID)", category: .cloud)
+
+            case .none:
+                Log.warning("No environment role; skipping subscription", category: .cloud)
+            }
         } catch {
             Log.error("Subscription save failed: \(error.localizedDescription)", category: .cloud)
         }
@@ -539,17 +565,14 @@ final class SharedCloudKitController: NSObject {
 
     /// Removes the subscription and any shared state from CloudKit.
     func stopSharing() async {
-        Log.info("Stopping sharing: deleting subscription and root records if present", category: .cloud)
+        Log.info("Stopping sharing: deleting subscription(s) and clearing local state", category: .cloud)
         do {
             if let subID = storedSubscriptionID {
                 _ = try? await sharedDB.llmDeleteSubscription(withID: subID)
+                _ = try? await privateDB.llmDeleteSubscription(withID: subID)
             }
             // Clean up legacy subscription if present
             _ = try? await sharedDB.llmDeleteSubscription(withID: SharedRecordKeys.legacySubscriptionID)
-            if let rootID = try? await ensureRootRecordID() {
-                try? await sharedDB.llmDeleteRecord(withID: rootID)
-                try? await privateDB.llmDeleteRecord(withID: rootID)
-            }
         }
         clearStoredShareInfo()
     }
@@ -707,10 +730,11 @@ final class SharedCloudKitController: NSObject {
 
     /// Processes a push notification from CloudKit and merges any updates.
     func handleRemoteNotification(_ userInfo: [AnyHashable : Any]) async {
-        Log.debug("Handling remote notification: subscriptionID=\(String(describing: (CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification)?.subscriptionID))", category: .push)
-        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification else { return }
+        let notification = CKNotification(fromRemoteNotificationDictionary: userInfo)
+        let subID = notification?.subscriptionID
+        Log.debug("Handling remote notification: subscriptionID=\(String(describing: subID))", category: .push)
         let validIDs = [storedSubscriptionID, SharedRecordKeys.legacySubscriptionID]
-        guard validIDs.contains(notification.subscriptionID) else { return }
+        guard let subID, validIDs.contains(subID) else { return }
         guard let state = try? await fetchSharedState() else { return }
         Log.info("Fetched shared state due to push; notifying observers", category: .cloud)
         await MainActor.run { self.onStateChange?(state) }
