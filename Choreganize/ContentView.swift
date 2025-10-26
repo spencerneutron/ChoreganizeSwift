@@ -58,13 +58,6 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                ToolbarItem(placement: .bottomBar) {
-                    Picker("Mode", selection: $mode) {
-                        ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 280)
-                }
                 ToolbarItem(placement: .status) {
                     if model.isSyncing {
                         ProgressView().controlSize(.small)
@@ -84,6 +77,21 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingSupport) {
                 SupportView()
+            }
+            .safeAreaInset(edge: .bottom) {
+                ZStack {
+                    // Match the system bar appearance
+                    Rectangle()
+                        .fill(.bar)
+                        .ignoresSafeArea()
+                        .frame(height: 60)
+
+                    Picker("Mode", selection: $mode) {
+                        ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                }
             }
         }
     }

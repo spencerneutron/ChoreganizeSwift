@@ -317,7 +317,7 @@ final class SharedCloudKitController: NSObject {
     /// Attempts to restore the previously accepted share. Returns `true` if the
     /// share and root record still exist and `activeShare` was populated.
     func restorePersistedShare() async -> Bool {
-        Log.debug(.cloud, "Attempting to restore persisted share")
+        Log.debug("Attempting to restore persisted share", category: .cloud)
         guard let shareID = try? await storedShareID(),
               let rootID  = try? await storedRootID() else {
             return false
@@ -325,17 +325,17 @@ final class SharedCloudKitController: NSObject {
 
         do {
             guard let share = try await privateDB.llmRecord(for: shareID) as? CKShare else {
-                Log.warning(.cloud, "Failed to restore persisted share; clearing stored info")
+                Log.warning("Failed to restore persisted share; clearing stored info", category: .cloud)
                 clearStoredShareInfo()
                 return false
             }
 
             _ = try await privateDB.llmRecord(for: rootID)
             activeShare = share
-            Log.info(.cloud, "Restored persisted share successfully")
+            Log.info("Restored persisted share successfully", category: .cloud)
             return true
         } catch {
-            Log.warning(.cloud, "Failed to restore persisted share; clearing stored info")
+            Log.warning("Failed to restore persisted share; clearing stored info", category: .cloud)
             clearStoredShareInfo()
             return false
         }
@@ -379,7 +379,7 @@ final class SharedCloudKitController: NSObject {
         let recordID = SharedRecordKeys.recordID(for: name)
         self.zoneID = zone
         self.rootRecordID = recordID
-        Log.debug(.cloud, "Prepared user context: zone=\(zone.zoneName)")
+        Log.debug("Prepared user context: zone=\(zone.zoneName)", category: .cloud)
         await createZoneIfNeeded(zone)
     }
 
@@ -399,10 +399,9 @@ final class SharedCloudKitController: NSObject {
     // MARK: - Publishing
     /// Upserts the root record containing the serialized app state.
     func publish(state: AppModel.SavedState) async {
-        Log.info(.cloud, "Publishing state (role=\(await currentEnvironmentRole()))")
+        let role = await currentEnvironmentRole()
+        Log.info("Publishing state (role=\(role))", category: .cloud)
         do {
-            let role = await currentEnvironmentRole()
-
             switch role {
             case .owner:
                 // Owner writes to their private database in their own zone.
@@ -415,7 +414,7 @@ final class SharedCloudKitController: NSObject {
                 records += state.areas.map { record(from: $0, parent: root, in: zone) }
                 records += state.completions.map { record(from: $0, parent: root, in: zone) }
 
-                Log.debug(.cloud, "Owner publishing: records=\(records.count)")
+                Log.debug("Owner publishing: records=\(records.count)", category: .cloud)
                 _ = try await privateDB.llmModifyRecords(saving: records, deleting: [], savePolicy: .changedKeys)
 
             case .subscriber:
@@ -434,7 +433,7 @@ final class SharedCloudKitController: NSObject {
                     records += state.areas.map { record(from: $0, parent: rootRecord, in: ownerZone) }
                     records += state.completions.map { record(from: $0, parent: rootRecord, in: ownerZone) }
 
-                    Log.debug(.cloud, "Subscriber publishing: records=\(records.count)")
+                    Log.debug("Subscriber publishing: records=\(records.count)", category: .cloud)
                     _ = try await sharedDB.llmModifyRecords(saving: records, deleting: [], savePolicy: .changedKeys)
                 }
 
@@ -443,7 +442,7 @@ final class SharedCloudKitController: NSObject {
                 return
             }
         } catch {
-            Log.error(.cloud, "Publish failed: \(error.localizedDescription)")
+            Log.error("Publish failed: \(error.localizedDescription)", category: .cloud)
         }
     }
 
@@ -451,7 +450,7 @@ final class SharedCloudKitController: NSObject {
     /// Subscribes for silent push notifications when the shared root record changes.
     /// Limits the subscription to the specific record to avoid cross‑share notifications.
     func subscribeToChanges() async {
-        Log.info(.cloud, "Subscribing to changes for rootID and shareID")
+        Log.info("Subscribing to changes for rootID and shareID", category: .cloud)
         guard let shareID = try? await storedShareID(),
               let rootID  = try? await storedRootID() else { return }
         let subID: String
@@ -470,15 +469,15 @@ final class SharedCloudKitController: NSObject {
         sub.notificationInfo = info
         do {
             _ = try await sharedDB.save(sub)
-            Log.info(.cloud, "Subscription saved: id=\(subID)")
+            Log.info("Subscription saved: id=\(subID)", category: .cloud)
         } catch {
-            Log.error(.cloud, "Subscription save failed: \(error.localizedDescription)")
+            Log.error("Subscription save failed: \(error.localizedDescription)", category: .cloud)
         }
     }
 
     /// Removes the subscription and any shared state from CloudKit.
     func stopSharing() async {
-        Log.info(.cloud, "Stopping sharing: deleting subscription and root records if present")
+        Log.info("Stopping sharing: deleting subscription and root records if present", category: .cloud)
         do {
             if let subID = storedSubscriptionID {
                 _ = try? await sharedDB.llmDeleteSubscription(withID: subID)
@@ -495,7 +494,7 @@ final class SharedCloudKitController: NSObject {
 
     // MARK: - Share acceptance
     func acceptShare(url: URL) async -> Bool {
-        Log.info(.cloud, "Accepting share from URL: \(url.absoluteString)")
+        Log.info("Accepting share from URL: \(url.absoluteString)", category: .cloud)
         guard !shareOperationInProgress else { return false }
         shareOperationInProgress = true
         defer { shareOperationInProgress = false }
@@ -516,18 +515,19 @@ final class SharedCloudKitController: NSObject {
                     }
                 }
 
-                op.acceptSharesResultBlock = { error in
-                    if let error {
-                        cont.resume(throwing: error)
-                    } else {
+                op.acceptSharesResultBlock = { result in
+                    switch result {
+                    case .success:
                         cont.resume(returning: true)
+                    case .failure(let error):
+                        cont.resume(throwing: error)
                     }
                 }
 
                 self.container.add(op)
             }
         } catch {
-            Log.error(.cloud, "Accept share failed: \(error.localizedDescription)")
+            Log.error("Accept share failed: \(error.localizedDescription)", category: .cloud)
             return false
         }
     }
@@ -535,7 +535,7 @@ final class SharedCloudKitController: NSObject {
     /// Persists identifiers from an accepted share so future operations can
     /// reference the correct CloudKit records.
     func storeShareMetadata(_ metadata: CKShare.Metadata) {
-        Log.debug(.cloud, "Stored share metadata for zone=\(metadata.share.recordID.zoneID.zoneName)")
+        Log.debug("Stored share metadata for zone=\(metadata.share.recordID.zoneID.zoneName)", category: .cloud)
         let zone = metadata.share.recordID.zoneID
         persistedShare = PersistedShare(
             zoneName: zone.zoneName,
@@ -549,7 +549,7 @@ final class SharedCloudKitController: NSObject {
     // MARK: - Share creation
     @MainActor
     func inviteCollaborator(from viewController: UIViewController) async {
-        Log.info(.cloud, "Presenting UICloudSharingController")
+        Log.info("Presenting UICloudSharingController", category: .cloud)
         guard !shareOperationInProgress else { return }
         shareOperationInProgress = true
         defer { shareOperationInProgress = false }
@@ -562,7 +562,7 @@ final class SharedCloudKitController: NSObject {
                 viewController.present(controller, animated: true)
             }
         } catch {
-            Log.error(.cloud, "Share UI failed: \(error.localizedDescription)")
+            Log.error("Share UI failed: \(error.localizedDescription)", category: .cloud)
         }
     }
 
@@ -601,13 +601,13 @@ final class SharedCloudKitController: NSObject {
             }
 
             if let root = try? await privateDB.llmRecord(for: rootID) {
-                Log.info(.cloud, "Reusing existing share and root record")
+                Log.info("Reusing existing share and root record", category: .cloud)
                 activeShare = share
                 return (root, share)
             }
         }
 
-        Log.info(.cloud, "Creating new share and root record")
+        Log.info("Creating new share and root record", category: .cloud)
         // Create a new root record and share.
         let rootRecord = try await fetchOrCreateRootRecord()
         let zoneID     = try await ensureZoneID()           // ensure the per‑user zone exists
@@ -642,12 +642,12 @@ final class SharedCloudKitController: NSObject {
 
     /// Processes a push notification from CloudKit and merges any updates.
     func handleRemoteNotification(_ userInfo: [AnyHashable : Any]) async {
-        Log.debug(.push, "Handling remote notification: subscriptionID=\(String(describing: (CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification)?.subscriptionID))")
+        Log.debug("Handling remote notification: subscriptionID=\(String(describing: (CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification)?.subscriptionID))", category: .push)
         guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification else { return }
         let validIDs = [storedSubscriptionID, SharedRecordKeys.legacySubscriptionID]
         guard validIDs.contains(notification.subscriptionID) else { return }
         guard let state = try? await fetchSharedState() else { return }
-        Log.info(.cloud, "Fetched shared state due to push; notifying observers")
+        Log.info("Fetched shared state due to push; notifying observers", category: .cloud)
         await MainActor.run { self.onStateChange?(state) }
     }
 
@@ -658,7 +658,7 @@ final class SharedCloudKitController: NSObject {
 
     /// Downloads all shared records and assembles an app state.
     func fetchSharedState() async throws -> AppModel.SavedState {
-        Log.debug(.cloud, "Fetching shared state from shared DB")
+        Log.debug("Fetching shared state from shared DB", category: .cloud)
         let rootID: CKRecord.ID
         if let stored = try? await storedRootID() {
             rootID = stored
@@ -681,7 +681,7 @@ final class SharedCloudKitController: NSObject {
         let chores = choreRecords.compactMap(recordToChore)
         let areas = areaRecords.compactMap(recordToArea)
         let completions = completionRecords.compactMap(recordToCompletion)
-        Log.debug(.cloud, "Fetched counts: chores=\(chores.count), areas=\(areas.count), completions=\(completions.count)")
+        Log.debug("Fetched counts: chores=\(chores.count), areas=\(areas.count), completions=\(completions.count)", category: .cloud)
         return AppModel.SavedState(chores: chores, areas: areas, completions: completions)
     }
 

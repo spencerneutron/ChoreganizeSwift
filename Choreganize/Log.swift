@@ -9,11 +9,15 @@ public enum LogLevel: Int, CaseIterable {
     case trace = 4
 }
 
+public enum LogCategory: String, CaseIterable {
+    case app, model, cloud, persistence, push
+}
+
 public actor LogBuffer {
     public struct Entry {
         public let date: Date
         public let level: LogLevel
-        public let category: String
+        public let category: LogCategory
         public let message: String
     }
 
@@ -24,7 +28,7 @@ public actor LogBuffer {
         self.maxEntries = maxEntries
     }
 
-    public func append(date: Date = Date(), level: LogLevel, category: String, message: String) {
+    public func append(date: Date = Date(), level: LogLevel, category: LogCategory, message: String) {
         entries.append(Entry(date: date, level: level, category: category, message: message))
         if entries.count > maxEntries {
             entries.removeFirst(entries.count - maxEntries)
@@ -34,7 +38,7 @@ public actor LogBuffer {
     public func snapshot() -> [String] {
         let formatter = ISO8601DateFormatter()
         return entries.map {
-            "\(formatter.string(from: $0.date)) [\($0.level)] [\($0.category)] \($0.message)"
+            "\(formatter.string(from: $0.date)) [\($0.level)] [\($0.category.rawValue)] \($0.message)"
         }
     }
 }
@@ -43,131 +47,51 @@ public struct Log {
     public static var currentLevel: LogLevel = .info
     public static let buffer = LogBuffer(maxEntries: 500)
 
-    public static func setLevel(_ level: LogLevel) {
-        currentLevel = level
+    private static let appLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "app")
+    private static let modelLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "model")
+    private static let cloudLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "cloud")
+    private static let persistenceLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "persistence")
+    private static let pushLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "push")
+
+    public static func setLevel(_ level: LogLevel) { currentLevel = level }
+
+    private static func logger(for category: LogCategory) -> Logger {
+        switch category {
+        case .app: return appLogger
+        case .model: return modelLogger
+        case .cloud: return cloudLogger
+        case .persistence: return persistenceLogger
+        case .push: return pushLogger
+        }
     }
 
-    public struct Category {
-        public static let app = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "app")
-        public static let model = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "model")
-        public static let cloud = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "cloud")
-        public static let persistence = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "persistence")
-        public static let push = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "push")
-    }
-
-    // MARK: - Core logging
-
-    public static func log(category: Logger, categoryName: String, level: LogLevel, _ message: @autoclosure () -> String) {
+    // Core logging
+    public static func log(_ level: LogLevel, _ message: @autoclosure () -> String, category: LogCategory = .app) {
         guard level.rawValue <= currentLevel.rawValue else { return }
         let msg = message()
+        let logger = logger(for: category)
 
         switch level {
         case .error:
-            category.error("\(msg, privacy: .public)")
+            logger.error("\(msg, privacy: .public)")
         case .warning:
-            category.warning("\(msg, privacy: .public)")
+            logger.warning("\(msg, privacy: .public)")
         case .info:
-            category.info("\(msg, privacy: .public)")
+            logger.info("\(msg, privacy: .public)")
         case .debug, .trace:
-            // os.Logger has no trace method, use debug for both
-            category.debug("\(msg, privacy: .public)")
+            logger.debug("\(msg, privacy: .public)")
         }
 
-        Task {
-            await buffer.append(level: level, category: categoryName, message: msg)
-        }
+        Task { await buffer.append(level: level, category: category, message: msg) }
     }
 
-    // MARK: - Convenience overloads per category
+    // Convenience helpers
+    public static func error(_ message: @autoclosure () -> String, category: LogCategory = .app) { log(.error, message(), category: category) }
+    public static func warning(_ message: @autoclosure () -> String, category: LogCategory = .app) { log(.warning, message(), category: category) }
+    public static func info(_ message: @autoclosure () -> String, category: LogCategory = .app) { log(.info, message(), category: category) }
+    public static func debug(_ message: @autoclosure () -> String, category: LogCategory = .app) { log(.debug, message(), category: category) }
+    public static func trace(_ message: @autoclosure () -> String, category: LogCategory = .app) { log(.trace, message(), category: category) }
 
-    // app
-    public static func error(_ category: Logger = Category.app, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "app", level: .error, message())
-    }
-    public static func warning(_ category: Logger = Category.app, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "app", level: .warning, message())
-    }
-    public static func info(_ category: Logger = Category.app, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "app", level: .info, message())
-    }
-    public static func debug(_ category: Logger = Category.app, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "app", level: .debug, message())
-    }
-    public static func trace(_ category: Logger = Category.app, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "app", level: .trace, message())
-    }
-
-    // model
-    public static func error(_ category: Logger = Category.model, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "model", level: .error, message())
-    }
-    public static func warning(_ category: Logger = Category.model, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "model", level: .warning, message())
-    }
-    public static func info(_ category: Logger = Category.model, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "model", level: .info, message())
-    }
-    public static func debug(_ category: Logger = Category.model, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "model", level: .debug, message())
-    }
-    public static func trace(_ category: Logger = Category.model, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "model", level: .trace, message())
-    }
-
-    // cloud
-    public static func error(_ category: Logger = Category.cloud, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "cloud", level: .error, message())
-    }
-    public static func warning(_ category: Logger = Category.cloud, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "cloud", level: .warning, message())
-    }
-    public static func info(_ category: Logger = Category.cloud, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "cloud", level: .info, message())
-    }
-    public static func debug(_ category: Logger = Category.cloud, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "cloud", level: .debug, message())
-    }
-    public static func trace(_ category: Logger = Category.cloud, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "cloud", level: .trace, message())
-    }
-
-    // persistence
-    public static func error(_ category: Logger = Category.persistence, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "persistence", level: .error, message())
-    }
-    public static func warning(_ category: Logger = Category.persistence, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "persistence", level: .warning, message())
-    }
-    public static func info(_ category: Logger = Category.persistence, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "persistence", level: .info, message())
-    }
-    public static func debug(_ category: Logger = Category.persistence, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "persistence", level: .debug, message())
-    }
-    public static func trace(_ category: Logger = Category.persistence, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "persistence", level: .trace, message())
-    }
-
-    // push
-    public static func error(_ category: Logger = Category.push, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "push", level: .error, message())
-    }
-    public static func warning(_ category: Logger = Category.push, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "push", level: .warning, message())
-    }
-    public static func info(_ category: Logger = Category.push, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "push", level: .info, message())
-    }
-    public static func debug(_ category: Logger = Category.push, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "push", level: .debug, message())
-    }
-    public static func trace(_ category: Logger = Category.push, _ message: @autoclosure () -> String) {
-        log(category: category, categoryName: "push", level: .trace, message())
-    }
-
-    // MARK: - Retrieve buffer snapshot
-
-    public static func bufferSnapshot() async -> [String] {
-        await buffer.snapshot()
-    }
+    // Retrieve buffer snapshot
+    public static func bufferSnapshot() async -> [String] { await buffer.snapshot() }
 }

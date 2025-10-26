@@ -4,7 +4,7 @@ import UserNotifications
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        Log.info(.app, "App did finish launching; registering for remote notifications")
+        Log.info("App did finish launching; registering for remote notifications", category: .app)
         Task { @MainActor in
             UIApplication.shared.registerForRemoteNotifications()
         }
@@ -13,7 +13,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     weak var model: AppModel?
     func application(_ application: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
-        Log.info(.app, "Opening URL: \(url.absoluteString)")
+        Log.info("Opening URL: \(url.absoluteString)", category: .app)
         Task {
             let accepted = await model?.cloudController.acceptShare(url: url) ?? false
             if accepted {
@@ -28,18 +28,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         Task {
-            Log.debug(.push, "Received remote notification with userInfo keys: \(userInfo.keys.count)")
+            Log.debug("Received remote notification with userInfo keys: \(userInfo.keys.count)", category: .push)
             await model?.cloudController.handleRemoteNotification(userInfo)
             completionHandler(.newData)
         }
     }
 
     func application(_ application: UIApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
-        Log.info(.cloud, "User accepted CloudKit share via delegate; storing metadata")
+        Log.info("User accepted CloudKit share via delegate; storing metadata", category: .cloud)
         model?.cloudController.storeShareMetadata(metadata)
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        Log.error(.push, "Remote notification registration failed: \(error.localizedDescription)")
+        Log.error("Remote notification registration failed: \(error.localizedDescription)", category: .push)
     }
 }
