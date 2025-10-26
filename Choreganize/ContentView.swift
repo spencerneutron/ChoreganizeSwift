@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var mode: AppMode = .work
     @State private var showingSupport: Bool = false
     @State private var showingError: Bool = false
+    @State private var showingLogs: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -78,6 +79,9 @@ struct ContentView: View {
             .sheet(isPresented: $showingSupport) {
                 SupportView()
             }
+            .sheet(isPresented: $showingLogs) {
+                LogViewerView()
+            }
             .safeAreaInset(edge: .bottom) {
                 ZStack {
                     // Match the system bar appearance
@@ -92,6 +96,10 @@ struct ContentView: View {
                     .pickerStyle(.segmented)
                     .padding(.horizontal)
                 }
+                .contentShape(Rectangle())
+                .simultaneousGesture(LongPressGesture().onEnded { _ in
+                    showingLogs = true
+                })
             }
         }
     }
