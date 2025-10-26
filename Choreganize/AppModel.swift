@@ -5,6 +5,35 @@ import os
 
 @MainActor
 final class AppModel: ObservableObject {
+    static let schemaVersion: Int = 1
+    private let schemaVersionKey = "schemaVersion"
+    
+    // MARK: - Banner messaging
+    enum BannerStyle {
+        case info, success, warning, error
+    }
+
+    struct BannerMessage: Identifiable, Equatable {
+        let id = UUID()
+        let title: String?
+        let message: String
+        let style: BannerStyle
+        let actionTitle: String?
+        let action: (() -> Void)?
+        let duration: TimeInterval
+
+        init(title: String? = nil, message: String, style: BannerStyle = .info, actionTitle: String? = nil, action: (() -> Void)? = nil, duration: TimeInterval = 4.0) {
+            self.title = title
+            self.message = message
+            self.style = style
+            self.actionTitle = actionTitle
+            self.action = action
+            self.duration = duration
+        }
+
+        static func == (lhs: BannerMessage, rhs: BannerMessage) -> Bool { lhs.id == rhs.id }
+    }
+
     let cloudController: SharedCloudKitController
     @AppStorage("sharingEnabled") var sharingEnabled = false
     @Published var chores: [Chore] = []
@@ -15,6 +44,8 @@ final class AppModel: ObservableObject {
 
     @Published var isSyncing: Bool = false
     @Published var lastError: String?
+    @Published var remoteSchemaVersion: Int?
+    @Published var currentBanner: BannerMessage?
 
     // MARK: - Environment metadata ("Household")
     @Published var environmentName: String = "Household"
@@ -22,6 +53,8 @@ final class AppModel: ObservableObject {
 
     private let fileURL : URL
     private var saveTask: Task<Void, Never>?
+    private var bannerQueue: [BannerMessage] = []
+    private var bannerTask: Task<Void, Never>?
 
     init(cloudController: SharedCloudKitController = .shared) {
         self.cloudController = cloudController
@@ -48,6 +81,33 @@ final class AppModel: ObservableObject {
             } else if sharingEnabled {
                 sharingEnabled = false
             }
+            // Preflight CloudKit schema compatibility before any further interactions.
+            do {
+                if let status = try await self.cloudController.ensureSchemaCompatibility(appSchemaVersion: AppModel.schemaVersion, localState: SavedState(chores: self.chores, areas: self.areas, completions: self.completions, lockedDays: self.lockedDays)) {
+                    switch status {
+                    case .ok:
+                        break
+                    case .upgraded(let newVersion):
+                        self.remoteSchemaVersion = newVersion
+                        Log.info("Cloud schema upgraded to version: \(newVersion)", category: .cloud)
+                        self.showBanner(title: "Shared Data Upgraded",
+                                        message: "Your shared data was updated to the latest version.",
+                                        style: .success,
+                                        duration: 3.5)
+                    case .blocked(let reason, let remoteVersion):
+                        self.remoteSchemaVersion = remoteVersion
+                        self.sharingEnabled = false
+                        self.lastError = reason
+                        Log.error("Cloud schema incompatible: \(reason)", category: .cloud)
+                        self.showBanner(title: "Incompatible Shared Data",
+                                        message: reason,
+                                        style: .error,
+                                        duration: 6.0)
+                    }
+                }
+            } catch {
+                Log.warning("Schema preflight failed: \(error.localizedDescription)", category: .cloud)
+            }
             await self.refreshEnvironmentInfo()
         }
     }
@@ -61,7 +121,8 @@ final class AppModel: ObservableObject {
     // MARK: - Persistence
     func load() {
         guard let data = try? Data(contentsOf: fileURL) else { return }
-        if let decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
+        if var decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
+            migrateIfNeeded(&decoded)
             self.chores = decoded.chores
             self.areas = decoded.areas
             self.completions = decoded.completions
@@ -74,7 +135,6 @@ final class AppModel: ObservableObject {
         Log.debug("save() requested; debouncing", category: .persistence)
         // Coalesce rapid changes to reduce disk and network churn.
         saveTask?.cancel()
-        let state = SavedState(chores: chores, areas: areas, completions: completions, lockedDays: lockedDays)
         saveTask = Task { @MainActor [weak self] in
             guard let self else { return }
             try? await Task.sleep(nanoseconds: 400_000_000) // 400ms debounce
@@ -459,6 +519,62 @@ final class AppModel: ObservableObject {
         lockedDays = Set(lockedDays.filter { calendar.startOfDay(for: $0) >= today })
     }
 
+    /// Applies in-place migrations to a decoded state whose version is older than the app's current schema.
+    private func migrateIfNeeded(_ state: inout SavedState) {
+        let fromVersion = state.schemaVersion ?? 1
+        var workingVersion = fromVersion
+
+        // Example migration scaffolding: add future migration steps here.
+        // if workingVersion == 1 {
+        //     // Perform changes needed to bring data to version 2
+        //     workingVersion = 2
+        // }
+
+        // Update the version after applying migrations.
+        if workingVersion != fromVersion {
+            Log.info("Migrated local state from v\(fromVersion) to v\(workingVersion)", category: .persistence)
+        }
+        state.schemaVersion = workingVersion
+    }
+
+    // MARK: - Banner controls
+    func showBanner(title: String? = nil,
+                    message: String,
+                    style: BannerStyle = .info,
+                    actionTitle: String? = nil,
+                    action: (() -> Void)? = nil,
+                    duration: TimeInterval = 4.0) {
+        let banner = BannerMessage(title: title, message: message, style: style, actionTitle: actionTitle, action: action, duration: duration)
+        if currentBanner == nil {
+            present(banner)
+        } else {
+            bannerQueue.append(banner)
+        }
+    }
+
+    func dismissBanner(triggerAction: Bool = false) {
+        if triggerAction { currentBanner?.action?() }
+        currentBanner = nil
+        bannerTask?.cancel()
+        bannerTask = nil
+        if let next = bannerQueue.first {
+            bannerQueue.removeFirst()
+            present(next)
+        }
+    }
+
+    private func present(_ banner: BannerMessage) {
+        currentBanner = banner
+        bannerTask?.cancel()
+        bannerTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(nanoseconds: UInt64((banner.duration) * 1_000_000_000))
+                self.dismissBanner()
+            } catch { /* cancelled */ }
+        }
+    }
+
     // MARK: - Day Locking
     func isDayLocked(_ date: Date) -> Bool {
         let calendar = Calendar.current
@@ -488,12 +604,18 @@ final class AppModel: ObservableObject {
         var areas: [Area]
         var completions: [Completion]
         var lockedDays: Set<Date> = []
+        var schemaVersion: Int?
 
-        init(chores: [Chore], areas: [Area], completions: [Completion], lockedDays: Set<Date> = []) {
+        enum CodingKeys: String, CodingKey {
+            case chores, areas, completions, lockedDays, schemaVersion
+        }
+
+        init(chores: [Chore], areas: [Area], completions: [Completion], lockedDays: Set<Date> = [], schemaVersion: Int? = AppModel.schemaVersion) {
             self.chores = chores
             self.areas = areas
             self.completions = completions
             self.lockedDays = lockedDays
+            self.schemaVersion = schemaVersion
         }
 
         init(from decoder: Decoder) throws {
@@ -502,6 +624,17 @@ final class AppModel: ObservableObject {
             areas = try container.decodeIfPresent([Area].self, forKey: .areas) ?? []
             completions = try container.decodeIfPresent([Completion].self, forKey: .completions) ?? []
             lockedDays = try container.decodeIfPresent(Set<Date>.self, forKey: .lockedDays) ?? []
+            schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(chores, forKey: .chores)
+            try container.encode(areas, forKey: .areas)
+            try container.encode(completions, forKey: .completions)
+            try container.encode(lockedDays, forKey: .lockedDays)
+            try container.encode(schemaVersion ?? AppModel.schemaVersion, forKey: .schemaVersion)
         }
     }
 }
+

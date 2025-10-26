@@ -212,6 +212,13 @@ enum EnvironmentRole {
     case none
 }
 
+/// Result of a schema compatibility preflight against CloudKit.
+enum SchemaCompatibilityStatus {
+    case ok
+    case upgraded(Int) // new remote version
+    case blocked(String, Int?) // reason, remote version if known
+}
+
 /// Handles access to the user's shared CloudKit database and sharing APIs.
 final class SharedCloudKitController: NSObject {
     static var shared = SharedCloudKitController()
@@ -231,6 +238,7 @@ final class SharedCloudKitController: NSObject {
     private let defaults = UserDefaults.standard
     private var activeShare: CKShare?
     private var shareOperationInProgress = false
+    private let schemaVersionFieldKey = "schemaVersion"
 
     // MARK: - Environment helpers
     /// Returns the current user's record name, if available.
@@ -383,6 +391,58 @@ final class SharedCloudKitController: NSObject {
         await createZoneIfNeeded(zone)
     }
 
+    /// Compares the app's local schema version to the remote CloudKit root record's version and reconciles.
+    /// - Returns: A status indicating whether it's safe to proceed, whether an upgrade occurred, or a block is required.
+    func ensureSchemaCompatibility(appSchemaVersion: Int, localState: AppModel.SavedState) async throws -> SchemaCompatibilityStatus? {
+        // Determine where to read the root record from.
+        let role = await currentEnvironmentRole()
+
+        // If we have no persisted share/root, nothing to check yet.
+        let rootID: CKRecord.ID
+        if let stored = try await storedRootID() {
+            rootID = stored
+        } else if let ensured = try? await ensureRootRecordID() {
+            rootID = ensured
+        } else {
+            return nil
+        }
+
+        // Try shared DB first (covers subscribers); fall back to private DB (owner pre-share or local).
+        let remoteRoot: CKRecord?
+        if let sharedRoot = try? await sharedDB.llmRecord(for: rootID) { remoteRoot = sharedRoot }
+        else if let privateRoot = try? await privateDB.llmRecord(for: rootID) { remoteRoot = privateRoot }
+        else { remoteRoot = nil }
+
+        guard let root = remoteRoot else { return nil }
+        let remoteVersion = (root[schemaVersionFieldKey] as? Int) ?? 1
+
+        if remoteVersion == appSchemaVersion { return .ok }
+
+        if remoteVersion > appSchemaVersion {
+            return .blocked("This shared data was created with a newer app. Please update to continue.", remoteVersion)
+        }
+
+        // appSchemaVersion > remoteVersion
+        switch role {
+        case .owner:
+            // Owner can upgrade the schema by republishing with the new version.
+            var upgradedRoot = root
+            upgradedRoot[schemaVersionFieldKey] = appSchemaVersion as CKRecordValue
+            do {
+                // Persist the upgraded root and current state stamped with new version.
+                _ = try await privateDB.llmModifyRecords(saving: [upgradedRoot], deleting: [], savePolicy: .changedKeys)
+                await publish(state: localState)
+                return .upgraded(appSchemaVersion)
+            } catch {
+                return .blocked("Failed to upgrade Cloud schema: \(error.localizedDescription)", remoteVersion)
+            }
+        case .subscriber:
+            return .blocked("Waiting for the owner to upgrade the shared data schema.", remoteVersion)
+        case .none:
+            return nil
+        }
+    }
+
     private func ensureZoneID() async throws -> CKRecordZone.ID {
         if let zoneID { return zoneID }
         try await prepareUserContext()
@@ -408,6 +468,7 @@ final class SharedCloudKitController: NSObject {
                 let zone = try await ensureZoneID()
                 let root = try await fetchOrCreateRootRecord()
                 root[SharedRecordKeys.lastEditedKey] = Date() as CKRecordValue
+                root[schemaVersionFieldKey] = AppModel.schemaVersion as CKRecordValue
 
                 var records: [CKRecord] = [root]
                 records += state.chores.map { record(from: $0, parent: root, in: zone) }
@@ -427,6 +488,7 @@ final class SharedCloudKitController: NSObject {
 
                 if let rootRecord = root as CKRecord? {
                     rootRecord[SharedRecordKeys.lastEditedKey] = Date() as CKRecordValue
+                    rootRecord[schemaVersionFieldKey] = AppModel.schemaVersion as CKRecordValue
 
                     var records: [CKRecord] = [rootRecord]
                     records += state.chores.map { record(from: $0, parent: rootRecord, in: ownerZone) }
@@ -583,7 +645,9 @@ final class SharedCloudKitController: NSObject {
         if let existing = try? await privateDB.llmRecord(for: id) {
             return existing
         }
-        return CKRecord(recordType: SharedRecordKeys.rootRecordType, recordID: id)
+        let newRoot = CKRecord(recordType: SharedRecordKeys.rootRecordType, recordID: id)
+        newRoot[schemaVersionFieldKey] = AppModel.schemaVersion as CKRecordValue
+        return newRoot
     }
 
     /// Fetches or creates the share + root record pair used for collaboration.
@@ -613,6 +677,7 @@ final class SharedCloudKitController: NSObject {
         let zoneID     = try await ensureZoneID()           // ensure the per‑user zone exists
 
         let share = CKShare(rootRecord: rootRecord)
+        rootRecord[schemaVersionFieldKey] = AppModel.schemaVersion as CKRecordValue
         share[CKShare.SystemFieldKey.title] = "Household" as CKRecordValue
         share.publicPermission = CKShare.ParticipantPermission.none
 
