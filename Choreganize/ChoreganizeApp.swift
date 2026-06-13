@@ -27,15 +27,19 @@ struct ChoreganizeApp: App {
                     default:
                         break
                     }
-                    // Re-evaluate chore reminders against the current store whenever
-                    // we foreground or background (local notifications can't recompute
-                    // "still unresolved" at fire time, so we refresh dated reminders).
+                    // On foreground/background, refresh both the dated chore reminders
+                    // (local notifications can't recompute "still unresolved" at fire
+                    // time, so we re-evaluate them) and the widget's App Group snapshot.
                     if phase == .active || phase == .background {
+                        let context = CoreDataStack.shared.viewContext
+                        let household = model.activeHousehold
                         Task {
-                            await NotificationManager.reschedule(
-                                using: CoreDataStack.shared.viewContext,
-                                activeHousehold: model.activeHousehold)
+                            await NotificationManager.reschedule(using: context, activeHousehold: household)
                         }
+                        WidgetSnapshotWriter.update(
+                            using: context,
+                            activeHousehold: household,
+                            scopeLabel: model.scope == .household ? model.householdName : "Solo")
                     }
                 }
         }

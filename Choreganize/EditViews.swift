@@ -12,23 +12,28 @@ struct EditHomeView: View {
 
 struct ChoreListView: View {
     @Environment(\.managedObjectContext) private var context
+    @Environment(\.editMode) private var editMode
     @EnvironmentObject private var model: AppModel
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var chores: FetchedResults<CDChore>
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDArea.name)]) private var areas: FetchedResults<CDArea>
     @State private var showingNew = false
     @State private var editingChore: CDChore?
+    /// Selected chores while in edit mode (multi-select bulk actions).
+    @State private var selection = Set<NSManagedObjectID>()
+    @State private var showDeleteConfirm = false
+
+    private var isEditing: Bool { editMode?.wrappedValue.isEditing ?? false }
 
     var body: some View {
-        List {
-            let scoped = chores.inScope(model.activeHousehold)
-            let daily = scoped.filter { $0.isDaily }
+        let scoped = chores.inScope(model.activeHousehold)
+        let scopedAreas = areas.inScope(model.activeHousehold)
+        let daily = scoped.filter { $0.isDaily }
+
+        List(selection: $selection) {
             if !daily.isEmpty {
                 Section(header: Text("Every Day")) {
-                    ForEach(daily, id: \.objectID) { chore in
-                        ChoreRowView(chore: chore, showToggle: false)
-                            .contentShape(Rectangle())
-                            .onTapGesture { editingChore = chore }
-                    }
-                    .onDelete { offsets in delete(daily, at: offsets) }
+                    ForEach(daily, id: \.objectID) { chore in choreRow(chore) }
+                        .onDelete { offsets in delete(daily, at: offsets) }
                 }
             }
 
@@ -36,12 +41,8 @@ struct ChoreListView: View {
                 let choresForDay = scoped.filter { !$0.isDaily && $0.assignedDayValue == day }
                 if !choresForDay.isEmpty {
                     Section(header: Text(day.displayName)) {
-                        ForEach(choresForDay, id: \.objectID) { chore in
-                            ChoreRowView(chore: chore, showToggle: false)
-                                .contentShape(Rectangle())
-                                .onTapGesture { editingChore = chore }
-                        }
-                        .onDelete { offsets in delete(choresForDay, at: offsets) }
+                        ForEach(choresForDay, id: \.objectID) { chore in choreRow(chore) }
+                            .onDelete { offsets in delete(choresForDay, at: offsets) }
                     }
                 }
             }
@@ -49,19 +50,41 @@ struct ChoreListView: View {
             let unassigned = scoped.filter { !$0.isDaily && $0.assignedDayValue == nil }
             if !unassigned.isEmpty {
                 Section(header: Text("Unassigned")) {
-                    ForEach(unassigned, id: \.objectID) { chore in
-                        ChoreRowView(chore: chore, showToggle: false)
-                            .contentShape(Rectangle())
-                            .onTapGesture { editingChore = chore }
-                    }
-                    .onDelete { offsets in delete(unassigned, at: offsets) }
+                    ForEach(unassigned, id: \.objectID) { chore in choreRow(chore) }
+                        .onDelete { offsets in delete(unassigned, at: offsets) }
                 }
             }
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Add") { showingNew = true }
+            ToolbarItem(placement: .navigationBarLeading) {
+                if !scoped.isEmpty { EditButton() }
             }
+            if isEditing {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu("Move") {
+                        ForEach(scopedAreas, id: \.objectID) { area in
+                            Button(area.name ?? "Untitled") { move(to: area) }
+                        }
+                        if !scopedAreas.isEmpty { Divider() }
+                        Button("No Area") { move(to: nil) }
+                    }
+                    .disabled(selection.isEmpty)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Delete", role: .destructive) { showDeleteConfirm = true }
+                        .disabled(selection.isEmpty)
+                }
+            } else {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Add") { showingNew = true }
+                }
+            }
+        }
+        .confirmationDialog(deleteTitle, isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { deleteSelected() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This also removes their completion history and can't be undone.")
         }
         .sheet(isPresented: $showingNew) {
             NewChoreView()
@@ -69,9 +92,41 @@ struct ChoreListView: View {
         .sheet(item: $editingChore) { EditChoreView(chore: $0) }
     }
 
+    /// A chore row that opens the editor on tap when not selecting. In edit mode
+    /// the gesture is omitted so taps drive `List` multi-selection instead.
+    @ViewBuilder
+    private func choreRow(_ chore: CDChore) -> some View {
+        if isEditing {
+            ChoreRowView(chore: chore, showToggle: false)
+        } else {
+            ChoreRowView(chore: chore, showToggle: false)
+                .contentShape(Rectangle())
+                .onTapGesture { editingChore = chore }
+        }
+    }
+
+    private var deleteTitle: String {
+        "Delete \(selection.count) chore\(selection.count == 1 ? "" : "s")?"
+    }
+
     private func delete(_ list: [CDChore], at offsets: IndexSet) {
         for index in offsets { context.delete(list[index]) }
         try? context.save()
+    }
+
+    private func move(to area: CDArea?) {
+        BulkChoreOps.move(selection, to: area, in: context)
+        endEditing()
+    }
+
+    private func deleteSelected() {
+        BulkChoreOps.delete(selection, in: context)
+        endEditing()
+    }
+
+    private func endEditing() {
+        selection.removeAll()
+        editMode?.wrappedValue = .inactive
     }
 }
 

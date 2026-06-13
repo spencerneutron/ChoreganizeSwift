@@ -47,6 +47,13 @@ Household.
 You can stop sharing, or remove yourself from a shared Household, from within the
 app or your device's sharing settings.
 
+## Home‑screen widget
+
+If you add the Choreganize widget, it shows a summary of the current scope's
+chores for today. That summary is stored only on your device — in an app‑group
+container shared between the app and the widget so the widget can display it. It
+is not collected by or sent to the developer.
+
 ## Diagnostics
 
 The app keeps a small, temporary log on your device to help with troubleshooting,
@@ -72,6 +79,15 @@ content are not collected by or sent to the developer.
 - Because the data syncs through your iCloud account, the retention and deletion
   of that synced data are ultimately governed by Apple and your device/iCloud
   settings.
+
+## Siri & Shortcuts
+
+The app offers Siri and Shortcuts actions to read the chores you have today and
+to mark a chore as done. When you use them, your spoken or tapped request is
+processed by Apple's Siri/Shortcuts and the action runs on your device against
+your own chore data. The developer does not receive your requests or your chores.
+Chore names may be provided to the system so Siri can suggest these shortcuts;
+that is handled by Apple.
 
 ## Children
 
