@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="23507" systemVersion="25A000" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="CDArea" representedClassName="CDArea" syncable="YES" codeGenerationType="class">
+        <attribute name="detail" optional="YES" attributeType="String"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <relationship name="chores" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDChore" inverseName="area" inverseEntity="CDChore"/>
+        <relationship name="household" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDHousehold" inverseName="areas" inverseEntity="CDHousehold"/>
+    </entity>
+    <entity name="CDChore" representedClassName="CDChore" syncable="YES" codeGenerationType="class">
+        <attribute name="assignedDay" optional="YES" attributeType="String"/>
+        <attribute name="createdDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="frequency" optional="YES" attributeType="String"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="isDaily" optional="YES" attributeType="Boolean" usesScalarValueType="YES" defaultValueString="NO"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <relationship name="area" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDArea" inverseName="chores" inverseEntity="CDArea"/>
+        <relationship name="completions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDCompletion" inverseName="chore" inverseEntity="CDCompletion"/>
+        <relationship name="household" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDHousehold" inverseName="chores" inverseEntity="CDHousehold"/>
+    </entity>
+    <entity name="CDCompletion" representedClassName="CDCompletion" syncable="YES" codeGenerationType="class">
+        <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="notes" optional="YES" attributeType="String"/>
+        <relationship name="chore" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDChore" inverseName="completions" inverseEntity="CDChore"/>
+        <relationship name="household" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDHousehold" inverseName="completions" inverseEntity="CDHousehold"/>
+    </entity>
+    <entity name="CDHousehold" representedClassName="CDHousehold" syncable="YES" codeGenerationType="class">
+        <attribute name="createdDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <relationship name="areas" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDArea" inverseName="household" inverseEntity="CDArea"/>
+        <relationship name="chores" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDChore" inverseName="household" inverseEntity="CDChore"/>
+        <relationship name="completions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDCompletion" inverseName="household" inverseEntity="CDCompletion"/>
+        <relationship name="lockedDays" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDLockedDay" inverseName="household" inverseEntity="CDLockedDay"/>
+    </entity>
+    <entity name="CDLockedDay" representedClassName="CDLockedDay" syncable="YES" codeGenerationType="class">
+        <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <relationship name="household" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDHousehold" inverseName="lockedDays" inverseEntity="CDHousehold"/>
+    </entity>
+</model>
