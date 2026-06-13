@@ -2,17 +2,35 @@ import CloudKit
 import CoreData
 import UIKit
 
-/// Drives the system CloudKit sharing UI for a Household.
-///
-/// Uses `NSPersistentCloudKitContainer.share(_:to:)` to create (or reuse) the
-/// CKShare, then presents `UICloudSharingController` only once the share is
-/// saved — which avoids the classic "share sheet never appears because the root
-/// record wasn't saved" failure.
-@MainActor
+extension Notification.Name {
+    /// Posted when the household share changes (created, members changed, stopped).
+    static let householdShareDidChange = Notification.Name("householdShareDidChange")
+}
+
+/// A snapshot of the active household's share state, for the UI.
+struct HouseholdShareInfo {
+    var isShared: Bool
+    var acceptedCount: Int   // accepted participants, including the owner
+    var pendingCount: Int
+    var isOwner: Bool
+
+    static let notShared = HouseholdShareInfo(isShared: false, acceptedCount: 0, pendingCount: 0, isOwner: true)
+
+    var statusText: String {
+        guard isShared else { return "Not shared yet" }
+        var parts = ["\(acceptedCount) member\(acceptedCount == 1 ? "" : "s")"]
+        if pendingCount > 0 { parts.append("\(pendingCount) pending") }
+        return "Shared · " + parts.joined(separator: " · ")
+    }
+}
+
+/// Drives the system CloudKit sharing UI for a Household and reports its state.
 enum HouseholdSharing {
-    /// Presents the share sheet for the given household (owner flow). If the
-    /// household is already shared, reuses the existing share (so participants /
-    /// owners can manage it).
+
+    /// Presents the share sheet for the given household (owner flow). Reuses an
+    /// existing share if the household is already shared (so the owner/participant
+    /// can manage members or stop). Presented only once the share is saved.
+    @MainActor
     static func share(_ household: CDHousehold, stack: CoreDataStack = .shared) {
         guard stack.cloudKitEnabled else {
             Log.warning("Sharing unavailable: CloudKit disabled for this run", category: .cloud)
@@ -25,15 +43,14 @@ enum HouseholdSharing {
 
         let container = stack.container
         let ckContainer = CKContainer(identifier: CoreDataStack.cloudContainerIdentifier)
+        let title = household.name ?? "Household"
 
-        // Reuse an existing share if the household is already shared.
         if let existing = (try? container.fetchShares(matching: [household.objectID]))?[household.objectID] {
             Log.info("Presenting existing household share", category: .cloud)
             present(UICloudSharingController(share: existing, container: ckContainer), from: presenter)
             return
         }
 
-        // Otherwise create a new share for the household graph and present it.
         Log.info("Creating new household share", category: .cloud)
         container.share([household], to: nil) { _, share, sharedContainer, error in
             Task { @MainActor in
@@ -41,19 +58,50 @@ enum HouseholdSharing {
                     Log.error("Failed to create household share: \(error?.localizedDescription ?? "unknown")", category: .cloud)
                     return
                 }
-                share[CKShare.SystemFieldKey.title] = "Household" as CKRecordValue
+                share[CKShare.SystemFieldKey.title] = title as CKRecordValue
                 present(UICloudSharingController(share: share, container: sharedContainer), from: presenter)
             }
         }
     }
 
+    /// Current share state for the household (nil when CloudKit is disabled).
+    static func shareInfo(for household: CDHousehold, stack: CoreDataStack = .shared) -> HouseholdShareInfo? {
+        guard stack.cloudKitEnabled else { return nil }
+        let shares = (try? stack.container.fetchShares(matching: [household.objectID])) ?? [:]
+        guard let share = shares[household.objectID] else { return .notShared }
+        let accepted = share.participants.filter { $0.acceptanceStatus == .accepted }.count
+        let pending = share.participants.filter { $0.acceptanceStatus == .pending }.count
+        let isOwner = share.currentUserParticipant?.role == .owner
+        return HouseholdShareInfo(isShared: true, acceptedCount: accepted, pendingCount: pending, isOwner: isOwner)
+    }
+
+    /// Renames the household (a synced attribute, so it updates for every member),
+    /// and best-effort updates the CKShare title when the current user owns it.
+    static func rename(_ household: CDHousehold, to newName: String, stack: CoreDataStack = .shared) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        household.name = trimmed
+        try? household.managedObjectContext?.save()
+        Log.info("Renamed household", category: .cloud)
+
+        guard stack.cloudKitEnabled,
+              let store = stack.privateStore,
+              let share = (try? stack.container.fetchShares(matching: [household.objectID]))?[household.objectID],
+              share.currentUserParticipant?.role == .owner else { return }
+        share[CKShare.SystemFieldKey.title] = trimmed as CKRecordValue
+        stack.container.persistUpdatedShare(share, in: store) { _, error in
+            if let error { Log.error("persistUpdatedShare failed: \(error.localizedDescription)", category: .cloud) }
+        }
+    }
+
+    @MainActor
     private static func present(_ controller: UICloudSharingController, from presenter: UIViewController) {
         controller.delegate = SharingDelegate.shared
-        // Invite-only (private), read-write so the household is co-equal.
         controller.availablePermissions = [.allowReadWrite, .allowPrivate]
         presenter.present(controller, animated: true)
     }
 
+    @MainActor
     private static func topViewController() -> UIViewController? {
         let keyWindow = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -65,19 +113,22 @@ enum HouseholdSharing {
     }
 }
 
-/// Logs the outcomes of the sharing UI. The UI updates itself via @FetchRequest /
-/// the shared store, so this mostly just records what happened.
+/// Logs sharing outcomes and notifies the UI to refresh its share state.
 final class SharingDelegate: NSObject, UICloudSharingControllerDelegate {
     static let shared = SharingDelegate()
 
-    func itemTitle(for csc: UICloudSharingController) -> String? { "Household" }
+    func itemTitle(for csc: UICloudSharingController) -> String? {
+        csc.share?[CKShare.SystemFieldKey.title] as? String ?? "Household"
+    }
 
     func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
         Log.info("Household share saved", category: .cloud)
+        NotificationCenter.default.post(name: .householdShareDidChange, object: nil)
     }
 
     func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
         Log.info("Household sharing stopped", category: .cloud)
+        NotificationCenter.default.post(name: .householdShareDidChange, object: nil)
     }
 
     func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) {

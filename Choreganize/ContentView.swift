@@ -43,7 +43,10 @@ struct ContentView: View {
                             }
                         }
                     } label: {
-                        Label(model.scope.title, systemImage: model.scope.systemImage)
+                        HStack(spacing: 4) {
+                            Image(systemName: model.scope.systemImage)
+                            Text(model.scope == .household ? model.householdName : model.scope.title)
+                        }
                     }
                 }
                 ToolbarItem(placement: .status) {
@@ -52,13 +55,8 @@ struct ContentView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if model.scope == .household && CoreDataStack.shared.cloudKitEnabled {
-                        Button {
-                            HouseholdSharing.share(model.ensureHousehold())
-                        } label: {
-                            Image(systemName: "person.crop.circle.badge.plus")
-                        }
-                        .accessibilityLabel("Share Household")
+                    if model.scope == .household {
+                        HouseholdShareControl()
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
