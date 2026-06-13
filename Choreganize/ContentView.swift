@@ -12,6 +12,7 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var mode: AppMode = .work
     @State private var showingSupport: Bool = false
+    @State private var showingSettings: Bool = false
     @State private var showingError: Bool = false
     @State private var showingLogs: Bool = false
     @StateObject private var onboarding = OnboardingCoordinator()
@@ -72,6 +73,13 @@ struct ContentView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Support") { showingSupport = true }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                }
             }
             .alert("Error", isPresented: $showingError, actions: {
                 Button("OK", role: .cancel) { model.lastError = nil }
@@ -84,6 +92,10 @@ struct ContentView: View {
             .sheet(isPresented: $showingSupport, onDismiss: { onboarding.playPendingIfNeeded() }) {
                 SupportView()
                     .environmentObject(onboarding)
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+                    .environmentObject(model)
             }
             .sheet(isPresented: $showingLogs) {
                 LogViewerView()
