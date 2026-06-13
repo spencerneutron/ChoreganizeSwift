@@ -27,6 +27,16 @@ struct ChoreganizeApp: App {
                     default:
                         break
                     }
+                    // Re-evaluate chore reminders against the current store whenever
+                    // we foreground or background (local notifications can't recompute
+                    // "still unresolved" at fire time, so we refresh dated reminders).
+                    if phase == .active || phase == .background {
+                        Task {
+                            await NotificationManager.reschedule(
+                                using: CoreDataStack.shared.viewContext,
+                                activeHousehold: model.activeHousehold)
+                        }
+                    }
                 }
         }
     }
