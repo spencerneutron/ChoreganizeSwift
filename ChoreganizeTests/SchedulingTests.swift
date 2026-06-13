@@ -22,6 +22,14 @@ struct SchedulingTests {
         cal.date(byAdding: .day, value: n, to: Date())!
     }
 
+    /// A Monday roughly three to four weeks in the past (so all test dates stay
+    /// on or before today, where `lastCompletion` is bounded).
+    private func mondayInThePast() -> Date {
+        var d = cal.date(byAdding: .day, value: -30, to: cal.startOfDay(for: Date()))!
+        while cal.component(.weekday, from: d) != 2 { d = cal.date(byAdding: .day, value: 1, to: d)! }
+        return d
+    }
+
     // MARK: - Completion state
 
     @Test func isCompletedMatchesByDay() throws {
@@ -165,18 +173,34 @@ struct SchedulingTests {
         }
     }
 
-    @Test func workViewIgnoresFrequency_currentBehavior() throws {
-        // Documents a known inconsistency: Scheduling.chores(for:) ignores
-        // frequency, so a *monthly* chore still appears on every matching weekday.
-        // When #4 makes the Work view frequency-aware, update this expectation.
+    @Test func scheduledChoreShowsOnWeekdayOnlyWhenDue() throws {
+        // A monthly chore completed one Monday is NOT shown the next Monday (not
+        // due yet) — but stays visible the day it was completed.
         let ctx = makeContext()
         try ctx.performAndWait {
-            let monday = cal.nextDate(after: Date(), matching: DateComponents(weekday: 2), matchingPolicy: .nextTime)!
-            let nextMonday = cal.date(byAdding: .day, value: 7, to: monday)!
+            let pastMonday = mondayInThePast()
+            let nextMonday = cal.date(byAdding: .day, value: 7, to: pastMonday)!
             let monthly = CDChore.make(in: ctx, name: "monthly", isDaily: false, frequency: .monthly, assignedDay: .monday)
+            monthly.recordCompletion(on: pastMonday, in: ctx)
             try ctx.save()
-            #expect(Scheduling.chores([monthly], for: monday).count == 1)
-            #expect(Scheduling.chores([monthly], for: nextMonday).count == 1)
+            #expect(Scheduling.chores([monthly], for: pastMonday).count == 1)   // visible (done) that day
+            #expect(Scheduling.chores([monthly], for: nextMonday).isEmpty)       // not due next Monday
+        }
+    }
+
+    @Test func overdueScheduledChorePersistsUntilCompleted() throws {
+        // A weekly chore completed one Monday is due again the next Monday, and
+        // stays on its weekday while overdue (uncompleted).
+        let ctx = makeContext()
+        try ctx.performAndWait {
+            let pastMonday = mondayInThePast()
+            let nextMonday = cal.date(byAdding: .day, value: 7, to: pastMonday)!
+            let mondayAfter = cal.date(byAdding: .day, value: 14, to: pastMonday)!
+            let weekly = CDChore.make(in: ctx, name: "weekly", isDaily: false, frequency: .weekly, assignedDay: .monday)
+            weekly.recordCompletion(on: pastMonday, in: ctx)
+            try ctx.save()
+            #expect(Scheduling.chores([weekly], for: nextMonday).count == 1)    // due again
+            #expect(Scheduling.chores([weekly], for: mondayAfter).count == 1)   // still overdue, uncompleted
         }
     }
 

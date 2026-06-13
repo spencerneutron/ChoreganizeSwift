@@ -122,14 +122,18 @@ extension CDChore {
 // MARK: - Cross-chore scheduling helpers
 
 enum Scheduling {
-    /// Chores scheduled on a given date (ignoring completion state).
+    /// Chores to show on a given date. Daily chores show every day. A scheduled
+    /// (weekly/monthly/yearly) chore shows on its assigned weekday only when it's
+    /// due or overdue, and stays there until completion is recorded — and remains
+    /// visible on the day it's completed.
     static func chores(_ chores: [CDChore], for date: Date) -> [CDChore] {
         let cal = Calendar.current
         let dayStart = cal.startOfDay(for: date)
         return chores.filter { chore in
             if chore.isDaily { return true }
-            guard let weekday = chore.assignedDayValue?.calendarWeekday else { return false }
-            return cal.component(.weekday, from: dayStart) == weekday
+            guard let weekday = chore.assignedDayValue?.calendarWeekday,
+                  cal.component(.weekday, from: dayStart) == weekday else { return false }
+            return chore.needsAttention(on: date) || chore.isCompleted(on: date)
         }
     }
 
