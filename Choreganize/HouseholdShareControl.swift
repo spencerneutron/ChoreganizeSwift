@@ -33,8 +33,13 @@ struct HouseholdShareControl: View {
             Image(systemName: menuIcon)
         }
         .task(id: model.scope) { refresh() }
-        .onReceive(NotificationCenter.default.publisher(for: .householdShareDidChange)) { _ in refresh() }
-        .onReceive(NotificationCenter.default.publisher(for: .NSPersistentStoreRemoteChange)) { _ in refresh() }
+        // These notifications post on background queues — NSPersistentStoreRemoteChange
+        // from Core Data during CloudKit import, householdShareDidChange from sharing
+        // callbacks — so hop to the main thread before refresh() mutates @State. Without
+        // this SwiftUI faults with "Publishing changes from background threads is not
+        // allowed" on every sync batch (confirmed in device logs, not a console artifact).
+        .onReceive(NotificationCenter.default.publisher(for: .householdShareDidChange).receive(on: RunLoop.main)) { _ in refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .NSPersistentStoreRemoteChange).receive(on: RunLoop.main)) { _ in refresh() }
         .alert("Rename Household", isPresented: $showRename) {
             TextField("Name", text: $draftName)
             Button("Save") {
