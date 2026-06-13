@@ -1,6 +1,6 @@
 # Choreganize Privacy Policy
 
-_Last updated: [date you publish]_
+_Last updated: 2026-JUNE-13_
 
 Choreganize ("the app") is a chore-organizing app for iPhone and iPad. This
 policy explains how the app handles your information. In short: **the app is
@@ -80,6 +80,6 @@ If the app's data practices change, this policy will be updated and the
 
 ## Contact
 
-Questions about this policy can be sent to **[your support email]**.
+Questions about this policy can be sent to **support@spencervk.com**.
 
-— [your name or publishing entity]
+— Choreganize Devs
