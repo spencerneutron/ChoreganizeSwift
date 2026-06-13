@@ -20,11 +20,10 @@ struct ChoreganizeApp: App {
             ContentView()
                 .environmentObject(model)
                 .environment(\.managedObjectContext, CoreDataStack.shared.viewContext)
-                .onAppear { appDelegate.model = model }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .background, .inactive:
-                        model.flushPendingSavesNow()
+                        CoreDataStack.shared.saveViewContext()
                     default:
                         break
                     }

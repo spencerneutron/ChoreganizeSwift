@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Presents a month grid with chore counts.
 struct CalendarHomeView: View {
-    @EnvironmentObject var model: AppModel
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var allChores: FetchedResults<CDChore>
     @State private var month: Date = Date()
 
     private var calendar: Calendar { Calendar.current }
@@ -22,8 +22,8 @@ struct CalendarHomeView: View {
         return items
     }
 
-    private var choresByDate: [Date: [Chore]] {
-        model.choresByDate(inMonth: monthStart)
+    private var choresByDate: [Date: [CDChore]] {
+        Scheduling.choresByDate(inMonth: monthStart, chores: Array(allChores))
     }
 
     private var weekInterval: DateInterval {
@@ -78,13 +78,12 @@ struct CalendarHomeView: View {
 }
 
 private struct DayCell: View {
-    @EnvironmentObject var model: AppModel
     var date: Date
-    var chores: [Chore]
+    var chores: [CDChore]
     var inCurrentWeek: Bool
 
     private var completeCount: Int {
-        chores.filter { model.isCompleted($0, on: date) }.count
+        chores.filter { $0.isCompleted(on: date) }.count
     }
 
     private var incompleteCount: Int { chores.count - completeCount }
@@ -142,7 +141,6 @@ private struct Badge: View {
 }
 
 #Preview {
-    CalendarHomeView()
-        .environmentObject(AppModel())
+    NavigationStack { CalendarHomeView() }
+        .environment(\.managedObjectContext, PreviewStack.context)
 }
-

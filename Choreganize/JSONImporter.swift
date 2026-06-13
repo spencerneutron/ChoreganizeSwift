@@ -23,6 +23,7 @@ enum JSONImporter {
             let existing = (try? ctx.count(for: countRequest)) ?? 0
             guard existing == 0 else {
                 Log.debug("JSONImporter: store already has \(existing) chores; skipping import.", category: .persistence)
+                retireLegacyFile()
                 return
             }
 
@@ -74,6 +75,7 @@ enum JSONImporter {
             do {
                 try ctx.save()
                 Log.info("JSONImporter: imported \(state.chores.count) chores, \(state.areas.count) areas, \(state.completions.count) completions, \(state.lockedDays.count) locked days.", category: .persistence)
+                retireLegacyFile()
             } catch {
                 Log.error("JSONImporter: save failed: \(error.localizedDescription)", category: .persistence)
             }

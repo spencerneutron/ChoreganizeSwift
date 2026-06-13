@@ -17,21 +17,6 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            // Environment banner
-            if model.sharingEnabled {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(model.environmentName)
-                            .font(.headline)
-                        Text(model.environmentRole == .owner ? "You Own This" : (model.environmentRole == .subscriber ? "You Subscribe" : ""))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
-            }
             VStack {
                 switch mode {
                 case .work:
@@ -45,20 +30,8 @@ struct ContentView: View {
             .toolbar(.visible, for: .automatic)
             .animation(.easeInOut, value: mode)
             .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    if model.sharingEnabled {
-                        Button("Stop Sharing") { stopSharing() }
-                    } else {
-                        Button("Share") { share() }
-                    }
-                }
-                ToolbarItem(placement: .principal) {
-                    if model.sharingEnabled {
-                        Text(model.environmentRole == .owner ? "Owner" : "Subscriber")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                // Sharing UI is disabled during the Core Data + CloudKit
+                // re-platform; it returns in Phase 3 on the new stack.
                 ToolbarItem(placement: .status) {
                     if model.isSyncing {
                         ProgressView().controlSize(.small)
@@ -103,25 +76,10 @@ struct ContentView: View {
             }
         }
     }
-
-    private func share() {
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let root = scene.windows.first?.rootViewController else { return }
-        Task {
-            await model.startSharing(from: root)
-            await model.refreshEnvironmentInfo()
-        }
-    }
-
-    private func stopSharing() {
-        Task {
-            await model.stopSharing()
-            await model.refreshEnvironmentInfo()
-        }
-    }
 }
 
 #Preview {
     ContentView()
         .environmentObject(AppModel())
+        .environment(\.managedObjectContext, PreviewStack.context)
 }

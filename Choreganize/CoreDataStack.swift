@@ -21,6 +21,12 @@ final class CoreDataStack {
     /// Main-queue context used by the UI and `@FetchRequest`.
     var viewContext: NSManagedObjectContext { container.viewContext }
 
+    /// True when the process is running under XCTest (host app or test bundle).
+    static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+
     init(inMemory: Bool = false) {
         container = NSPersistentCloudKitContainer(name: Self.modelName)
 
@@ -29,8 +35,14 @@ final class CoreDataStack {
         }
 
         if inMemory {
-            // Tests / previews: ephemeral store, no CloudKit.
+            // Previews / explicit in-memory: ephemeral store.
             description.url = URL(fileURLWithPath: "/dev/null")
+        }
+
+        // Attach CloudKit only for real app runs. Under XCTest the (unsigned)
+        // host process has no iCloud entitlement and CloudKit setup traps, so we
+        // run the host app on a local-only store during tests.
+        if inMemory || Self.isRunningTests {
             description.cloudKitContainerOptions = nil
         } else {
             // Mirror this store to the CloudKit *private* database.
