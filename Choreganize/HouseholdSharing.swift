@@ -98,6 +98,11 @@ enum HouseholdSharing {
     private static func present(_ controller: UICloudSharingController, from presenter: UIViewController) {
         controller.delegate = SharingDelegate.shared
         controller.availablePermissions = [.allowReadWrite, .allowPrivate]
+        // Block swipe-to-dismiss so member edits (e.g. removing an invited person)
+        // can't be silently discarded by pulling the sheet down — the user must
+        // tap the system Save (checkmark) or Cancel. The controller's own buttons
+        // still dismiss it.
+        controller.isModalInPresentation = true
         presenter.present(controller, animated: true)
     }
 
