@@ -55,23 +55,29 @@ final class AppModel: ObservableObject {
 
     private var context: NSManagedObjectContext { CoreDataStack.shared.viewContext }
 
-    /// The household backing the active scope (`nil` while in Solo).
+    /// The household backing the active scope (`nil` while in Solo). Prefers a
+    /// household shared *with* us (participant) over one we own, so a participant
+    /// who happens to also have a stale empty local household still sees the
+    /// shared one after accepting an invite.
     var activeHousehold: CDHousehold? {
-        scope == .household ? household : nil
+        guard scope == .household else { return nil }
+        return household(in: CoreDataStack.shared.sharedStore) ?? household(in: nil)
     }
 
-    /// The single local household, if one has been created.
-    private var household: CDHousehold? {
+    /// The first household in the given store (or across all stores when `nil`).
+    private func household(in store: NSPersistentStore?) -> CDHousehold? {
         let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
         request.fetchLimit = 1
         request.sortDescriptors = [NSSortDescriptor(key: "createdDate", ascending: true)]
+        if let store { request.affectedStores = [store] }
         return try? context.fetch(request).first
     }
 
-    /// Returns the local household, creating it on first use.
+    /// Returns the household (one we own or one shared with us), creating a local
+    /// one only when none exists anywhere.
     @discardableResult
     func ensureHousehold() -> CDHousehold {
-        if let existing = household { return existing }
+        if let existing = household(in: nil) { return existing }
         let created = CDHousehold(context: context)
         created.id = UUID()
         created.name = "Household"
