@@ -8,5 +8,14 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<!-- Spoken alias so Siri App Shortcut phrases like "my Chores today" resolve
+	     to the app (in addition to the primary name "Choreganize"). -->
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Chores</string>
+		</dict>
+	</array>
 </dict>
 </plist>
