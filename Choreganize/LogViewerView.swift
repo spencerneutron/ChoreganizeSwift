@@ -45,11 +45,23 @@ struct LogViewerView: View {
                     Button("Close") { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
+                    ShareLink(item: exportText) { Image(systemName: "square.and.arrow.up") }
+                        .disabled(logs.isEmpty)
+                }
+                ToolbarItem(placement: .primaryAction) {
                     Button("Refresh") { Task { await refresh() } }
                 }
             }
             .task { await refresh() }
         }
+    }
+
+    /// The currently-shown log lines as shareable text (system share sheet =
+    /// copy, AirDrop, Messages, Save to Files, …). Captures the full in-memory
+    /// buffer that a device `log collect` can't see.
+    private var exportText: String {
+        let header = "Choreganize logs — \(logs.count) lines @ \(String(describing: selectedLevel)) level"
+        return ([header, String(repeating: "—", count: 24)] + logs).joined(separator: "\n")
     }
 
     private func refresh() async {
