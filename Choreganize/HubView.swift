@@ -1,15 +1,18 @@
 import SwiftUI
 
-/// App settings — the foundation for the post-sharing feature wave.
+/// The app's "Hub" — the single entry point for settings *and* support, reached
+/// from the toolbar. It hosts reminder prefs (Phase B), the per-device display
+/// name (groundwork for completion attribution), the Solo/Household scope +
+/// sharing controls, help/tour replay (folded in from the old Support sheet),
+/// and the place the deferred Plus paywall will live.
 ///
-/// It hosts reminder preferences (Phase B), the per-device display name
-/// (groundwork for completion attribution — stored locally, stamped onto
-/// completions later), the Solo/Household scope + sharing controls, and the
-/// place the deferred Plus paywall will eventually live. Presented as a sheet
-/// from `ContentView`; needs `AppModel` re-injected (sheets don't inherit
-/// environment objects).
-struct SettingsView: View {
+/// Presented as a sheet from `ContentView`; needs `AppModel` and
+/// `OnboardingCoordinator` re-injected (sheets don't inherit environment
+/// objects). The presenter's `onDismiss` runs `playPendingIfNeeded()` so a tour
+/// requested here plays after the Hub closes.
+struct HubView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var onboarding: OnboardingCoordinator
     @Environment(\.dismiss) private var dismiss
 
     /// Per-device display name. Latent in this phase; future attribution stamps
@@ -19,6 +22,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // MARK: Settings
                 Section("Reminders") {
                     NavigationLink {
                         NotificationSettingsView()
@@ -46,7 +50,6 @@ struct SettingsView: View {
                             Label(scope.title, systemImage: scope.systemImage).tag(scope)
                         }
                     }
-
                     if model.scope == .household {
                         LabeledContent("Sharing") {
                             HouseholdShareControl()
@@ -54,11 +57,40 @@ struct SettingsView: View {
                     }
                 }
 
+                // MARK: Help & Support (folded from the old Support sheet)
+                Section("Learn the app") {
+                    Button {
+                        onboarding.requestReplay(OnboardingStep.all)
+                        dismiss()
+                    } label: {
+                        Label("Take the tour", systemImage: "play.circle")
+                    }
+                    ForEach(OnboardingStep.all) { step in
+                        Button {
+                            onboarding.requestReplay([step])
+                            dismiss()
+                        } label: {
+                            Label(step.title, systemImage: step.systemImage)
+                        }
+                    }
+                }
+
+                Section {
+                    Button {
+                        // TODO: Integrate StoreKit 2 tips / Pro unlock (deferred paywall).
+                    } label: {
+                        Label("Support the app — coming soon", systemImage: "sparkles")
+                    }
+                    .disabled(true)
+                } footer: {
+                    Text("Thanks for using Choreganize! Ways to support development are coming soon. In the meantime, your feedback is invaluable.")
+                }
+
                 Section("About") {
                     LabeledContent("Version", value: Self.appVersion)
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle("Hub")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -82,8 +114,9 @@ enum SettingsKeys {
 
 #if DEBUG
 #Preview {
-    SettingsView()
+    HubView()
         .environmentObject(AppModel())
+        .environmentObject(OnboardingCoordinator())
         .environment(\.managedObjectContext, PreviewStack.context)
 }
 #endif

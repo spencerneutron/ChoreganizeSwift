@@ -11,8 +11,7 @@ enum AppMode: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var mode: AppMode = .work
-    @State private var showingSupport: Bool = false
-    @State private var showingSettings: Bool = false
+    @State private var showingHub: Bool = false
     @State private var showingError: Bool = false
     @State private var showingLogs: Bool = false
     @StateObject private var onboarding = OnboardingCoordinator()
@@ -71,13 +70,10 @@ struct ContentView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Support") { showingSupport = true }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showingSettings = true
+                        showingHub = true
                     } label: {
-                        Label("Settings", systemImage: "gearshape")
+                        Label("Hub", systemImage: "square.grid.2x2")
                     }
                 }
             }
@@ -89,13 +85,10 @@ struct ContentView: View {
             .onChange(of: model.lastError) { _, newValue in
                 showingError = newValue != nil
             }
-            .sheet(isPresented: $showingSupport, onDismiss: { onboarding.playPendingIfNeeded() }) {
-                SupportView()
-                    .environmentObject(onboarding)
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView()
+            .sheet(isPresented: $showingHub, onDismiss: { onboarding.playPendingIfNeeded() }) {
+                HubView()
                     .environmentObject(model)
+                    .environmentObject(onboarding)
             }
             .sheet(isPresented: $showingLogs) {
                 LogViewerView()
