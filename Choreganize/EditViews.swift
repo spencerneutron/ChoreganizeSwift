@@ -115,18 +115,12 @@ struct ChoreListView: View {
     }
 
     private func move(to area: CDArea?) {
-        for chore in chores where selection.contains(chore.objectID) {
-            chore.area = area
-        }
-        try? context.save()
+        BulkChoreOps.move(selection, to: area, in: context)
         endEditing()
     }
 
     private func deleteSelected() {
-        for chore in chores where selection.contains(chore.objectID) {
-            context.delete(chore)
-        }
-        try? context.save()
+        BulkChoreOps.delete(selection, in: context)
         endEditing()
     }
 
