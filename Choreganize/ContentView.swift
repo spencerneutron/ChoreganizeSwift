@@ -52,6 +52,16 @@ struct ContentView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    if model.scope == .household && CoreDataStack.shared.cloudKitEnabled {
+                        Button {
+                            HouseholdSharing.share(model.ensureHousehold())
+                        } label: {
+                            Image(systemName: "person.crop.circle.badge.plus")
+                        }
+                        .accessibilityLabel("Share Household")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Support") { showingSupport = true }
                 }
             }

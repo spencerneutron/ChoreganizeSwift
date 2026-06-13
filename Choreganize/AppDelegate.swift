@@ -1,15 +1,23 @@
 import UIKit
+import CloudKit
 
 /// App delegate. Registers for the silent CloudKit pushes that
-/// NSPersistentCloudKitContainer uses to drive background sync. Requires the
-/// `remote-notification` background mode (see Info.plist) — without it CloudKit
-/// logs "BUG IN CLIENT OF CLOUDKIT: … require the 'remote-notification'
-/// background mode" and background/push sync never happens.
+/// NSPersistentCloudKitContainer uses to drive background sync (requires the
+/// `remote-notification` background mode in Info.plist), and accepts incoming
+/// Household share invitations into the shared store.
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         Log.info("App did finish launching; registering for remote notifications", category: .app)
         application.registerForRemoteNotifications()
         return true
+    }
+
+    /// Fired when the user taps a Household share invitation link. The system has
+    /// already accepted at the CloudKit level; we pull the share into the shared
+    /// Core Data store so it appears under the Household scope.
+    func application(_ application: UIApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        Log.info("User accepted CloudKit share: \(metadata.share.recordID.recordName)", category: .cloud)
+        CoreDataStack.shared.acceptShare(metadata)
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

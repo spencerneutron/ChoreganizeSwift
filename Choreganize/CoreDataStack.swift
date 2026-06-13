@@ -4,10 +4,10 @@ import os
 
 /// Owns the Core Data + CloudKit stack for Choreganize.
 ///
-/// Phase 1: a single `.private` persistent store mirrored to CloudKit via
-/// `NSPersistentCloudKitContainer`. The `.shared` store — used to participate in
-/// other people's Households — is added in Phase 3, alongside a second store
-/// description pointed at the same model.
+/// Phase 3: two stores share one model — a `.private` store (your own data and
+/// households you own) and a `.shared` store (households shared *with* you).
+/// `NSPersistentCloudKitContainer` mirrors each to the matching CloudKit
+/// database. CloudKit is skipped for tests / previews / `CHOREGANIZE_LOCAL_ONLY`.
 final class CoreDataStack {
     static let shared = CoreDataStack()
 
@@ -18,6 +18,14 @@ final class CoreDataStack {
 
     let container: NSPersistentCloudKitContainer
 
+    /// Whether CloudKit mirroring (and therefore sharing) is active.
+    let cloudKitEnabled: Bool
+
+    /// The CloudKit private-database store (own data + owned households).
+    private(set) var privateStore: NSPersistentStore?
+    /// The CloudKit shared-database store (households shared with you).
+    private(set) var sharedStore: NSPersistentStore?
+
     /// Main-queue context used by the UI and `@FetchRequest`.
     var viewContext: NSManagedObjectContext { container.viewContext }
 
@@ -27,84 +35,121 @@ final class CoreDataStack {
             || NSClassFromString("XCTestCase") != nil
     }
 
-    /// Skip CloudKit mirroring when under test, or when explicitly requested via
-    /// the `CHOREGANIZE_LOCAL_ONLY=1` launch env var (used for simulator runs that
-    /// aren't signed into iCloud, where CloudKit setup can trap).
+    /// Skip CloudKit under test, in SwiftUI previews, or when explicitly asked via
+    /// `CHOREGANIZE_LOCAL_ONLY=1` (simulator runs not signed into iCloud, where
+    /// CloudKit setup can trap).
     static var skipCloudKit: Bool {
-        isRunningTests || ProcessInfo.processInfo.environment["CHOREGANIZE_LOCAL_ONLY"] == "1"
+        isRunningTests
+            || ProcessInfo.processInfo.environment["CHOREGANIZE_LOCAL_ONLY"] == "1"
+            || ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
 
     init(inMemory: Bool = false) {
         container = NSPersistentCloudKitContainer(name: Self.modelName)
+        cloudKitEnabled = !inMemory && !Self.skipCloudKit
 
-        guard let description = container.persistentStoreDescriptions.first else {
+        guard let privateDescription = container.persistentStoreDescriptions.first else {
             fatalError("CoreDataStack: no persistent store description found.")
         }
 
         if inMemory {
-            // Previews / explicit in-memory: ephemeral store.
-            description.url = URL(fileURLWithPath: "/dev/null")
-        }
-
-        // Attach CloudKit only for real app runs. Under XCTest the (unsigned)
-        // host process has no iCloud entitlement and CloudKit setup traps, so we
-        // run on a local-only store during tests / when CHOREGANIZE_LOCAL_ONLY=1.
-        if inMemory || Self.skipCloudKit {
-            description.cloudKitContainerOptions = nil
-        } else {
-            // Mirror this store to the CloudKit *private* database.
-            let options = NSPersistentCloudKitContainerOptions(containerIdentifier: Self.cloudContainerIdentifier)
-            options.databaseScope = .private
-            description.cloudKitContainerOptions = options
+            privateDescription.url = URL(fileURLWithPath: "/dev/null")
         }
 
         // Both required for CloudKit sync and clean merges of remote changes.
-        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+        privateDescription.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        privateDescription.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+
+        if cloudKitEnabled {
+            // Private database store.
+            let privateOptions = NSPersistentCloudKitContainerOptions(containerIdentifier: Self.cloudContainerIdentifier)
+            privateOptions.databaseScope = .private
+            privateDescription.cloudKitContainerOptions = privateOptions
+
+            // Shared database store: a second store, same model, pointed at the
+            // CloudKit *shared* database (households other people share with you).
+            guard let sharedDescription = privateDescription.copy() as? NSPersistentStoreDescription else {
+                fatalError("CoreDataStack: could not derive the shared store description.")
+            }
+            sharedDescription.url = privateDescription.url?
+                .deletingLastPathComponent()
+                .appendingPathComponent("Choreganize-shared.sqlite")
+            let sharedOptions = NSPersistentCloudKitContainerOptions(containerIdentifier: Self.cloudContainerIdentifier)
+            sharedOptions.databaseScope = .shared
+            sharedDescription.cloudKitContainerOptions = sharedOptions
+
+            container.persistentStoreDescriptions = [privateDescription, sharedDescription]
+        } else {
+            privateDescription.cloudKitContainerOptions = nil
+        }
 
         container.loadPersistentStores { storeDescription, error in
             if let error = error as NSError? {
                 Log.error("Core Data store failed to load: \(error.code) \(error.localizedDescription)", category: .persistence)
             } else {
-                let cloud = storeDescription.cloudKitContainerOptions != nil ? "CloudKit" : "local-only"
-                Log.info("Core Data store loaded (\(cloud)): \(storeDescription.url?.lastPathComponent ?? "?")", category: .persistence)
+                let scope = storeDescription.cloudKitContainerOptions?.databaseScope
+                let label = scope == .shared ? "shared/CloudKit"
+                    : (scope == .private ? "private/CloudKit" : "local-only")
+                Log.info("Core Data store loaded (\(label)): \(storeDescription.url?.lastPathComponent ?? "?")", category: .persistence)
             }
         }
 
-        let ctx = container.viewContext
-        ctx.automaticallyMergesChangesFromParent = true
-        ctx.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        ctx.transactionAuthor = "app"
-        // Pin to the latest generation so the UI sees a stable snapshot between merges.
-        try? ctx.setQueryGenerationFrom(.current)
+        // loadPersistentStores completes synchronously for SQLite stores, so the
+        // stores exist by now. Map them to private/shared by database scope.
+        for description in container.persistentStoreDescriptions {
+            guard let url = description.url,
+                  let store = container.persistentStoreCoordinator.persistentStore(for: url) else { continue }
+            if description.cloudKitContainerOptions?.databaseScope == .shared {
+                sharedStore = store
+            } else {
+                privateStore = store
+            }
+        }
+
+        let context = container.viewContext
+        context.automaticallyMergesChangesFromParent = true
+        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        context.transactionAuthor = "app"
+        try? context.setQueryGenerationFrom(.current)
     }
 
     /// Background context for imports and bulk writes.
     func newBackgroundContext() -> NSManagedObjectContext {
-        let ctx = container.newBackgroundContext()
-        ctx.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        ctx.transactionAuthor = "app"
-        return ctx
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        context.transactionAuthor = "app"
+        return context
     }
 
     /// Saves the view context if it has pending changes.
     func saveViewContext() {
-        let ctx = viewContext
-        guard ctx.hasChanges else { return }
+        let context = viewContext
+        guard context.hasChanges else { return }
         do {
-            try ctx.save()
+            try context.save()
         } catch {
             Log.error("Core Data save failed: \(error.localizedDescription)", category: .persistence)
         }
     }
 
+    /// Accepts an incoming CloudKit share into the shared store. Phase 3.
+    func acceptShare(_ metadata: CKShare.Metadata) {
+        guard let sharedStore else {
+            Log.error("Cannot accept share: no shared store (CloudKit disabled?)", category: .cloud)
+            return
+        }
+        container.acceptShareInvitations(from: [metadata], into: sharedStore) { _, error in
+            if let error {
+                Log.error("acceptShareInvitations failed: \(error.localizedDescription)", category: .cloud)
+            } else {
+                Log.info("Accepted CloudKit share into shared store", category: .cloud)
+            }
+        }
+    }
+
     #if DEBUG
     /// One-time helper to publish the model to the CloudKit **Development** schema.
-    ///
-    /// Run this once from a debug build (e.g. temporarily call it from
-    /// `ChoreganizeApp.init`) while signed into iCloud, watch the logs for
-    /// success, then remove the call. NSPCKC also creates schema lazily as
-    /// records save, so this is mainly to force/verify schema creation up front.
+    /// Run once from a debug build while signed into iCloud, then remove the call.
     func initializeCloudKitSchemaForDevelopment() {
         do {
             try container.initializeCloudKitSchema(options: [])
