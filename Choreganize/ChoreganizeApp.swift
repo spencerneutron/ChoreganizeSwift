@@ -27,6 +27,14 @@ struct ChoreganizeApp: App {
                     default:
                         break
                     }
+                    // Republish today's chores to the App Group so the widget
+                    // stays current (no-op until the App Group is entitled).
+                    if phase == .active || phase == .background {
+                        WidgetSnapshotWriter.update(
+                            using: CoreDataStack.shared.viewContext,
+                            activeHousehold: model.activeHousehold,
+                            scopeLabel: model.scope == .household ? model.householdName : "Solo")
+                    }
                 }
         }
     }
