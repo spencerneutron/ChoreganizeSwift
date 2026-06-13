@@ -75,6 +75,15 @@ Notification delivery is handled by Apple.
   of that synced data are ultimately governed by Apple and your device/iCloud
   settings.
 
+## Siri & Shortcuts
+
+The app offers Siri and Shortcuts actions to read the chores you have today and
+to mark a chore as done. When you use them, your spoken or tapped request is
+processed by Apple's Siri/Shortcuts and the action runs on your device against
+your own chore data. The developer does not receive your requests or your chores.
+Chore names may be provided to the system so Siri can suggest these shortcuts;
+that is handled by Apple.
+
 ## Children
 
 The app is general-audience and does not knowingly request or collect personal

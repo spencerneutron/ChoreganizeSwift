@@ -1,0 +1,33 @@
+import AppIntents
+
+/// Zero-setup Siri phrases for the chore intents. Every phrase must contain the
+/// app name token `\(.applicationName)`, which matches the primary name
+/// "Choreganize" **and** the "Chores" alias (Info.plist `INAlternativeAppNames`).
+/// So the same phrase reads as either "…Choreganize tasks…" or "…Chores…".
+struct ChoreShortcuts: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: TodaysChoresIntent(),
+            phrases: [
+                "What \(.applicationName) do I have today",
+                "What \(.applicationName) do I have to do today",
+                "What are my \(.applicationName) today",
+                "What are my \(.applicationName) tasks today",
+                "Show my \(.applicationName) tasks for today"
+            ],
+            shortTitle: "Today's Chores",
+            systemImageName: "checklist"
+        )
+        AppShortcut(
+            intent: CompleteChoreIntent(),
+            phrases: [
+                "Complete a \(.applicationName) task",
+                "Mark a \(.applicationName) task complete",
+                "Complete \(\.$chore) in \(.applicationName)",
+                "Mark \(\.$chore) complete in \(.applicationName)"
+            ],
+            shortTitle: "Complete a Chore",
+            systemImageName: "checkmark.circle"
+        )
+    }
+}
