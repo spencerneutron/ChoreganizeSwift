@@ -16,6 +16,14 @@ struct ContentView: View {
     @State private var showingLogs: Bool = false
     @StateObject private var onboarding = OnboardingCoordinator()
 
+    /// Card steps present as a sheet; spotlight steps use the overlay instead.
+    private var cardStep: Binding<OnboardingStep?> {
+        Binding(
+            get: { onboarding.current?.spotlight == nil ? onboarding.current : nil },
+            set: { _ in }   // dismissal is driven by the card's own buttons
+        )
+    }
+
     var body: some View {
         NavigationStack {
             VStack {
@@ -49,6 +57,7 @@ struct ContentView: View {
                             Text(model.scope == .household ? model.householdName : model.scope.title)
                         }
                     }
+                    .onboardingAnchor(.scopeSwitch)
                 }
                 ToolbarItem(placement: .status) {
                     if model.isSyncing {
@@ -79,15 +88,24 @@ struct ContentView: View {
             .sheet(isPresented: $showingLogs) {
                 LogViewerView()
             }
-            .sheet(item: $onboarding.current) { step in
+            .sheet(item: cardStep) { step in
                 OnboardingCardView(
                     step: step,
                     hasNext: onboarding.hasNext,
                     onNext: { onboarding.advance() },
                     onSkip: { onboarding.finish() }
                 )
+                .interactiveDismissDisabled()
             }
-            .task { onboarding.startFirstRunIfNeeded() }
+            .task {
+                onboarding.startFirstRunIfNeeded()
+                #if DEBUG
+                if let raw = ProcessInfo.processInfo.environment["CHOREGANIZE_ONBOARD_STEP"],
+                   let id = OnboardingStep.ID(rawValue: raw) {
+                    onboarding.play(OnboardingStep.step(id))
+                }
+                #endif
+            }
             .safeAreaInset(edge: .bottom) {
                 ZStack {
                     // Match the system bar appearance
@@ -101,12 +119,16 @@ struct ContentView: View {
                     }
                     .pickerStyle(.segmented)
                     .padding(.horizontal)
+                    .onboardingAnchor(.modePicker)
                 }
                 .contentShape(Rectangle())
                 .simultaneousGesture(LongPressGesture().onEnded { _ in
                     showingLogs = true
                 })
             }
+        }
+        .overlayPreferenceValue(SpotlightAnchorsKey.self) { anchors in
+            OnboardingSpotlightOverlay(coordinator: onboarding, anchors: anchors)
         }
     }
 }

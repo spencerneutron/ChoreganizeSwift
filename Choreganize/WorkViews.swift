@@ -176,6 +176,7 @@ struct DayPage: View {
                 Button("Done") { showDoneAlert = true }
                     .buttonStyle(.borderedProminent)
                     .padding(.bottom, 40)
+                    .onboardingAnchor(.doneButton)
             }
         }
     }
