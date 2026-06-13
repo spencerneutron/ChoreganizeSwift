@@ -11,6 +11,9 @@ enum AppMode: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var mode: AppMode = .work
+    @State private var showingSupport: Bool = false
+    @State private var showingError: Bool = false
+    @State private var showingLogs: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -27,36 +30,82 @@ struct ContentView: View {
             .toolbar(.visible, for: .automatic)
             .animation(.easeInOut, value: mode)
             .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    if model.sharingEnabled {
-                        Button("Stop Sharing") { stopSharing() }
-                    } else {
-                        Button("Share") { share() }
+                // Solo vs Household scope switch. (CloudKit sharing of the
+                // Household returns in Phase 3.)
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Picker("Scope", selection: Binding(
+                            get: { model.scope },
+                            set: { model.setScope($0) }
+                        )) {
+                            ForEach(AppScope.allCases) { scope in
+                                Label(scope.title, systemImage: scope.systemImage).tag(scope)
+                            }
+                        }
+                    } label: {
+                        Label(model.scope.title, systemImage: model.scope.systemImage)
                     }
                 }
-                ToolbarItem(placement: .bottomBar) {
+                ToolbarItem(placement: .status) {
+                    if model.isSyncing {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    if model.scope == .household && CoreDataStack.shared.cloudKitEnabled {
+                        Button {
+                            HouseholdSharing.share(model.ensureHousehold())
+                        } label: {
+                            Image(systemName: "person.crop.circle.badge.plus")
+                        }
+                        .accessibilityLabel("Share Household")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Support") { showingSupport = true }
+                }
+            }
+            .alert("Error", isPresented: $showingError, actions: {
+                Button("OK", role: .cancel) { model.lastError = nil }
+            }, message: {
+                Text(model.lastError ?? "Unknown error")
+            })
+            .onChange(of: model.lastError) { _, newValue in
+                showingError = newValue != nil
+            }
+            .sheet(isPresented: $showingSupport) {
+                SupportView()
+            }
+            .sheet(isPresented: $showingLogs) {
+                LogViewerView()
+            }
+            .safeAreaInset(edge: .bottom) {
+                ZStack {
+                    // Match the system bar appearance
+                    Rectangle()
+                        .fill(.bar)
+                        .ignoresSafeArea()
+                        .frame(height: 60)
+
                     Picker("Mode", selection: $mode) {
                         ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    .frame(maxWidth: 280)
+                    .padding(.horizontal)
                 }
+                .contentShape(Rectangle())
+                .simultaneousGesture(LongPressGesture().onEnded { _ in
+                    showingLogs = true
+                })
             }
         }
     }
-
-    private func share() {
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let root = scene.windows.first?.rootViewController else { return }
-        Task { await model.startSharing(from: root) }
-    }
-
-    private func stopSharing() {
-        Task { await model.stopSharing() }
-    }
 }
 
+#if DEBUG
 #Preview {
     ContentView()
         .environmentObject(AppModel())
+        .environment(\.managedObjectContext, PreviewStack.context)
 }
+#endif

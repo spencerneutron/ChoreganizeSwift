@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreData
 
 struct EditHomeView: View {
     var body: some View {
@@ -10,59 +11,53 @@ struct EditHomeView: View {
 }
 
 struct ChoreListView: View {
-    @EnvironmentObject var model: AppModel
+    @Environment(\.managedObjectContext) private var context
+    @EnvironmentObject private var model: AppModel
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var chores: FetchedResults<CDChore>
     @State private var showingNew = false
-    @State private var editingChore: Chore?
+    @State private var editingChore: CDChore?
 
     var body: some View {
         List {
-            if !model.chores.filter({ $0.isDaily }).isEmpty {
+            let scoped = chores.inScope(model.activeHousehold)
+            let daily = scoped.filter { $0.isDaily }
+            if !daily.isEmpty {
                 Section(header: Text("Every Day")) {
-                    ForEach(model.chores.filter { $0.isDaily }) { chore in
+                    ForEach(daily, id: \.objectID) { chore in
                         ChoreRowView(chore: chore, showToggle: false)
                             .contentShape(Rectangle())
                             .onTapGesture { editingChore = chore }
                     }
-                    .onDelete { offsets in
-                        let ids = offsets.map { model.chores.filter { $0.isDaily }[$0].id }
-                        model.deleteChores(withIDs: ids)
-                    }
+                    .onDelete { offsets in delete(daily, at: offsets) }
                 }
             }
 
             ForEach(Weekday.standardCases) { day in
-                let choresForDay = model.chores.filter { !$0.isDaily && $0.assignedDay == day }
+                let choresForDay = scoped.filter { !$0.isDaily && $0.assignedDayValue == day }
                 if !choresForDay.isEmpty {
                     Section(header: Text(day.displayName)) {
-                        ForEach(choresForDay) { chore in
+                        ForEach(choresForDay, id: \.objectID) { chore in
                             ChoreRowView(chore: chore, showToggle: false)
                                 .contentShape(Rectangle())
                                 .onTapGesture { editingChore = chore }
                         }
-                        .onDelete { offsets in
-                            let ids = offsets.map { choresForDay[$0].id }
-                            model.deleteChores(withIDs: ids)
-                        }
+                        .onDelete { offsets in delete(choresForDay, at: offsets) }
                     }
                 }
             }
 
-            let unassigned = model.chores.filter { !$0.isDaily && $0.assignedDay == nil }
+            let unassigned = scoped.filter { !$0.isDaily && $0.assignedDayValue == nil }
             if !unassigned.isEmpty {
                 Section(header: Text("Unassigned")) {
-                    ForEach(unassigned) { chore in
+                    ForEach(unassigned, id: \.objectID) { chore in
                         ChoreRowView(chore: chore, showToggle: false)
                             .contentShape(Rectangle())
                             .onTapGesture { editingChore = chore }
                     }
-                    .onDelete { offsets in
-                        let ids = offsets.map { unassigned[$0].id }
-                        model.deleteChores(withIDs: ids)
-                    }
+                    .onDelete { offsets in delete(unassigned, at: offsets) }
                 }
             }
         }
-        // Title removed for a more streamlined look
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Add") { showingNew = true }
@@ -73,11 +68,18 @@ struct ChoreListView: View {
         }
         .sheet(item: $editingChore) { EditChoreView(chore: $0) }
     }
+
+    private func delete(_ list: [CDChore], at offsets: IndexSet) {
+        for index in offsets { context.delete(list[index]) }
+        try? context.save()
+    }
 }
 
 struct NewChoreView: View {
-    @EnvironmentObject var model: AppModel
+    @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) var dismiss
+    @EnvironmentObject private var model: AppModel
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDArea.name)]) private var areas: FetchedResults<CDArea>
 
     @State private var name = ""
     @State private var isDaily = false
@@ -93,15 +95,22 @@ struct NewChoreView: View {
                                 frequency: $frequency,
                                 day: $day,
                                 areaId: $areaId,
-                                areas: model.areas)
+                                areas: Array(areas).inScope(model.activeHousehold))
             }
             .navigationTitle("New Chore")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         let assigned = isDaily ? Weekday.all : day
-                        let new = Chore(name: name, isDaily: isDaily, frequency: isDaily ? nil : frequency, assignedDay: assigned, areaId: areaId, createdDate: Date())
-                        model.addChore(new)
+                        let chore = CDChore.make(in: context,
+                                                 name: name,
+                                                 isDaily: isDaily,
+                                                 frequency: isDaily ? nil : frequency,
+                                                 assignedDay: assigned,
+                                                 createdDate: Date(),
+                                                 household: model.activeHousehold)
+                        chore.area = areaId.flatMap { id in areas.first { $0.id == id } }
+                        try? context.save()
                         dismiss()
                     }
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -115,38 +124,18 @@ struct NewChoreView: View {
 }
 
 struct EditChoreView: View {
-    @EnvironmentObject var model: AppModel
+    @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) var dismiss
-    private let choreID: UUID
-    @State private var createdDate: Date
+    @ObservedObject var chore: CDChore
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDArea.name)]) private var areas: FetchedResults<CDArea>
 
-    @State private var name: String
-    @State private var isDaily: Bool
-    @State private var frequency: Frequency
+    @State private var name: String = ""
+    @State private var isDaily: Bool = false
+    @State private var frequency: Frequency = .weekly
     @State private var day: Weekday?
     @State private var areaId: UUID?
     @State private var showLogSheet = false
-
-    private var currentChore: Chore {
-        let assigned = isDaily ? Weekday.all : day
-        return Chore(id: choreID,
-                    name: name,
-                    isDaily: isDaily,
-                    frequency: isDaily ? nil : frequency,
-                    assignedDay: assigned,
-                    areaId: areaId,
-                    createdDate: createdDate)
-    }
-
-    init(chore: Chore) {
-        self.choreID = chore.id
-        _createdDate = State(initialValue: chore.createdDate)
-        _name = State(initialValue: chore.name)
-        _isDaily = State(initialValue: chore.isDaily)
-        _frequency = State(initialValue: chore.frequency ?? .weekly)
-        _day = State(initialValue: chore.assignedDay)
-        _areaId = State(initialValue: chore.areaId)
-    }
+    @State private var loaded = false
 
     var body: some View {
         NavigationStack {
@@ -156,18 +145,16 @@ struct EditChoreView: View {
                                 frequency: $frequency,
                                 day: $day,
                                 areaId: $areaId,
-                                areas: model.areas)
+                                areas: Array(areas).inScope(chore.household))
 
                 Section("History") {
-                    let completions = model.completions
-                        .filter { $0.choreId == choreID }
-                        .sorted { $0.date > $1.date }
+                    let completions = chore.completionsArray
 
                     ScrollView {
                         LazyVStack(alignment: .leading) {
-                            ForEach(completions) { completion in
+                            ForEach(completions, id: \.objectID) { completion in
                                 HStack(spacing: 4) {
-                                    Text(completion.date.formatted(date: .abbreviated, time: .omitted))
+                                    Text((completion.date ?? Date()).formatted(date: .abbreviated, time: .omitted))
                                     if let notes = completion.notes, !notes.isEmpty {
                                         Text("\u{2013} \(notes)")
                                     }
@@ -182,12 +169,24 @@ struct EditChoreView: View {
                 }
             }
             .navigationTitle("Edit Chore")
+            .onAppear {
+                guard !loaded else { return }
+                name = chore.name ?? ""
+                isDaily = chore.isDaily
+                frequency = chore.frequencyValue ?? .weekly
+                day = chore.assignedDayValue
+                areaId = chore.area?.id
+                loaded = true
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let assigned = isDaily ? Weekday.all : day
-                        let updated = Chore(id: choreID, name: name, isDaily: isDaily, frequency: isDaily ? nil : frequency, assignedDay: assigned, areaId: areaId, createdDate: createdDate)
-                        model.updateChore(updated)
+                        chore.name = name
+                        chore.isDaily = isDaily
+                        chore.frequencyValue = isDaily ? nil : frequency
+                        chore.assignedDayValue = isDaily ? .all : day
+                        chore.area = areaId.flatMap { id in areas.first { $0.id == id } }
+                        try? context.save()
                         dismiss()
                     }
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -195,32 +194,37 @@ struct EditChoreView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
             .sheet(isPresented: $showLogSheet) {
-                LogChoreHistoryView(chore: currentChore)
+                LogChoreHistoryView(chore: chore)
             }
         }
     }
 }
 
 struct AreaListView: View {
-    @EnvironmentObject var model: AppModel
+    @Environment(\.managedObjectContext) private var context
+    @EnvironmentObject private var model: AppModel
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDArea.name)]) private var areas: FetchedResults<CDArea>
     @State private var showingNew = false
 
     var body: some View {
         List {
-            ForEach(model.areas) { area in
+            let scoped = areas.inScope(model.activeHousehold)
+            ForEach(scoped, id: \.objectID) { area in
                 NavigationLink(destination: EditAreaView(area: area)) {
                     VStack(alignment: .leading) {
-                        Text(area.name)
-                        if (!area.description.isEmpty){
-                            Text(area.description)
+                        Text(area.name ?? "Untitled")
+                        if let detail = area.detail, !detail.isEmpty {
+                            Text(detail)
                                 .font(.caption)
                         }
                     }
                 }
             }
-            .onDelete(perform: model.deleteAreas)
+            .onDelete { offsets in
+                for index in offsets { context.delete(scoped[index]) }
+                try? context.save()
+            }
         }
-        // Title removed for consistency with other views
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Add") { showingNew = true }
@@ -231,27 +235,29 @@ struct AreaListView: View {
 }
 
 struct NewAreaView: View {
-    @EnvironmentObject var model: AppModel
+    @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) var dismiss
+    @EnvironmentObject private var model: AppModel
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var allChores: FetchedResults<CDChore>
     @State private var name = ""
-    @State private var description = ""
-    @State private var selectedChoreIDs: Set<UUID> = []
+    @State private var detail = ""
+    @State private var selectedChoreIDs: Set<NSManagedObjectID> = []
 
     var body: some View {
         NavigationStack {
             Form {
-                AreaFormFields(name: $name, description: $description)
-                let unassigned = model.chores.filter { $0.areaId == nil }
+                AreaFormFields(name: $name, description: $detail)
+                let unassigned = allChores.inScope(model.activeHousehold).filter { $0.area == nil }
                 if !unassigned.isEmpty {
                     Section(header: Text("Assign Chores")) {
-                        ForEach(unassigned) { chore in
-                            Toggle(chore.name, isOn: Binding(
-                                get: { selectedChoreIDs.contains(chore.id) },
+                        ForEach(unassigned, id: \.objectID) { chore in
+                            Toggle(chore.name ?? "Untitled", isOn: Binding(
+                                get: { selectedChoreIDs.contains(chore.objectID) },
                                 set: { newValue in
                                     if newValue {
-                                        selectedChoreIDs.insert(chore.id)
+                                        selectedChoreIDs.insert(chore.objectID)
                                     } else {
-                                        selectedChoreIDs.remove(chore.id)
+                                        selectedChoreIDs.remove(chore.objectID)
                                     }
                                 }
                             ))
@@ -263,9 +269,11 @@ struct NewAreaView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let area = Area(name: name, description: description)
-                        model.addArea(area)
-                        model.assignChores(Array(selectedChoreIDs), toAreaID: area.id)
+                        let area = CDArea.make(in: context, name: name, detail: detail, household: model.activeHousehold)
+                        for chore in allChores where selectedChoreIDs.contains(chore.objectID) {
+                            chore.area = area
+                        }
+                        try? context.save()
                         dismiss()
                     }
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -277,25 +285,29 @@ struct NewAreaView: View {
 }
 
 struct EditAreaView: View {
-    @EnvironmentObject var model: AppModel
+    @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) var dismiss
-    @State var area: Area
-    @State private var selectedChoreIDs: Set<UUID> = []
+    @ObservedObject var area: CDArea
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var allChores: FetchedResults<CDChore>
+    @State private var name: String = ""
+    @State private var detail: String = ""
+    @State private var selectedChoreIDs: Set<NSManagedObjectID> = []
+    @State private var loaded = false
 
     var body: some View {
         NavigationStack {
             Form {
-                AreaFormFields(name: $area.name, description: $area.description)
-                let available = model.chores.filter { $0.areaId == nil || $0.areaId == area.id }
+                AreaFormFields(name: $name, description: $detail)
+                let available = allChores.inScope(area.household).filter { $0.area == nil || $0.area == area }
                 Section(header: Text("Chores")) {
-                    ForEach(available) { chore in
-                        Toggle(chore.name, isOn: Binding(
-                            get: { selectedChoreIDs.contains(chore.id) },
+                    ForEach(available, id: \.objectID) { chore in
+                        Toggle(chore.name ?? "Untitled", isOn: Binding(
+                            get: { selectedChoreIDs.contains(chore.objectID) },
                             set: { newValue in
                                 if newValue {
-                                    selectedChoreIDs.insert(chore.id)
+                                    selectedChoreIDs.insert(chore.objectID)
                                 } else {
-                                    selectedChoreIDs.remove(chore.id)
+                                    selectedChoreIDs.remove(chore.objectID)
                                 }
                             }
                         ))
@@ -304,22 +316,28 @@ struct EditAreaView: View {
             }
             .navigationTitle("Edit Area")
             .onAppear {
-                selectedChoreIDs = Set(model.chores.filter { $0.areaId == area.id }.map { $0.id })
+                guard !loaded else { return }
+                name = area.name ?? ""
+                detail = area.detail ?? ""
+                selectedChoreIDs = Set(allChores.filter { $0.area == area }.map { $0.objectID })
+                loaded = true
             }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        model.updateArea(area)
-                        model.assignChores(Array(selectedChoreIDs), toAreaID: area.id)
-                        let toUnassign = model.chores
-                            .filter { $0.areaId == area.id && !selectedChoreIDs.contains($0.id) }
-                            .map { $0.id }
-                        if !toUnassign.isEmpty {
-                            model.assignChores(toUnassign, toAreaID: nil)
+                        area.name = name
+                        area.detail = detail
+                        for chore in allChores {
+                            if selectedChoreIDs.contains(chore.objectID) {
+                                chore.area = area
+                            } else if chore.area == area {
+                                chore.area = nil
+                            }
                         }
+                        try? context.save()
                         dismiss()
                     }
-                    .disabled(area.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
@@ -328,9 +346,9 @@ struct EditAreaView: View {
 
 /// View for logging a past completion for a chore.
 struct LogChoreHistoryView: View {
-    @EnvironmentObject var model: AppModel
+    @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) var dismiss
-    var chore: Chore
+    @ObservedObject var chore: CDChore
     @State private var date: Date = Date()
 
     var body: some View {
@@ -342,12 +360,13 @@ struct LogChoreHistoryView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        model.recordCompletion(chore, date: date)
-                        if date < chore.createdDate {
-                            var updated = chore
-                            updated.createdDate = date
-                            model.updateChore(updated)
+                        chore.recordCompletion(on: date, in: context)
+                        if let created = chore.createdDate, date < created {
+                            chore.createdDate = date
+                        } else if chore.createdDate == nil {
+                            chore.createdDate = date
                         }
+                        try? context.save()
                         dismiss()
                     }
                 }
@@ -359,7 +378,10 @@ struct LogChoreHistoryView: View {
     }
 }
 
+#if DEBUG
 #Preview {
-    EditHomeView()
+    NavigationStack { EditHomeView() }
+        .environment(\.managedObjectContext, PreviewStack.context)
         .environmentObject(AppModel())
 }
+#endif

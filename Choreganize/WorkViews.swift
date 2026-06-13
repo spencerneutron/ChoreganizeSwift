@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A single chore row showing completion state and last completion summary.
 struct ChoreRowView: View {
-    @EnvironmentObject var model: AppModel
-    var chore: Chore
+    @Environment(\.managedObjectContext) private var context
+    @ObservedObject var chore: CDChore
     var showToggle: Bool = true
     /// When enabled the toggle is displayed in a completed state and cannot be changed.
     var locked: Bool = false
@@ -12,13 +12,13 @@ struct ChoreRowView: View {
 
     private var lastLine: some View {
         Group {
-            if let last = model.lastCompletion(for: chore) {
+            if let last = chore.lastCompletion, let lastDate = last.date {
                 HStack(spacing: 4) {
-                    Text(last.date.formatted(date: .abbreviated, time: .omitted))
+                    Text(lastDate.formatted(date: .abbreviated, time: .omitted))
                     if let notes = last.notes, !notes.isEmpty {
                         Text("\u{2013} \(notes)")
                     }
-                    if model.isOverdue(chore) {
+                    if chore.isOverdue() {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(.red)
                     }
@@ -26,7 +26,7 @@ struct ChoreRowView: View {
                 .font(.caption)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .foregroundColor(model.isOverdue(chore) ? .red : .secondary)
+                .foregroundColor(chore.isOverdue() ? .red : .secondary)
             } else {
                 Text("Never completed")
                     .font(.caption)
@@ -37,27 +37,27 @@ struct ChoreRowView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(chore.name)
+            Text(chore.name ?? "Untitled")
                 .fontWeight(.medium)
             lastLine
         }
-        .opacity(model.needsAttention(chore, on: date) ? 1 : 0.5)
+        .opacity(chore.needsAttention(on: date) ? 1 : 0.5)
     }
 
     var body: some View {
         Group {
             if showToggle {
                 if locked {
-                    Toggle(isOn: .constant(model.isCompleted(chore, on: date))) { content }
+                    Toggle(isOn: .constant(chore.isCompleted(on: date))) { content }
                         .disabled(true)
                 } else {
                     Toggle(isOn: Binding(
-                        get: { model.isCompleted(chore, on: date) },
+                        get: { chore.isCompleted(on: date) },
                         set: { newValue in
                             if newValue {
-                                model.recordCompletion(chore, date: date)
+                                chore.recordCompletion(on: date, in: context)
                             } else {
-                                model.removeCompletion(chore, on: date)
+                                chore.removeCompletion(on: date, in: context)
                             }
                         })) {
                             content
@@ -72,8 +72,6 @@ struct ChoreRowView: View {
 }
 
 struct WorkHomeView: View {
-    @EnvironmentObject var model: AppModel
-
     var body: some View {
         WeekView()
             .toolbar(.hidden, for: .navigationBar)
@@ -81,12 +79,10 @@ struct WorkHomeView: View {
 }
 
 struct WeekView: View {
-    @EnvironmentObject var model: AppModel
-
     // Expose a range before and after today so the user can page
     // through recent days.
     private var dates: [Date] {
-        model.weekDates(startingFrom: Date(), includePast: 6, includeFuture: 6)
+        Scheduling.weekDates(startingFrom: Date(), includePast: 6, includeFuture: 6)
     }
 
     // Today sits in the middle of the range
@@ -97,7 +93,6 @@ struct WeekView: View {
             ForEach(Array(dates.enumerated()), id: \.offset) { index, date in
                 DayPage(date: date)
                     .tag(index)
-                    .task { await prefetch(for: index) }
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
@@ -119,46 +114,42 @@ struct WeekView: View {
             .animation(.easeInOut, value: currentIndex)
         }
     }
-
-    /// Prefetch completion data for the visible day and nearby days.
-    private func prefetch(for index: Int) async {
-        let offsets = [-2, -1, 0, 1, 2]
-        for offset in offsets {
-            let idx = index + offset
-            guard dates.indices.contains(idx) else { continue }
-            _ = await model.loadCompletions(for: dates[idx])
-        }
-    }
 }
 
-/// Single day page used within the horizontally scrolling week view.
-private struct DayPage: View {
-    @EnvironmentObject var model: AppModel
+/// Single day page used within the horizontally scrolling week view or as a
+/// standalone view.
+struct DayPage: View {
+    @Environment(\.managedObjectContext) private var context
+    @EnvironmentObject private var model: AppModel
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var chores: FetchedResults<CDChore>
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDLockedDay.date)]) private var lockedDays: FetchedResults<CDLockedDay>
     var date: Date
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
-    
+
     private var isPast: Bool {
         Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: Date())
     }
 
     var body: some View {
-        let isLocked = isPast || model.isDayLocked(date)
+        let active = model.activeHousehold
+        let scopedLocks = Array(lockedDays).inScope(active)
+        let dayChores = Scheduling.chores(Array(chores).inScope(active), for: date)
+        let isLocked = DayLock.isLocked(date, in: scopedLocks)
 
         List {
             let weekdayName = date.formatted(.dateTime.weekday(.wide))
             let dateText = date.formatted(date: .abbreviated, time: .omitted)
             Section(header: Text("\(weekdayName), \(dateText)")) {
-                ForEach(model.chores(for: date)) { chore in
+                ForEach(dayChores, id: \.objectID) { chore in
                     ChoreRowView(chore: chore, locked: isLocked, date: date)
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .task { let _ = await model.loadCompletions(for: date) }
         .alert("Finish day?", isPresented: $showDoneAlert) {
             Button("Confirm") {
-                model.lockDay(date)
+                DayLock.lock(date, existing: scopedLocks, household: active, in: context)
                 withAnimation { showConfirmation = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     withAnimation { showConfirmation = false }
@@ -178,7 +169,7 @@ private struct DayPage: View {
         }
         .overlay(alignment: .bottom) {
             if isLocked && !isPast {
-                Button("Unlock") { model.unlockDay(date) }
+                Button("Unlock") { DayLock.unlock(date, existing: scopedLocks, in: context) }
                     .buttonStyle(.bordered)
                     .padding(.bottom, 40)
             } else if !isLocked {
@@ -190,7 +181,10 @@ private struct DayPage: View {
     }
 }
 
+#if DEBUG
 #Preview {
     WorkHomeView()
+        .environment(\.managedObjectContext, PreviewStack.context)
         .environmentObject(AppModel())
 }
+#endif

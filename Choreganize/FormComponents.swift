@@ -8,7 +8,7 @@ struct ChoreFormFields: View {
     @Binding var frequency: Frequency
     @Binding var day: Weekday?
     @Binding var areaId: UUID?
-    var areas: [Area]
+    var areas: [CDArea]
 
     var body: some View {
         Section("Details") {
@@ -30,8 +30,8 @@ struct ChoreFormFields: View {
             }
             Picker("Area", selection: $areaId) {
                 Text("None").tag(UUID?.none)
-                ForEach(areas) { area in
-                    Text(area.name).tag(Optional(area.id))
+                ForEach(areas, id: \.objectID) { area in
+                    Text(area.name ?? "Untitled").tag(area.id)
                 }
             }
         }

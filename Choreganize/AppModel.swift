@@ -1,420 +1,158 @@
 import Foundation
 import SwiftUI
-import UIKit
+import CoreData
+import os
 
+/// App-level coordinator. Since the Core Data + CloudKit re-platform, the data
+/// itself lives in Core Data and is read by the views via `@FetchRequest`; this
+/// object now only carries cross-cutting UI state (sync status, errors, banners).
 @MainActor
 final class AppModel: ObservableObject {
-    let cloudController: SharedCloudKitController
-    @AppStorage("sharingEnabled") var sharingEnabled = false
-    @Published var chores: [Chore] = []
-    @Published var areas: [Area] = []
-    @Published var completions: [Completion] = []
-    @Published var completionCache: [Date: [Completion]] = [:]
-    @Published var lockedDays: Set<Date> = []
+    static let schemaVersion: Int = 1
 
-    private let fileURL: URL
-
-    init(cloudController: SharedCloudKitController = .shared) {
-        self.cloudController = cloudController
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        fileURL = documents.appendingPathComponent("chore_data.json")
-        load()
-        Task {
-            await loadSharedState()
-            if sharingEnabled {
-                await cloudController.subscribeToChanges()
-            }
-        }
+    // MARK: - Banner messaging
+    enum BannerStyle {
+        case info, success, warning, error
     }
 
-    // MARK: - Persistence
-    func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        if let decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
-            self.chores = decoded.chores
-            self.areas = decoded.areas
-            self.completions = decoded.completions
-            self.lockedDays = decoded.lockedDays
-        }
-        pruneLockedDays()
-    }
+    struct BannerMessage: Identifiable, Equatable {
+        let id = UUID()
+        let title: String?
+        let message: String
+        let style: BannerStyle
+        let actionTitle: String?
+        let action: (() -> Void)?
+        let duration: TimeInterval
 
-    func save() {
-        pruneLockedDays()
-        let state = SavedState(chores: chores, areas: areas, completions: completions, lockedDays: lockedDays)
-        if let data = try? JSONEncoder().encode(state) {
-            try? data.write(to: fileURL)
-        }
-        if sharingEnabled {
-            Task { await cloudController.publish(state: state) }
-        }
-    }
-
-    // MARK: - Chore management
-    func addChore(_ chore: Chore) {
-        chores.append(chore)
-        save()
-    }
-
-    /// Updates an existing chore with new details.
-    func updateChore(_ chore: Chore) {
-        if let index = chores.firstIndex(where: { $0.id == chore.id }) {
-            chores[index] = chore
-            save()
-        }
-    }
-
-    func deleteChores(at offsets: IndexSet) {
-        chores.remove(atOffsets: offsets)
-        save()
-    }
-
-    /// Deletes chores matching the provided identifiers.
-    func deleteChores(withIDs ids: [UUID]) {
-        chores.removeAll { ids.contains($0.id) }
-        save()
-    }
-
-    // MARK: - Area management
-    func addArea(_ area: Area) {
-        areas.append(area)
-        save()
-    }
-
-    func deleteAreas(at offsets: IndexSet) {
-        areas.remove(atOffsets: offsets)
-        save()
-    }
-
-    /// Updates an existing area with new values.
-    func updateArea(_ area: Area) {
-        if let index = areas.firstIndex(where: { $0.id == area.id }) {
-            areas[index] = area
-            save()
-        }
-    }
-
-    /// Assigns the specified chores to the given area identifier. Pass `nil` to
-    /// unassign the chores.
-    func assignChores(_ choreIDs: [UUID], toAreaID areaID: UUID?) {
-        for id in choreIDs {
-            if let index = chores.firstIndex(where: { $0.id == id }) {
-                chores[index].areaId = areaID
-            }
-        }
-        save()
-    }
-
-    // MARK: - Completion
-    func isCompleted(_ chore: Chore, on date: Date) -> Bool {
-        completions.contains { $0.choreId == chore.id && Calendar.current.isDate($0.date, inSameDayAs: date) }
-    }
-
-    func recordCompletion(_ chore: Chore, notes: String? = nil, date: Date = Date()) {
-        guard !isCompleted(chore, on: date) else { return }
-        completions.append(Completion(choreId: chore.id, date: date, notes: notes))
-        save()
-    }
-
-    func removeCompletionForToday(_ chore: Chore) {
-        removeCompletion(chore, on: Date())
-    }
-
-    /// Removes the completion for the given chore on the specified date if one exists.
-    func removeCompletion(_ chore: Chore, on date: Date) {
-        if let index = completions.firstIndex(where: { $0.choreId == chore.id && Calendar.current.isDate($0.date, inSameDayAs: date) }) {
-            completions.remove(at: index)
-            save()
-        }
-    }
-
-    /// Returns the most recent completion for the given chore, if any. Bounded by the current date.
-    func lastCompletion(for chore: Chore) -> Completion? {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        
-        return completions
-            .filter { $0.choreId == chore.id }
-            .sorted { $0.date > $1.date }
-            .first { calendar.startOfDay(for: $0.date) <= today }
-    }
-
-    /// Returns the most recent completion for the given chore that occurred on
-    /// or before the provided date; unbounded by the current date.
-    private func lastCompletion(for chore: Chore, before date: Date) -> Completion? {
-        completions
-            .filter { $0.choreId == chore.id && $0.date <= date }
-            .sorted { $0.date > $1.date }
-            .first
-    }
-
-    /// Filters the list of chores to those scheduled on a given date (ignoring completions).
-    func chores(for date: Date) -> [Chore] {
-        let calendar = Calendar.current
-        let dayStart = calendar.startOfDay(for: date)
-
-        return chores.filter { chore in
-            // Always include daily chores
-            if chore.isDaily {
-                return true
-            }
-            // Include if weekday matches assigned day
-            guard let weekday = chore.assignedDay?.calendarWeekday else {
-                return false
-            }
-            return calendar.component(.weekday, from: dayStart) == weekday
-        }
-    }
-
-
-    /// Indicates whether the chore is overdue based on its frequency and last completion date.
-    func isOverdue(_ chore: Chore) -> Bool {
-        guard let last = lastCompletion(for: chore) else { return true }
-        let calendar = Calendar.current
-        let now = Date()
-        if chore.isDaily {
-            return !calendar.isDateInToday(last.date)
+        init(title: String? = nil, message: String, style: BannerStyle = .info, actionTitle: String? = nil, action: (() -> Void)? = nil, duration: TimeInterval = 4.0) {
+            self.title = title
+            self.message = message
+            self.style = style
+            self.actionTitle = actionTitle
+            self.action = action
+            self.duration = duration
         }
 
-        guard let freq = chore.frequency else { return false }
-        switch freq {
-        case .weekly:
-            guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: last.date) else { return false }
-            return now >= next
-        case .monthly:
-            guard let next = calendar.date(byAdding: .month, value: 1, to: last.date) else { return false }
-            return now >= next
-        case .yearly:
-            guard let next = calendar.date(byAdding: .year, value: 1, to: last.date) else { return false }
-            return now >= next
-        }
+        static func == (lhs: BannerMessage, rhs: BannerMessage) -> Bool { lhs.id == rhs.id }
     }
 
-    /// Returns whether the given chore requires attention on the provided date.
-    /// A chore does not need attention if it has been completed and its next
-    /// scheduled date falls after the specified day.
-    func needsAttention(_ chore: Chore, on date: Date) -> Bool {
-        let calendar = Calendar.current
-        
-        guard let last = lastCompletion(for: chore),
-              let next = !chore.isDaily
-                ? nextDueDate(for: chore, after: last.date)
-                : calendar.date(byAdding: .day, value: 1, to: last.date) else {
-            return true
-        }
-        
-        return calendar.startOfDay(for: next) < calendar.startOfDay(for: date)
+    @Published var isSyncing: Bool = false
+    @Published var lastError: String?
+    @Published var currentBanner: BannerMessage?
+
+    // MARK: - Scope (Solo vs Household)
+    @Published private(set) var scope: AppScope = .solo
+    private let scopeKey = "activeScope"
+
+    private var bannerQueue: [BannerMessage] = []
+    private var bannerTask: Task<Void, Never>?
+
+    init() {
+        let restored = AppScope(rawValue: UserDefaults.standard.string(forKey: scopeKey) ?? "") ?? .solo
+        scope = restored
+        if restored == .household { ensureHousehold() }
     }
 
-    /// Calculates the next due date for a chore after the given date.
-    /// If `after` is nil the chore's last completion date is used.
-    /// Calculates the next scheduled date for a chore.
-    /// - Parameter date: The reference date to add a frequency interval to.
-    ///   If `nil`, the chore's last completion date will be used. When there is
-    ///   no prior completion the search starts from today.
-    func nextDueDate(for chore: Chore, after date: Date? = nil) -> Date? {
-        let calendar = Calendar.current
+    private var context: NSManagedObjectContext { CoreDataStack.shared.viewContext }
 
-        if chore.isDaily {
-            let reference = date ?? lastCompletion(for: chore)?.date
-            let start = calendar.startOfDay(for: reference ?? Date())
-            return calendar.date(byAdding: .day, value: 1, to: start)
-        }
+    /// The household backing the active scope (`nil` while in Solo). Prefers a
+    /// household shared *with* us (participant) over one we own, so a participant
+    /// who happens to also have a stale empty local household still sees the
+    /// shared one after accepting an invite.
+    var activeHousehold: CDHousehold? {
+        guard scope == .household else { return nil }
+        return household(in: CoreDataStack.shared.sharedStore) ?? household(in: nil)
+    }
 
-        guard let freq = chore.frequency else { return nil }
+    /// The first household in the given store (or across all stores when `nil`).
+    private func household(in store: NSPersistentStore?) -> CDHousehold? {
+        let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
+        request.fetchLimit = 1
+        request.sortDescriptors = [NSSortDescriptor(key: "createdDate", ascending: true)]
+        if let store { request.affectedStores = [store] }
+        return try? context.fetch(request).first
+    }
 
-        // Determine the base date from which to calculate the next occurrence.
-        let reference = date ?? lastCompletion(for: chore)?.date
+    /// Returns the household (one we own or one shared with us), creating a local
+    /// one only when none exists anywhere.
+    @discardableResult
+    func ensureHousehold() -> CDHousehold {
+        if let existing = household(in: nil) { return existing }
+        let created = CDHousehold(context: context)
+        created.id = UUID()
+        created.name = "Household"
+        created.createdDate = Date()
+        try? context.save()
+        Log.info("Created local household", category: .model)
+        return created
+    }
 
-        let startDate: Date
-        if let reference {
-            guard let advanced = calendar.date(byAdding: freq.component, value: 1, to: reference) else {
-                return nil
-            }
-            startDate = advanced
+    /// Switches the active scope, creating the household if needed, and persists it.
+    func setScope(_ newScope: AppScope) {
+        if newScope == .household { ensureHousehold() }
+        scope = newScope
+        UserDefaults.standard.set(newScope.rawValue, forKey: scopeKey)
+    }
+
+    // MARK: - Banner controls
+    func showBanner(title: String? = nil,
+                    message: String,
+                    style: BannerStyle = .info,
+                    actionTitle: String? = nil,
+                    action: (() -> Void)? = nil,
+                    duration: TimeInterval = 4.0) {
+        let banner = BannerMessage(title: title, message: message, style: style, actionTitle: actionTitle, action: action, duration: duration)
+        if currentBanner == nil {
+            present(banner)
         } else {
-            startDate = calendar.startOfDay(for: Date())
-        }
-
-        guard let targetWeekday = chore.assignedDay?.calendarWeekday else {
-            return nil
-        }
-
-        var next = startDate
-        while calendar.component(.weekday, from: next) != targetWeekday {
-            next = calendar.date(byAdding: .day, value: 1, to: next)!
-        }
-        return next
-    }
-
-    /// Returns a dictionary mapping dates within the specified month to the chores due on those dates.
-    func choresByDate(inMonth month: Date) -> [Date: [Chore]] {
-        var result: [Date: [Chore]] = [:]
-        let calendar = Calendar.current
-        guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: month)),
-              let monthEnd = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart)
-        else { return result }
-
-        for chore in chores {
-            if chore.isDaily {
-                var next = calendar.startOfDay(for: chore.createdDate)
-                while next < monthStart { next = calendar.date(byAdding: .day, value: 1, to: next)! }
-                while next <= monthEnd {
-                    let key = calendar.startOfDay(for: next)
-                    result[key, default: []].append(chore)
-                    next = calendar.date(byAdding: .day, value: 1, to: next)!
-                }
-                continue
-            }
-
-            guard let weekday = chore.assignedDay?.calendarWeekday, let freq = chore.frequency else { continue }
-
-            var next = calendar.startOfDay(for: chore.createdDate)
-            // align to first scheduled weekday on/after creation
-            while calendar.component(.weekday, from: next) != weekday {
-                next = calendar.date(byAdding: .day, value: 1, to: next)!
-            }
-
-            // Advance until within visible range
-            while next < monthStart {
-                if let advanced = calendar.date(byAdding: freq.component, value: 1, to: next) {
-                    var candidate = advanced
-                    while calendar.component(.weekday, from: candidate) != weekday {
-                        candidate = calendar.date(byAdding: .day, value: 1, to: candidate)!
-                    }
-                    next = candidate
-                } else {
-                    break
-                }
-            }
-
-            while next <= monthEnd {
-                let key = calendar.startOfDay(for: next)
-                result[key, default: []].append(chore)
-
-                if let advanced = calendar.date(byAdding: freq.component, value: 1, to: next) {
-                    var candidate = advanced
-                    while calendar.component(.weekday, from: candidate) != weekday {
-                        candidate = calendar.date(byAdding: .day, value: 1, to: candidate)!
-                    }
-                    next = candidate
-                } else {
-                    break
-                }
-            }
-        }
-        return result
-    }
-
-    /// Loads any shared app state from CloudKit and merges it into the current state.
-    func loadSharedState() async {
-        guard let record = await cloudController.fetchSharedRootRecord(),
-              let data = record[SharedRecordKeys.jsonKey] as? Data,
-              let decoded = try? JSONDecoder().decode(SavedState.self, from: data) else {
-            sharingEnabled = false
-            return
-        }
-        sharingEnabled = true
-        self.chores = decoded.chores
-        self.areas = decoded.areas
-        self.completions = decoded.completions
-        self.lockedDays.formUnion(decoded.lockedDays)
-        pruneLockedDays()
-    }
-
-    /// Initiates sharing by presenting the CloudKit share UI.
-    @MainActor
-    func startSharing(from controller: UIViewController) async {
-        await cloudController.presentShare(from: controller)
-        sharingEnabled = true
-        await cloudController.subscribeToChanges()
-    }
-
-    /// Removes all shared data and subscriptions.
-    func stopSharing() async {
-        await cloudController.stopSharing()
-        sharingEnabled = false
-    }
-
-    /// Loads completions for the specified date from disk or CloudKit and caches them.
-    func loadCompletions(for date: Date) async -> [Completion] {
-        let day = Calendar.current.startOfDay(for: date)
-        if let cached = completionCache[day] { return cached }
-
-        var allCompletions: [Completion] = []
-        if sharingEnabled,
-           let record = await cloudController.fetchSharedRootRecord(),
-           let data = record[SharedRecordKeys.jsonKey] as? Data,
-           let decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
-            allCompletions = decoded.completions
-        } else if let data = try? Data(contentsOf: fileURL),
-                  let decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
-            allCompletions = decoded.completions
-        }
-
-        let matches = allCompletions.filter { Calendar.current.isDate($0.date, inSameDayAs: day) }
-        completionCache[day] = matches
-        return matches
-    }
-
-    /// Returns a sequence of dates around the provided start date.
-    /// - Parameters:
-    ///   - date: The reference date from which to generate the range.
-    ///   - includePast: How many days prior to `date` to include.
-    ///   - includeFuture: How many days after `date` to include. The range will
-    ///     never extend more than six days beyond today.
-    func weekDates(startingFrom date: Date, includePast: Int, includeFuture: Int) -> [Date] {
-        let calendar = Calendar.current
-        let start = calendar.startOfDay(for: date)
-        let today = calendar.startOfDay(for: Date())
-        let maxFuture = calendar.date(byAdding: .day, value: 6, to: today) ?? today
-        let upperBound = min(includeFuture, calendar.dateComponents([.day], from: start, to: maxFuture).day ?? 0)
-
-        return (-includePast...upperBound).compactMap { offset in
-            calendar.date(byAdding: .day, value: offset, to: start)
+            bannerQueue.append(banner)
         }
     }
 
-    private func pruneLockedDays() {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        lockedDays = Set(lockedDays.filter { calendar.startOfDay(for: $0) >= today })
+    func dismissBanner(triggerAction: Bool = false) {
+        if triggerAction { currentBanner?.action?() }
+        currentBanner = nil
+        bannerTask?.cancel()
+        bannerTask = nil
+        if let next = bannerQueue.first {
+            bannerQueue.removeFirst()
+            present(next)
+        }
     }
 
-    // MARK: - Day Locking
-    func isDayLocked(_ date: Date) -> Bool {
-        let calendar = Calendar.current
-        let day = calendar.startOfDay(for: date)
-        let today = calendar.startOfDay(for: Date())
-        if day < today { return true }
-        return lockedDays.contains(day)
+    private func present(_ banner: BannerMessage) {
+        currentBanner = banner
+        bannerTask?.cancel()
+        bannerTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(nanoseconds: UInt64((banner.duration) * 1_000_000_000))
+                self.dismissBanner()
+            } catch { /* cancelled */ }
+        }
     }
 
-    func lockDay(_ date: Date) {
-        let calendar = Calendar.current
-        let day = calendar.startOfDay(for: date)
-        guard day >= calendar.startOfDay(for: Date()) else { return }
-        lockedDays.insert(day)
-        save()
-    }
-
-    func unlockDay(_ date: Date) {
-        let day = Calendar.current.startOfDay(for: date)
-        lockedDays.remove(day)
-        save()
-    }
-
+    // MARK: - Legacy persistence shape
+    /// The JSON shape written by pre-Core-Data versions. Retained only so
+    /// `JSONImporter` can decode the legacy `chore_data.json` when migrating to
+    /// Core Data. Not used as a live store.
     struct SavedState: Codable {
         var chores: [Chore]
         var areas: [Area]
         var completions: [Completion]
         var lockedDays: Set<Date> = []
+        var schemaVersion: Int?
 
-        init(chores: [Chore], areas: [Area], completions: [Completion], lockedDays: Set<Date> = []) {
+        enum CodingKeys: String, CodingKey {
+            case chores, areas, completions, lockedDays, schemaVersion
+        }
+
+        init(chores: [Chore], areas: [Area], completions: [Completion], lockedDays: Set<Date> = [], schemaVersion: Int? = AppModel.schemaVersion) {
             self.chores = chores
             self.areas = areas
             self.completions = completions
             self.lockedDays = lockedDays
+            self.schemaVersion = schemaVersion
         }
 
         init(from decoder: Decoder) throws {
@@ -423,6 +161,16 @@ final class AppModel: ObservableObject {
             areas = try container.decodeIfPresent([Area].self, forKey: .areas) ?? []
             completions = try container.decodeIfPresent([Completion].self, forKey: .completions) ?? []
             lockedDays = try container.decodeIfPresent(Set<Date>.self, forKey: .lockedDays) ?? []
+            schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(chores, forKey: .chores)
+            try container.encode(areas, forKey: .areas)
+            try container.encode(completions, forKey: .completions)
+            try container.encode(lockedDays, forKey: .lockedDays)
+            try container.encode(schemaVersion ?? AppModel.schemaVersion, forKey: .schemaVersion)
         }
     }
 }
