@@ -47,6 +47,13 @@ Household.
 You can stop sharing, or remove yourself from a shared Household, from within the
 app or your device's sharing settings.
 
+## Home‑screen widget
+
+If you add the Choreganize widget, it shows a summary of the current scope's
+chores for today. That summary is stored only on your device — in an app‑group
+container shared between the app and the widget so the widget can display it. It
+is not collected by or sent to the developer.
+
 ## Diagnostics
 
 The app keeps a small, temporary log on your device to help with troubleshooting,

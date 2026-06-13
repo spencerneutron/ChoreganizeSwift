@@ -22,12 +22,15 @@ Add these files (already in the repo) to the **ChoreganizeWidget** target:
 
 - `ChoreganizeWidget/ChoreganizeWidget.swift`  (bundle + widget + provider)
 - `ChoreganizeWidget/TodayChoresView.swift`    (the view)
+- `ChoreganizeWidget/PrivacyInfo.xcprivacy`    (widget privacy manifest —
+  declares the widget's UserDefaults access; **required** for a clean submission
+  because the extension is its own bundle). Widget target only.
 - `Choreganize/WidgetShared.swift`  ← shared with the app. In the File
   Inspector ▸ **Target Membership**, check **both** `Choreganize` and
   `ChoreganizeWidget`.
 
 If you used "Add Files…", make sure *Target Membership* is the widget target for
-the first two, and **both** targets for `WidgetShared.swift`.
+the first three, and **both** targets for `WidgetShared.swift`.
 
 > Do **not** add `WidgetSnapshotWriter.swift` to the widget — it's app-only (it
 > reads Core Data). The widget only ever reads the published snapshot.
@@ -39,9 +42,24 @@ For **each** of the `Choreganize` app target and the `ChoreganizeWidget` target:
 1. Signing & Capabilities → **+ Capability ▸ App Groups**.
 2. Add / check the group **`group.com.svk.Choreganize`**.
 
-This must match `WidgetShared.appGroupIdentifier`. Until both targets share it,
-the app's snapshot write and the widget's read are safe no-ops (the widget shows
-its placeholder / "No chores today").
+This must match `WidgetShared.appGroupIdentifier`. The app target's entitlements
+files (`Choreganize.entitlements`, `ChoreganizeDebug.entitlements`) **already
+list this group** — so for the app you mainly need to confirm the capability is
+on and that the group is registered in the Developer portal (Identifiers ▸ App
+Groups). The widget target needs the capability added (its entitlements file is
+created by the template). Until both targets share it, the app's snapshot write
+and the widget's read are safe no-ops (the widget shows its placeholder).
+
+## 3b. Match the app's version and build (REQUIRED for upload)
+
+A fresh widget target defaults to version `1.0` / build `1`. The App Store
+**rejects** an extension whose version/build don't match the app. In the widget
+target's Build Settings set:
+
+- `MARKETING_VERSION` = the app's (currently **1.2.0**)
+- `CURRENT_PROJECT_VERSION` = the app's (currently **8**)
+
+Keep them in sync going forward (a shared `.xcconfig`, or just bump both).
 
 ## 4. Run
 
@@ -62,4 +80,9 @@ its placeholder / "No chores today").
 - The widget shows the **active scope's** chores (Solo or the current
   household), because that's what the app snapshots. Switching scope in the app
   republishes on next foreground/background.
-- iOS 17+ for `containerBackground(_:for:)`. Deployment target is iOS 26, so fine.
+- `containerBackground(_:for:)` needs iOS 17+. The app's deployment target is
+  **iOS 18.0**, so set the widget target to iOS 18.0 to match — fine either way.
+- **Privacy:** the widget reads chore data from the on-device App Group only — no
+  new data collection or transmission, so the App Store privacy labels are
+  unchanged. The widget's `PrivacyInfo.xcprivacy` (added above) covers its
+  UserDefaults access.
