@@ -42,6 +42,8 @@ final class AppModel: ObservableObject {
 
     // MARK: - Scope (Solo vs Household)
     @Published private(set) var scope: AppScope = .solo
+    /// Display name of the active household (mirrors `activeHousehold?.name`).
+    @Published private(set) var householdName: String = "Household"
     private let scopeKey = "activeScope"
 
     private var bannerQueue: [BannerMessage] = []
@@ -51,6 +53,7 @@ final class AppModel: ObservableObject {
         let restored = AppScope(rawValue: UserDefaults.standard.string(forKey: scopeKey) ?? "") ?? .solo
         scope = restored
         if restored == .household { ensureHousehold() }
+        refreshHouseholdName()
     }
 
     private var context: NSManagedObjectContext { CoreDataStack.shared.viewContext }
@@ -92,6 +95,12 @@ final class AppModel: ObservableObject {
         if newScope == .household { ensureHousehold() }
         scope = newScope
         UserDefaults.standard.set(newScope.rawValue, forKey: scopeKey)
+        refreshHouseholdName()
+    }
+
+    /// Updates the published household display name from the active household.
+    func refreshHouseholdName() {
+        householdName = activeHousehold?.name ?? "Household"
     }
 
     // MARK: - Banner controls
