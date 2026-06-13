@@ -1,52 +1,44 @@
 import SwiftUI
 
-struct StoreKitPlaceholderView: View {
+struct SupportView: View {
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "cart")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 80, height: 80)
-                .foregroundColor(.accentColor)
-            
-            Text("Store Coming Soon")
-                .font(.title)
-                .fontWeight(.semibold)
-            
-            Text("This area will soon feature in-app purchases and subscriptions.")
-                .font(.body)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-            
-            // Placeholder for future buttons
-            HStack(spacing: 20) {
-                Button(action: {}) {
-                    Text("Buy Now")
-                        .fontWeight(.medium)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.accentColor.opacity(0.2))
-                        .cornerRadius(8)
+        NavigationStack {
+            VStack(spacing: 16) {
+                Image(systemName: "heart.circle.fill")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.pink)
+
+                Text("Support Choreganize")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+
+                Text("Thanks for using the app! We’ll add ways to support development soon. In the meantime, your feedback is invaluable.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                // Placeholder for future StoreKit integration
+                Button {
+                    // TODO: Integrate StoreKit 2 tips or Pro unlock
+                } label: {
+                    Label("Coming Soon", systemImage: "sparkles")
                 }
-                .disabled(true)
-                
-                Button(action: {}) {
-                    Text("Subscribe")
-                        .fontWeight(.medium)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.accentColor.opacity(0.2))
-                        .cornerRadius(8)
-                }
-                .disabled(true)
+                .buttonStyle(.bordered)
             }
-            .padding(.horizontal)
+            .padding()
+            .navigationTitle("Support")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
         }
-        .padding()
     }
 }
 
 #Preview {
-    StoreKitPlaceholderView()
+    SupportView()
 }

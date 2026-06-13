@@ -134,8 +134,8 @@ final class AppModel: ObservableObject {
 
     // MARK: - Legacy persistence shape
     /// The JSON shape written by pre-Core-Data versions. Retained only so
-    /// `JSONImporter` (and the dormant `SharedCloudKitController`, pending its
-    /// Phase 3 replacement) can decode legacy data. Not used as a live store.
+    /// `JSONImporter` can decode the legacy `chore_data.json` when migrating to
+    /// Core Data. Not used as a live store.
     struct SavedState: Codable {
         var chores: [Chore]
         var areas: [Area]

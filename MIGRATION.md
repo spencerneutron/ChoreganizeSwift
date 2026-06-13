@@ -1,12 +1,22 @@
-# CloudKit Record Migration
+# Data Migration
 
-The initial versions of Choreganize stored the entire application state in a single `AppState` record in CloudKit.  In order to improve merge behaviour and reduce sync conflicts, the data model now stores separate records for each `Chore`, `Area` and `Completion`.  A lightweight `AppState` record remains as the root of the share and provides a single point for update notifications.
+Choreganize moved from a hand-rolled CloudKit scheme (originally a single
+`AppState` record, later per-record types in a custom `OwnerZone-*` zone) to
+**Core Data + `NSPersistentCloudKitContainer`**.
 
-## Migration Steps
+## What happens on upgrade
 
-1. **Update the application** – install an app version that understands the new record types.
-2. **First launch** – the app fetches the existing `AppState` record.  If the JSON blob is present it is decoded and every `Chore`, `Area` and `Completion` is written back to CloudKit as its own record.  The old JSON payload is then cleared.
-3. **Subsequent launches** – the app loads individual records directly and continues syncing using the updated APIs.
-4. **Sharing** – existing shares continue to work because the `AppState` record is still the share root.  New child records are added to the same share and inherit permissions.
+- On first launch the app imports the legacy on-device `chore_data.json` into
+  Core Data (`JSONImporter`), preserving UUIDs, then renames the file to
+  `chore_data.migrated.json` as a backup. The import is idempotent — it never
+  double-imports.
+- Core Data then mirrors to CloudKit automatically: the private database for your
+  own data, and the shared database for Households shared with you. See
+  `CLOUDKIT.md` for the operational details (schema, dashboard, sharing).
 
-No manual user action is required.  Once all collaborators run the updated app the migration is complete.
+## Legacy CloudKit data
+
+The old `AppState` records in the `OwnerZone-*` zone are abandoned —
+`NSPersistentCloudKitContainer` uses its own `CD_*` record types and zones and
+ignores them. They can be purged from the CloudKit Dashboard (`CLOUDKIT.md` §5);
+doing so is optional.
