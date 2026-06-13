@@ -12,13 +12,15 @@ struct EditHomeView: View {
 
 struct ChoreListView: View {
     @Environment(\.managedObjectContext) private var context
+    @EnvironmentObject private var model: AppModel
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var chores: FetchedResults<CDChore>
     @State private var showingNew = false
     @State private var editingChore: CDChore?
 
     var body: some View {
         List {
-            let daily = chores.filter { $0.isDaily }
+            let scoped = chores.inScope(model.activeHousehold)
+            let daily = scoped.filter { $0.isDaily }
             if !daily.isEmpty {
                 Section(header: Text("Every Day")) {
                     ForEach(daily, id: \.objectID) { chore in
@@ -31,7 +33,7 @@ struct ChoreListView: View {
             }
 
             ForEach(Weekday.standardCases) { day in
-                let choresForDay = chores.filter { !$0.isDaily && $0.assignedDayValue == day }
+                let choresForDay = scoped.filter { !$0.isDaily && $0.assignedDayValue == day }
                 if !choresForDay.isEmpty {
                     Section(header: Text(day.displayName)) {
                         ForEach(choresForDay, id: \.objectID) { chore in
@@ -44,7 +46,7 @@ struct ChoreListView: View {
                 }
             }
 
-            let unassigned = chores.filter { !$0.isDaily && $0.assignedDayValue == nil }
+            let unassigned = scoped.filter { !$0.isDaily && $0.assignedDayValue == nil }
             if !unassigned.isEmpty {
                 Section(header: Text("Unassigned")) {
                     ForEach(unassigned, id: \.objectID) { chore in
@@ -76,6 +78,7 @@ struct ChoreListView: View {
 struct NewChoreView: View {
     @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) var dismiss
+    @EnvironmentObject private var model: AppModel
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDArea.name)]) private var areas: FetchedResults<CDArea>
 
     @State private var name = ""
@@ -92,7 +95,7 @@ struct NewChoreView: View {
                                 frequency: $frequency,
                                 day: $day,
                                 areaId: $areaId,
-                                areas: Array(areas))
+                                areas: Array(areas).inScope(model.activeHousehold))
             }
             .navigationTitle("New Chore")
             .toolbar {
@@ -104,7 +107,8 @@ struct NewChoreView: View {
                                                  isDaily: isDaily,
                                                  frequency: isDaily ? nil : frequency,
                                                  assignedDay: assigned,
-                                                 createdDate: Date())
+                                                 createdDate: Date(),
+                                                 household: model.activeHousehold)
                         chore.area = areaId.flatMap { id in areas.first { $0.id == id } }
                         try? context.save()
                         dismiss()
@@ -141,7 +145,7 @@ struct EditChoreView: View {
                                 frequency: $frequency,
                                 day: $day,
                                 areaId: $areaId,
-                                areas: Array(areas))
+                                areas: Array(areas).inScope(chore.household))
 
                 Section("History") {
                     let completions = chore.completionsArray
@@ -198,12 +202,14 @@ struct EditChoreView: View {
 
 struct AreaListView: View {
     @Environment(\.managedObjectContext) private var context
+    @EnvironmentObject private var model: AppModel
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDArea.name)]) private var areas: FetchedResults<CDArea>
     @State private var showingNew = false
 
     var body: some View {
         List {
-            ForEach(areas, id: \.objectID) { area in
+            let scoped = areas.inScope(model.activeHousehold)
+            ForEach(scoped, id: \.objectID) { area in
                 NavigationLink(destination: EditAreaView(area: area)) {
                     VStack(alignment: .leading) {
                         Text(area.name ?? "Untitled")
@@ -215,7 +221,7 @@ struct AreaListView: View {
                 }
             }
             .onDelete { offsets in
-                for index in offsets { context.delete(areas[index]) }
+                for index in offsets { context.delete(scoped[index]) }
                 try? context.save()
             }
         }
@@ -231,6 +237,7 @@ struct AreaListView: View {
 struct NewAreaView: View {
     @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) var dismiss
+    @EnvironmentObject private var model: AppModel
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var allChores: FetchedResults<CDChore>
     @State private var name = ""
     @State private var detail = ""
@@ -240,7 +247,7 @@ struct NewAreaView: View {
         NavigationStack {
             Form {
                 AreaFormFields(name: $name, description: $detail)
-                let unassigned = allChores.filter { $0.area == nil }
+                let unassigned = allChores.inScope(model.activeHousehold).filter { $0.area == nil }
                 if !unassigned.isEmpty {
                     Section(header: Text("Assign Chores")) {
                         ForEach(unassigned, id: \.objectID) { chore in
@@ -262,7 +269,7 @@ struct NewAreaView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let area = CDArea.make(in: context, name: name, detail: detail)
+                        let area = CDArea.make(in: context, name: name, detail: detail, household: model.activeHousehold)
                         for chore in allChores where selectedChoreIDs.contains(chore.objectID) {
                             chore.area = area
                         }
@@ -291,7 +298,7 @@ struct EditAreaView: View {
         NavigationStack {
             Form {
                 AreaFormFields(name: $name, description: $detail)
-                let available = allChores.filter { $0.area == nil || $0.area == area }
+                let available = allChores.inScope(area.household).filter { $0.area == nil || $0.area == area }
                 Section(header: Text("Chores")) {
                     ForEach(available, id: \.objectID) { chore in
                         Toggle(chore.name ?? "Untitled", isOn: Binding(
@@ -374,4 +381,5 @@ struct LogChoreHistoryView: View {
 #Preview {
     NavigationStack { EditHomeView() }
         .environment(\.managedObjectContext, PreviewStack.context)
+        .environmentObject(AppModel())
 }

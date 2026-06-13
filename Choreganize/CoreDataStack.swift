@@ -27,6 +27,13 @@ final class CoreDataStack {
             || NSClassFromString("XCTestCase") != nil
     }
 
+    /// Skip CloudKit mirroring when under test, or when explicitly requested via
+    /// the `CHOREGANIZE_LOCAL_ONLY=1` launch env var (used for simulator runs that
+    /// aren't signed into iCloud, where CloudKit setup can trap).
+    static var skipCloudKit: Bool {
+        isRunningTests || ProcessInfo.processInfo.environment["CHOREGANIZE_LOCAL_ONLY"] == "1"
+    }
+
     init(inMemory: Bool = false) {
         container = NSPersistentCloudKitContainer(name: Self.modelName)
 
@@ -41,8 +48,8 @@ final class CoreDataStack {
 
         // Attach CloudKit only for real app runs. Under XCTest the (unsigned)
         // host process has no iCloud entitlement and CloudKit setup traps, so we
-        // run the host app on a local-only store during tests.
-        if inMemory || Self.isRunningTests {
+        // run on a local-only store during tests / when CHOREGANIZE_LOCAL_ONLY=1.
+        if inMemory || Self.skipCloudKit {
             description.cloudKitContainerOptions = nil
         } else {
             // Mirror this store to the CloudKit *private* database.

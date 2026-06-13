@@ -72,4 +72,23 @@ struct ChoreganizeTests {
             #expect(area.choresArray.count == 1)
         }
     }
+
+    @Test func scopeFiltering() throws {
+        let ctx = makeContext()
+        try ctx.performAndWait {
+            let household = CDHousehold(context: ctx)
+            household.id = UUID()
+            household.name = "Household"
+            household.createdDate = Date()
+
+            CDChore.make(in: ctx, name: "Solo Chore", isDaily: true)
+            CDChore.make(in: ctx, name: "Shared Chore", isDaily: true, household: household)
+            try ctx.save()
+
+            let all = try ctx.fetch(NSFetchRequest<CDChore>(entityName: "CDChore"))
+            #expect(all.count == 2)
+            #expect(all.inScope(nil).map { $0.name } == ["Solo Chore"])
+            #expect(all.inScope(household).map { $0.name } == ["Shared Chore"])
+        }
+    }
 }

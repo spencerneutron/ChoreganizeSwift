@@ -208,13 +208,13 @@ enum DayLock {
         }
     }
 
-    static func lock(_ date: Date, existing lockedDays: [CDLockedDay], in context: NSManagedObjectContext) {
+    static func lock(_ date: Date, existing lockedDays: [CDLockedDay], household: CDHousehold?, in context: NSManagedObjectContext) {
         let cal = Calendar.current
         let day = cal.startOfDay(for: date)
         guard day >= cal.startOfDay(for: Date()) else { return }
         let alreadyLocked = lockedDays.contains { ($0.date.map { cal.startOfDay(for: $0) == day }) ?? false }
         guard !alreadyLocked else { return }
-        CDLockedDay.make(in: context, date: day)
+        CDLockedDay.make(in: context, date: day, household: household)
         commit(context)
     }
 

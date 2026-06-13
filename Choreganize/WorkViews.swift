@@ -120,6 +120,7 @@ struct WeekView: View {
 /// standalone view.
 struct DayPage: View {
     @Environment(\.managedObjectContext) private var context
+    @EnvironmentObject private var model: AppModel
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var chores: FetchedResults<CDChore>
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDLockedDay.date)]) private var lockedDays: FetchedResults<CDLockedDay>
     var date: Date
@@ -131,8 +132,10 @@ struct DayPage: View {
     }
 
     var body: some View {
-        let dayChores = Scheduling.chores(Array(chores), for: date)
-        let isLocked = DayLock.isLocked(date, in: Array(lockedDays))
+        let active = model.activeHousehold
+        let scopedLocks = Array(lockedDays).inScope(active)
+        let dayChores = Scheduling.chores(Array(chores).inScope(active), for: date)
+        let isLocked = DayLock.isLocked(date, in: scopedLocks)
 
         List {
             let weekdayName = date.formatted(.dateTime.weekday(.wide))
@@ -146,7 +149,7 @@ struct DayPage: View {
         .listStyle(.insetGrouped)
         .alert("Finish day?", isPresented: $showDoneAlert) {
             Button("Confirm") {
-                DayLock.lock(date, existing: Array(lockedDays), in: context)
+                DayLock.lock(date, existing: scopedLocks, household: active, in: context)
                 withAnimation { showConfirmation = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     withAnimation { showConfirmation = false }
@@ -166,7 +169,7 @@ struct DayPage: View {
         }
         .overlay(alignment: .bottom) {
             if isLocked && !isPast {
-                Button("Unlock") { DayLock.unlock(date, existing: Array(lockedDays), in: context) }
+                Button("Unlock") { DayLock.unlock(date, existing: scopedLocks, in: context) }
                     .buttonStyle(.bordered)
                     .padding(.bottom, 40)
             } else if !isLocked {
@@ -181,4 +184,5 @@ struct DayPage: View {
 #Preview {
     WorkHomeView()
         .environment(\.managedObjectContext, PreviewStack.context)
+        .environmentObject(AppModel())
 }

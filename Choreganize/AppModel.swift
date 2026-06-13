@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CoreData
 import os
 
 /// App-level coordinator. Since the Core Data + CloudKit re-platform, the data
@@ -39,10 +40,53 @@ final class AppModel: ObservableObject {
     @Published var lastError: String?
     @Published var currentBanner: BannerMessage?
 
+    // MARK: - Scope (Solo vs Household)
+    @Published private(set) var scope: AppScope = .solo
+    private let scopeKey = "activeScope"
+
     private var bannerQueue: [BannerMessage] = []
     private var bannerTask: Task<Void, Never>?
 
-    init() {}
+    init() {
+        let restored = AppScope(rawValue: UserDefaults.standard.string(forKey: scopeKey) ?? "") ?? .solo
+        scope = restored
+        if restored == .household { ensureHousehold() }
+    }
+
+    private var context: NSManagedObjectContext { CoreDataStack.shared.viewContext }
+
+    /// The household backing the active scope (`nil` while in Solo).
+    var activeHousehold: CDHousehold? {
+        scope == .household ? household : nil
+    }
+
+    /// The single local household, if one has been created.
+    private var household: CDHousehold? {
+        let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
+        request.fetchLimit = 1
+        request.sortDescriptors = [NSSortDescriptor(key: "createdDate", ascending: true)]
+        return try? context.fetch(request).first
+    }
+
+    /// Returns the local household, creating it on first use.
+    @discardableResult
+    func ensureHousehold() -> CDHousehold {
+        if let existing = household { return existing }
+        let created = CDHousehold(context: context)
+        created.id = UUID()
+        created.name = "Household"
+        created.createdDate = Date()
+        try? context.save()
+        Log.info("Created local household", category: .model)
+        return created
+    }
+
+    /// Switches the active scope, creating the household if needed, and persists it.
+    func setScope(_ newScope: AppScope) {
+        if newScope == .household { ensureHousehold() }
+        scope = newScope
+        UserDefaults.standard.set(newScope.rawValue, forKey: scopeKey)
+    }
 
     // MARK: - Banner controls
     func showBanner(title: String? = nil,

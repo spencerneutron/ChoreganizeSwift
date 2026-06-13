@@ -30,8 +30,22 @@ struct ContentView: View {
             .toolbar(.visible, for: .automatic)
             .animation(.easeInOut, value: mode)
             .toolbar {
-                // Sharing UI is disabled during the Core Data + CloudKit
-                // re-platform; it returns in Phase 3 on the new stack.
+                // Solo vs Household scope switch. (CloudKit sharing of the
+                // Household returns in Phase 3.)
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Picker("Scope", selection: Binding(
+                            get: { model.scope },
+                            set: { model.setScope($0) }
+                        )) {
+                            ForEach(AppScope.allCases) { scope in
+                                Label(scope.title, systemImage: scope.systemImage).tag(scope)
+                            }
+                        }
+                    } label: {
+                        Label(model.scope.title, systemImage: model.scope.systemImage)
+                    }
+                }
                 ToolbarItem(placement: .status) {
                     if model.isSyncing {
                         ProgressView().controlSize(.small)
