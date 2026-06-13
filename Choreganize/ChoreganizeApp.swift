@@ -13,6 +13,11 @@ struct ChoreganizeApp: App {
         // The UI below still reads the old AppModel/JSON, so behavior is unchanged;
         // this just populates and syncs the new store in the background.
         JSONImporter.runIfNeeded()
+        #if DEBUG
+        // Screenshot/demo seed for the simulator (no-op unless CHOREGANIZE_SEED_JSON
+        // is set; see the `deploy` skill). Release builds never include this.
+        JSONImporter.seedFromEnvironmentIfNeeded()
+        #endif
     }
 
     var body: some Scene {

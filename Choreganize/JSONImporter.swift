@@ -34,53 +34,93 @@ enum JSONImporter {
                 return
             }
 
-            // Areas first — chores reference them.
-            var areasByID: [UUID: CDArea] = [:]
-            for area in state.areas {
-                areasByID[area.id] = CDArea.make(in: ctx, id: area.id, name: area.name, detail: area.description)
-            }
-
-            // Chores, linked to their area.
-            var choresByID: [UUID: CDChore] = [:]
-            for chore in state.chores {
-                let cd = CDChore.make(
-                    in: ctx,
-                    id: chore.id,
-                    name: chore.name,
-                    isDaily: chore.isDaily,
-                    frequency: chore.frequency,
-                    assignedDay: chore.assignedDay,
-                    createdDate: chore.createdDate
-                )
-                if let areaID = chore.areaId { cd.area = areasByID[areaID] }
-                choresByID[chore.id] = cd
-            }
-
-            // Completions, linked to their chore.
-            for completion in state.completions {
-                CDCompletion.make(
-                    in: ctx,
-                    id: completion.id,
-                    date: completion.date,
-                    notes: completion.notes,
-                    chore: choresByID[completion.choreId]
-                )
-            }
-
-            // Locked days (solo scope — no household yet).
-            for day in state.lockedDays {
-                CDLockedDay.make(in: ctx, date: day)
-            }
-
-            do {
-                try ctx.save()
+            if importState(state, into: ctx) {
                 Log.info("JSONImporter: imported \(state.chores.count) chores, \(state.areas.count) areas, \(state.completions.count) completions, \(state.lockedDays.count) locked days.", category: .persistence)
                 retireLegacyFile()
-            } catch {
-                Log.error("JSONImporter: save failed: \(error.localizedDescription)", category: .persistence)
             }
         }
     }
+
+    /// Inserts a decoded `SavedState` into the context and saves. Shared by the
+    /// legacy import and the debug seed. Returns whether the save succeeded.
+    @discardableResult
+    private static func importState(_ state: AppModel.SavedState, into ctx: NSManagedObjectContext) -> Bool {
+        // Areas first — chores reference them.
+        var areasByID: [UUID: CDArea] = [:]
+        for area in state.areas {
+            areasByID[area.id] = CDArea.make(in: ctx, id: area.id, name: area.name, detail: area.description)
+        }
+
+        // Chores, linked to their area.
+        var choresByID: [UUID: CDChore] = [:]
+        for chore in state.chores {
+            let cd = CDChore.make(
+                in: ctx,
+                id: chore.id,
+                name: chore.name,
+                isDaily: chore.isDaily,
+                frequency: chore.frequency,
+                assignedDay: chore.assignedDay,
+                createdDate: chore.createdDate
+            )
+            if let areaID = chore.areaId { cd.area = areasByID[areaID] }
+            choresByID[chore.id] = cd
+        }
+
+        // Completions, linked to their chore.
+        for completion in state.completions {
+            CDCompletion.make(
+                in: ctx,
+                id: completion.id,
+                date: completion.date,
+                notes: completion.notes,
+                chore: choresByID[completion.choreId]
+            )
+        }
+
+        // Locked days (solo scope — no household yet).
+        for day in state.lockedDays {
+            CDLockedDay.make(in: ctx, date: day)
+        }
+
+        do {
+            try ctx.save()
+            return true
+        } catch {
+            Log.error("JSONImporter: save failed: \(error.localizedDescription)", category: .persistence)
+            return false
+        }
+    }
+
+#if DEBUG
+    /// Debug/screenshot seed. When `CHOREGANIZE_SEED_JSON` points to a
+    /// `SavedState` JSON file, import it into an **empty** store so a simulator
+    /// launches with a demonstrative dataset. Never compiled into release builds;
+    /// intended to pair with `CHOREGANIZE_LOCAL_ONLY=1`. Used by the `deploy` skill
+    /// (`SIMCTL_CHILD_CHOREGANIZE_SEED_JSON=…`). Note: `SavedState` decodes dates
+    /// with a bare `JSONDecoder` (Apple reference-date seconds).
+    static func seedFromEnvironmentIfNeeded(stack: CoreDataStack = .shared) {
+        guard let path = ProcessInfo.processInfo.environment["CHOREGANIZE_SEED_JSON"],
+              !path.isEmpty else { return }
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let state = try? JSONDecoder().decode(AppModel.SavedState.self, from: data) else {
+            Log.error("JSONImporter seed: could not read/decode \(path)", category: .persistence)
+            return
+        }
+        let ctx = stack.newBackgroundContext()
+        ctx.perform {
+            let countRequest = NSFetchRequest<NSFetchRequestResult>(entityName: "CDChore")
+            let existing = (try? ctx.count(for: countRequest)) ?? 0
+            guard existing == 0 else {
+                Log.debug("JSONImporter seed: store already populated (\(existing)); skipping.", category: .persistence)
+                return
+            }
+            if importState(state, into: ctx) {
+                Log.info("JSONImporter seed: loaded \(state.chores.count) chores / \(state.areas.count) areas from \(URL(fileURLWithPath: path).lastPathComponent)", category: .persistence)
+            }
+        }
+    }
+#endif
 
     /// Checkpoint 2 cutover: rename the legacy JSON so it stops being a live data
     /// source but remains on disk as a backup. Safe to call repeatedly.
