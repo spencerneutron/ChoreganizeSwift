@@ -141,8 +141,10 @@ private struct Badge: View {
     }
 }
 
+#if DEBUG
 #Preview {
     NavigationStack { CalendarHomeView() }
         .environment(\.managedObjectContext, PreviewStack.context)
         .environmentObject(AppModel())
 }
+#endif

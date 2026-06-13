@@ -378,8 +378,10 @@ struct LogChoreHistoryView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     NavigationStack { EditHomeView() }
         .environment(\.managedObjectContext, PreviewStack.context)
         .environmentObject(AppModel())
 }
+#endif

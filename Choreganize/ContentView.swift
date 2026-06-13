@@ -102,8 +102,10 @@ struct ContentView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     ContentView()
         .environmentObject(AppModel())
         .environment(\.managedObjectContext, PreviewStack.context)
 }
+#endif

@@ -181,8 +181,10 @@ struct DayPage: View {
     }
 }
 
+#if DEBUG
 #Preview {
     WorkHomeView()
         .environment(\.managedObjectContext, PreviewStack.context)
         .environmentObject(AppModel())
 }
+#endif
