@@ -1,5 +1,6 @@
 import CloudKit
 import UIKit
+import os
 
 // MARK: - CloudKit abstractions
 
@@ -204,6 +205,20 @@ final class MockCloudContainer: CloudContainer {
     }
 }
 
+/// Represents the user's role within the current shared environment ("Household").
+enum EnvironmentRole {
+    case owner
+    case subscriber
+    case none
+}
+
+/// Result of a schema compatibility preflight against CloudKit.
+enum SchemaCompatibilityStatus {
+    case ok
+    case upgraded(Int) // new remote version
+    case blocked(String, Int?) // reason, remote version if known
+}
+
 /// Handles access to the user's shared CloudKit database and sharing APIs.
 final class SharedCloudKitController: NSObject {
     static var shared = SharedCloudKitController()
@@ -222,26 +237,68 @@ final class SharedCloudKitController: NSObject {
 
     private let defaults = UserDefaults.standard
     private var activeShare: CKShare?
+    private var shareOperationInProgress = false
+    private let schemaVersionFieldKey = "schemaVersion"
 
-    private var storedShareRecordName: String? {
-        get { defaults.string(forKey: SharedRecordKeys.savedShareRecordKey) }
-        set { defaults.setValue(newValue, forKey: SharedRecordKeys.savedShareRecordKey) }
+    // MARK: - Environment helpers
+    /// Returns the current user's record name, if available.
+    private func currentUserRecordName() async -> String? {
+        return try? await SharedRecordKeys.userRecordName()
     }
 
-    private var storedRootRecordName: String? {
-        get { defaults.string(forKey: SharedRecordKeys.savedRootRecordKey) }
-        set { defaults.setValue(newValue, forKey: SharedRecordKeys.savedRootRecordKey) }
+    /// Returns the zone ID for the owner's shared environment if one is persisted.
+    private func ownerZoneIDFromPersisted() -> CKRecordZone.ID? {
+        guard let info = persistedShare else { return nil }
+        return CKRecordZone.ID(zoneName: info.zoneName, ownerName: info.zoneOwner)
+    }
+
+    /// Determines whether the current user is the owner of the persisted share.
+    func currentEnvironmentRole() async -> EnvironmentRole {
+        guard let info = persistedShare, let me = try? await SharedRecordKeys.userRecordName() else { return .none }
+        return info.zoneOwner == me ? .owner : .subscriber
+    }
+
+    /// A user-friendly name for the current environment.
+    /// Falls back to "Household" if a share hasn't been created yet.
+    func environmentDisplayName() -> String {
+        if let activeShare,
+           let title = activeShare[CKShare.SystemFieldKey.title] as? String,
+           !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return title
+        }
+        return "Household"
+    }
+
+    private struct PersistedShare: Codable {
+        let zoneName: String
+        let zoneOwner: String
+        let rootRecordName: String?
+        let shareRecordName: String
+    }
+
+    private var persistedShare: PersistedShare? {
+        get {
+            guard let data = defaults.data(forKey: SharedRecordKeys.savedShareInfoKey) else { return nil }
+            return try? JSONDecoder().decode(PersistedShare.self, from: data)
+        }
+        set {
+            if let value = newValue, let data = try? JSONEncoder().encode(value) {
+                defaults.setValue(data, forKey: SharedRecordKeys.savedShareInfoKey)
+            } else {
+                defaults.removeObject(forKey: SharedRecordKeys.savedShareInfoKey)
+            }
+        }
     }
 
     private func storedShareID() async throws -> CKRecord.ID? {
-        guard let name = storedShareRecordName else { return nil }
-        let zone = try await ensureZoneID()
-        return CKRecord.ID(recordName: name, zoneID: zone)
+        guard let info = persistedShare else { return nil }
+        let zone = CKRecordZone.ID(zoneName: info.zoneName, ownerName: info.zoneOwner)
+        return CKRecord.ID(recordName: info.shareRecordName, zoneID: zone)
     }
 
     private func storedRootID() async throws -> CKRecord.ID? {
-        guard let name = storedRootRecordName else { return nil }
-        let zone = try await ensureZoneID()
+        guard let info = persistedShare, let name = info.rootRecordName else { return nil }
+        let zone = CKRecordZone.ID(zoneName: info.zoneName, ownerName: info.zoneOwner)
         return CKRecord.ID(recordName: name, zoneID: zone)
     }
 
@@ -249,8 +306,9 @@ final class SharedCloudKitController: NSObject {
         get {
             if let id = defaults.string(forKey: SharedRecordKeys.savedSubscriptionIDKey) {
                 return id
-            } else if let name = storedShareRecordName {
-                return SharedRecordKeys.subscriptionID(for: CKRecord.ID(recordName: name))
+            } else if let info = persistedShare {
+                let shareID = CKRecord.ID(recordName: info.shareRecordName, zoneID: CKRecordZone.ID(zoneName: info.zoneName, ownerName: info.zoneOwner))
+                return SharedRecordKeys.subscriptionID(for: shareID)
             } else {
                 return nil
             }
@@ -259,8 +317,7 @@ final class SharedCloudKitController: NSObject {
     }
 
     private func clearStoredShareInfo() {
-        storedShareRecordName = nil
-        storedRootRecordName = nil
+        persistedShare = nil
         storedSubscriptionID = nil
         activeShare = nil
     }
@@ -268,21 +325,51 @@ final class SharedCloudKitController: NSObject {
     /// Attempts to restore the previously accepted share. Returns `true` if the
     /// share and root record still exist and `activeShare` was populated.
     func restorePersistedShare() async -> Bool {
-        guard let shareID = try? await storedShareID(),
-              let rootID  = try? await storedRootID() else {
-            return false
+        Log.debug("Attempting to restore persisted share", category: .cloud)
+        guard let infoData = persistedShare else { return false }
+
+        // Build IDs for the private DB (current user) and shared DB (owner) contexts.
+        let shareIDPrivate = CKRecord.ID(
+            recordName: infoData.shareRecordName,
+            zoneID: CKRecordZone.ID(zoneName: infoData.zoneName, ownerName: CKCurrentUserDefaultName)
+        )
+
+        // The root record lives in the owner's zone when accessed via the shared DB.
+        let rootIDShared = infoData.rootRecordName.map {
+            CKRecord.ID(recordName: $0, zoneID: CKRecordZone.ID(zoneName: infoData.zoneName, ownerName: infoData.zoneOwner))
+        }
+        // When checking the private DB (owner case), use the current user's zone owner name placeholder.
+        let rootIDPrivate = infoData.rootRecordName.map {
+            CKRecord.ID(recordName: $0, zoneID: CKRecordZone.ID(zoneName: infoData.zoneName, ownerName: CKCurrentUserDefaultName))
         }
 
         do {
-            guard let share = try await privateDB.llmRecord(for: shareID) as? CKShare else {
+            guard let share = try await privateDB.llmRecord(for: shareIDPrivate) as? CKShare else {
+                Log.warning("Failed to restore persisted share; clearing stored info", category: .cloud)
                 clearStoredShareInfo()
                 return false
             }
 
-            _ = try await privateDB.llmRecord(for: rootID)
-            activeShare = share
-            return true
+            // Validate root record in shared DB first (subscriber), then private DB (owner)
+            var hasShared = false
+            if let id = rootIDShared {
+                hasShared = (try? await sharedDB.llmRecord(for: id)) != nil
+            }
+            var hasPrivate = false
+            if let id = rootIDPrivate {
+                hasPrivate = (try? await privateDB.llmRecord(for: id)) != nil
+            }
+            if hasShared || hasPrivate {
+                activeShare = share
+                Log.info("Restored persisted share successfully", category: .cloud)
+                return true
+            } else {
+                Log.warning("Root record not found in shared or private DB; clearing stored info", category: .cloud)
+                clearStoredShareInfo()
+                return false
+            }
         } catch {
+            Log.warning("Failed to restore persisted share; clearing stored info", category: .cloud)
             clearStoredShareInfo()
             return false
         }
@@ -297,6 +384,15 @@ final class SharedCloudKitController: NSObject {
             }
             self.container = defaultContainer
         }
+
+        // Ensure SharedRecordKeys uses the same CloudKit container as this controller.
+        if let ckContainer = self.container as? CKContainer, let identifier = ckContainer.containerIdentifier {
+            SharedRecordKeys.configureContainer(identifier: identifier)
+        } else {
+            // Fallback to known identifier if casting fails
+            SharedRecordKeys.configureContainer(identifier: "iCloud.com.svk.Choreganize")
+        }
+
         self.sharedDB  = self.container.sharedDatabase
         self.privateDB = self.container.privateDatabase
 
@@ -326,7 +422,60 @@ final class SharedCloudKitController: NSObject {
         let recordID = SharedRecordKeys.recordID(for: name)
         self.zoneID = zone
         self.rootRecordID = recordID
+        Log.debug("Prepared user context: zone=\(zone.zoneName)", category: .cloud)
         await createZoneIfNeeded(zone)
+    }
+    
+    /// Compares the app's local schema version to the remote CloudKit root record's version and reconciles.
+    /// - Returns: A status indicating whether it's safe to proceed, whether an upgrade occurred, or a block is required.
+    func ensureSchemaCompatibility(appSchemaVersion: Int, localState: AppModel.SavedState) async throws -> SchemaCompatibilityStatus? {
+        // Determine where to read the root record from.
+        let role = await currentEnvironmentRole()
+
+        // If we have no persisted share/root, nothing to check yet.
+        let rootID: CKRecord.ID
+        if let stored = try await storedRootID() {
+            rootID = stored
+        } else if let ensured = try? await ensureRootRecordID() {
+            rootID = ensured
+        } else {
+            return nil
+        }
+
+        // Try shared DB first (covers subscribers); fall back to private DB (owner pre-share or local).
+        let remoteRoot: CKRecord?
+        if let sharedRoot = try? await sharedDB.llmRecord(for: rootID) { remoteRoot = sharedRoot }
+        else if let privateRoot = try? await privateDB.llmRecord(for: rootID) { remoteRoot = privateRoot }
+        else { remoteRoot = nil }
+
+        guard let root = remoteRoot else { return nil }
+        let remoteVersion = (root[schemaVersionFieldKey] as? Int) ?? 1
+
+        if remoteVersion == appSchemaVersion { return .ok }
+
+        if remoteVersion > appSchemaVersion {
+            return .blocked("This shared data was created with a newer app. Please update to continue.", remoteVersion)
+        }
+
+        // appSchemaVersion > remoteVersion
+        switch role {
+        case .owner:
+            // Owner can upgrade the schema by republishing with the new version.
+            var upgradedRoot = root
+            upgradedRoot[schemaVersionFieldKey] = appSchemaVersion as CKRecordValue
+            do {
+                // Persist the upgraded root and current state stamped with new version.
+                _ = try await privateDB.llmModifyRecords(saving: [upgradedRoot], deleting: [], savePolicy: .changedKeys)
+                await publish(state: localState)
+                return .upgraded(appSchemaVersion)
+            } catch {
+                return .blocked("Failed to upgrade Cloud schema: \(error.localizedDescription)", remoteVersion)
+            }
+        case .subscriber:
+            return .blocked("Waiting for the owner to upgrade the shared data schema.", remoteVersion)
+        case .none:
+            return nil
+        }
     }
 
     private func ensureZoneID() async throws -> CKRecordZone.ID {
@@ -345,18 +494,52 @@ final class SharedCloudKitController: NSObject {
     // MARK: - Publishing
     /// Upserts the root record containing the serialized app state.
     func publish(state: AppModel.SavedState) async {
+        let role = await currentEnvironmentRole()
+        Log.info("Publishing state (role=\(role))", category: .cloud)
         do {
-            let root = try await fetchOrCreateRootRecord()
-            root[SharedRecordKeys.lastEditedKey] = Date() as CKRecordValue
+            switch role {
+            case .owner:
+                // Owner writes to their private database in their own zone.
+                let zone = try await ensureZoneID()
+                let root = try await fetchOrCreateRootRecord()
+                root[SharedRecordKeys.lastEditedKey] = Date() as CKRecordValue
+                root[schemaVersionFieldKey] = AppModel.schemaVersion as CKRecordValue
 
-            var records: [CKRecord] = [root]
-            records += state.chores.map { record(from: $0, parent: root) }
-            records += state.areas.map { record(from: $0, parent: root) }
-            records += state.completions.map { record(from: $0, parent: root) }
+                var records: [CKRecord] = [root]
+                records += state.chores.map { record(from: $0, parent: root, in: zone) }
+                records += state.areas.map { record(from: $0, parent: root, in: zone) }
+                records += state.completions.map { record(from: $0, parent: root, in: zone) }
 
-            _ = try await privateDB.llmModifyRecords(saving: records, deleting: [], savePolicy: .changedKeys)
+                Log.debug("Owner publishing: records=\(records.count)", category: .cloud)
+                _ = try await privateDB.llmModifyRecords(saving: records, deleting: [], savePolicy: .changedKeys)
+
+            case .subscriber:
+                // Participant writes to the shared database in the OWNER's zone.
+                guard let ownerZone = ownerZoneIDFromPersisted(),
+                      let rootID = try await storedRootID(),
+                      let root = try? await sharedDB.llmRecord(for: rootID) else {
+                    return
+                }
+
+                if let rootRecord = root as CKRecord? {
+                    rootRecord[SharedRecordKeys.lastEditedKey] = Date() as CKRecordValue
+                    rootRecord[schemaVersionFieldKey] = AppModel.schemaVersion as CKRecordValue
+
+                    var records: [CKRecord] = [rootRecord]
+                    records += state.chores.map { record(from: $0, parent: rootRecord, in: ownerZone) }
+                    records += state.areas.map { record(from: $0, parent: rootRecord, in: ownerZone) }
+                    records += state.completions.map { record(from: $0, parent: rootRecord, in: ownerZone) }
+
+                    Log.debug("Subscriber publishing: records=\(records.count)", category: .cloud)
+                    _ = try await sharedDB.llmModifyRecords(saving: records, deleting: [], savePolicy: .changedKeys)
+                }
+
+            case .none:
+                // No environment selected; nothing to publish.
+                return
+            }
         } catch {
-            print("Publish failed: \(error)")
+            Log.error("Publish failed: \(error.localizedDescription)", category: .cloud)
         }
     }
 
@@ -364,52 +547,99 @@ final class SharedCloudKitController: NSObject {
     /// Subscribes for silent push notifications when the shared root record changes.
     /// Limits the subscription to the specific record to avoid cross‑share notifications.
     func subscribeToChanges() async {
+        Log.info("Subscribing to changes (role-specific)", category: .cloud)
         guard let shareID = try? await storedShareID(),
               let rootID  = try? await storedRootID() else { return }
-        let subID: String
-        if let existing = storedSubscriptionID {
-            subID = existing
-        } else {
+
+        let role = await currentEnvironmentRole()
+
+        // Ensure we have a stable subscription ID derived from the share.
+        let subID: String = {
+            if let existing = storedSubscriptionID { return existing }
             let generated = SharedRecordKeys.subscriptionID(for: shareID)
             storedSubscriptionID = generated
-            subID = generated
+            return generated
+        }()
+
+        do {
+            switch role {
+            case .owner:
+                // Owner: subscribe to changes in the owner's private zone.
+                let zoneID = try await ensureZoneID()
+                let zoneSub = CKRecordZoneSubscription(zoneID: zoneID, subscriptionID: subID)
+                let info = CKSubscription.NotificationInfo()
+                info.shouldSendContentAvailable = true
+                zoneSub.notificationInfo = info
+                _ = try await privateDB.save(zoneSub)
+                Log.info("Private zone subscription saved: id=\(subID)", category: .cloud)
+
+            case .subscriber:
+                // Subscriber: shared DB only allows database subscriptions (no queries/predicates).
+                let dbSub = CKDatabaseSubscription(subscriptionID: subID)
+                let info = CKSubscription.NotificationInfo()
+                info.shouldSendContentAvailable = true
+                dbSub.notificationInfo = info
+                _ = try await sharedDB.save(dbSub)
+                Log.info("Shared database subscription saved: id=\(subID)", category: .cloud)
+
+            case .none:
+                Log.warning("No environment role; skipping subscription", category: .cloud)
+            }
+        } catch {
+            Log.error("Subscription save failed: \(error.localizedDescription)", category: .cloud)
         }
-        let predicate = NSPredicate(format: "recordID == %@", rootID)
-        let sub = CKQuerySubscription(recordType: SharedRecordKeys.rootRecordType, predicate: predicate, subscriptionID: subID, options: [.firesOnRecordUpdate, .firesOnRecordCreation])
-        sub.zoneID = rootID.zoneID
-        let info = CKSubscription.NotificationInfo()
-        info.shouldSendContentAvailable = true
-        sub.notificationInfo = info
-        do { _ = try await sharedDB.save(sub) } catch { }
     }
 
     /// Removes the subscription and any shared state from CloudKit.
     func stopSharing() async {
+        Log.info("Stopping sharing: deleting subscription(s) and clearing local state", category: .cloud)
         do {
             if let subID = storedSubscriptionID {
                 _ = try? await sharedDB.llmDeleteSubscription(withID: subID)
+                _ = try? await privateDB.llmDeleteSubscription(withID: subID)
             }
             // Clean up legacy subscription if present
             _ = try? await sharedDB.llmDeleteSubscription(withID: SharedRecordKeys.legacySubscriptionID)
-            if let rootID = try? await ensureRootRecordID() {
-                try? await sharedDB.llmDeleteRecord(withID: rootID)
-                try? await privateDB.llmDeleteRecord(withID: rootID)
-            }
         }
         clearStoredShareInfo()
     }
 
     // MARK: - Share acceptance
     func acceptShare(url: URL) async -> Bool {
+        Log.info("Accepting share from URL: \(url.absoluteString)", category: .cloud)
+        guard !shareOperationInProgress else { return false }
+        shareOperationInProgress = true
+        defer { shareOperationInProgress = false }
         do {
             let metadata = try await container.llmMetadata(for: url)
             storeShareMetadata(metadata)
-            let op = CKAcceptSharesOperation(shareMetadatas: [metadata])
-            op.qualityOfService = .userInitiated
-            container.add(op)
-            return true
+
+            return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Bool, Error>) in
+                let op = CKAcceptSharesOperation(shareMetadatas: [metadata])
+                op.qualityOfService = .userInitiated
+
+                op.perShareResultBlock = { _, result in
+                    switch result {
+                    case .failure(let error):
+                        cont.resume(throwing: error)
+                    case .success:
+                        break
+                    }
+                }
+
+                op.acceptSharesResultBlock = { result in
+                    switch result {
+                    case .success:
+                        cont.resume(returning: true)
+                    case .failure(let error):
+                        cont.resume(throwing: error)
+                    }
+                }
+
+                self.container.add(op)
+            }
         } catch {
-            print("Accept share failed: \(error)")
+            Log.error("Accept share failed: \(error.localizedDescription)", category: .cloud)
             return false
         }
     }
@@ -417,14 +647,24 @@ final class SharedCloudKitController: NSObject {
     /// Persists identifiers from an accepted share so future operations can
     /// reference the correct CloudKit records.
     func storeShareMetadata(_ metadata: CKShare.Metadata) {
-        storedShareRecordName = metadata.share.recordID.recordName
-        storedRootRecordName = metadata.rootRecord?.recordID.recordName
+        Log.debug("Stored share metadata for zone=\(metadata.share.recordID.zoneID.zoneName)", category: .cloud)
+        let zone = metadata.share.recordID.zoneID
+        persistedShare = PersistedShare(
+            zoneName: zone.zoneName,
+            zoneOwner: zone.ownerName,
+            rootRecordName: metadata.rootRecord?.recordID.recordName,
+            shareRecordName: metadata.share.recordID.recordName
+        )
         storedSubscriptionID = SharedRecordKeys.subscriptionID(for: metadata.share.recordID)
     }
 
     // MARK: - Share creation
     @MainActor
     func inviteCollaborator(from viewController: UIViewController) async {
+        Log.info("Presenting UICloudSharingController", category: .cloud)
+        guard !shareOperationInProgress else { return }
+        shareOperationInProgress = true
+        defer { shareOperationInProgress = false }
         do {
             let (_, share) = try await fetchOrCreateShare()
             if let ckContainer = container as? CKContainer {
@@ -434,7 +674,7 @@ final class SharedCloudKitController: NSObject {
                 viewController.present(controller, animated: true)
             }
         } catch {
-            print("Share UI failed: \(error)")
+            Log.error("Share UI failed: \(error.localizedDescription)", category: .cloud)
         }
     }
 
@@ -446,11 +686,18 @@ final class SharedCloudKitController: NSObject {
 
     // MARK: - Helpers
     private func fetchOrCreateRootRecord() async throws -> CKRecord {
-        let id = try await ensureRootRecordID()
+        let id: CKRecord.ID
+        if let stored = try? await storedRootID() {
+            id = stored
+        } else {
+            id = try await ensureRootRecordID()
+        }
         if let existing = try? await privateDB.llmRecord(for: id) {
             return existing
         }
-        return CKRecord(recordType: SharedRecordKeys.rootRecordType, recordID: id)
+        let newRoot = CKRecord(recordType: SharedRecordKeys.rootRecordType, recordID: id)
+        newRoot[schemaVersionFieldKey] = AppModel.schemaVersion as CKRecordValue
+        return newRoot
     }
 
     /// Fetches or creates the share + root record pair used for collaboration.
@@ -468,17 +715,20 @@ final class SharedCloudKitController: NSObject {
             }
 
             if let root = try? await privateDB.llmRecord(for: rootID) {
+                Log.info("Reusing existing share and root record", category: .cloud)
                 activeShare = share
                 return (root, share)
             }
         }
 
+        Log.info("Creating new share and root record", category: .cloud)
         // Create a new root record and share.
         let rootRecord = try await fetchOrCreateRootRecord()
         let zoneID     = try await ensureZoneID()           // ensure the per‑user zone exists
 
         let share = CKShare(rootRecord: rootRecord)
-        share[CKShare.SystemFieldKey.title] = "Choreganize" as CKRecordValue
+        rootRecord[schemaVersionFieldKey] = AppModel.schemaVersion as CKRecordValue
+        share[CKShare.SystemFieldKey.title] = "Household" as CKRecordValue
         share.publicPermission = CKShare.ParticipantPermission.none
 
         _ = try await privateDB.llmModifyRecords(
@@ -491,8 +741,14 @@ final class SharedCloudKitController: NSObject {
                 deleting: [],
                 savePolicy: .changedKeys)
 
-        storedShareRecordName = share.recordID.recordName
-        storedRootRecordName  = rootRecord.recordID.recordName
+        // Persist using the actual user record name for accurate role detection.
+        let me = (try? await SharedRecordKeys.userRecordName()) ?? zoneID.ownerName
+        persistedShare = PersistedShare(
+            zoneName: zoneID.zoneName,
+            zoneOwner: me,
+            rootRecordName: rootRecord.recordID.recordName,
+            shareRecordName: share.recordID.recordName
+        )
         storedSubscriptionID  = SharedRecordKeys.subscriptionID(for: share.recordID)
         activeShare           = share
 
@@ -503,10 +759,13 @@ final class SharedCloudKitController: NSObject {
 
     /// Processes a push notification from CloudKit and merges any updates.
     func handleRemoteNotification(_ userInfo: [AnyHashable : Any]) async {
-        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification else { return }
+        let notification = CKNotification(fromRemoteNotificationDictionary: userInfo)
+        let subID = notification?.subscriptionID
+        Log.debug("Handling remote notification: subscriptionID=\(String(describing: subID))", category: .push)
         let validIDs = [storedSubscriptionID, SharedRecordKeys.legacySubscriptionID]
-        guard validIDs.contains(notification.subscriptionID) else { return }
+        guard let subID, validIDs.contains(subID) else { return }
         guard let state = try? await fetchSharedState() else { return }
+        Log.info("Fetched shared state due to push; notifying observers", category: .cloud)
         await MainActor.run { self.onStateChange?(state) }
     }
 
@@ -517,9 +776,22 @@ final class SharedCloudKitController: NSObject {
 
     /// Downloads all shared records and assembles an app state.
     func fetchSharedState() async throws -> AppModel.SavedState {
-        let rootID = try await ensureRootRecordID()
+        Log.debug("Fetching shared state from shared DB", category: .cloud)
+        let rootID: CKRecord.ID
+        if let stored = try? await storedRootID() {
+            rootID = stored
+        } else {
+            rootID = try await ensureRootRecordID()
+        }
         _ = try await fetchOrCreateRootRecord()
-        let zone = try await ensureZoneID()
+
+        let zone: CKRecordZone.ID
+        if let ownerZone = ownerZoneIDFromPersisted() {
+            zone = ownerZone
+        } else {
+            zone = try await ensureZoneID()
+        }
+
         let choreRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.choreRecordType, parentID: rootID, in: zone)
         let areaRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.areaRecordType, parentID: rootID, in: zone)
         let completionRecords = try await sharedDB.llmAllRecords(ofType: SharedRecordKeys.completionRecordType, parentID: rootID, in: zone)
@@ -527,12 +799,13 @@ final class SharedCloudKitController: NSObject {
         let chores = choreRecords.compactMap(recordToChore)
         let areas = areaRecords.compactMap(recordToArea)
         let completions = completionRecords.compactMap(recordToCompletion)
+        Log.debug("Fetched counts: chores=\(chores.count), areas=\(areas.count), completions=\(completions.count)", category: .cloud)
         return AppModel.SavedState(chores: chores, areas: areas, completions: completions)
     }
 
     // MARK: - Record Conversion
-    private func record(from chore: Chore, parent: CKRecord) -> CKRecord {
-        let record = CKRecord(recordType: SharedRecordKeys.choreRecordType, recordID: CKRecord.ID(recordName: chore.id.uuidString, zoneID: zoneID!))
+    private func record(from chore: Chore, parent: CKRecord, in zoneID: CKRecordZone.ID) -> CKRecord {
+        let record = CKRecord(recordType: SharedRecordKeys.choreRecordType, recordID: CKRecord.ID(recordName: chore.id.uuidString, zoneID: zoneID))
         record.parent = CKRecord.Reference(recordID: parent.recordID, action: .none)
         record["name"] = chore.name as CKRecordValue
         record["isDaily"] = chore.isDaily as CKRecordValue
@@ -543,16 +816,16 @@ final class SharedCloudKitController: NSObject {
         return record
     }
 
-    private func record(from area: Area, parent: CKRecord) -> CKRecord {
-        let record = CKRecord(recordType: SharedRecordKeys.areaRecordType, recordID: CKRecord.ID(recordName: area.id.uuidString, zoneID: zoneID!))
+    private func record(from area: Area, parent: CKRecord, in zoneID: CKRecordZone.ID) -> CKRecord {
+        let record = CKRecord(recordType: SharedRecordKeys.areaRecordType, recordID: CKRecord.ID(recordName: area.id.uuidString, zoneID: zoneID))
         record.parent = CKRecord.Reference(recordID: parent.recordID, action: .none)
         record["name"] = area.name as CKRecordValue
         record["description"] = area.description as CKRecordValue
         return record
     }
 
-    private func record(from completion: Completion, parent: CKRecord) -> CKRecord {
-        let record = CKRecord(recordType: SharedRecordKeys.completionRecordType, recordID: CKRecord.ID(recordName: completion.id.uuidString, zoneID: zoneID!))
+    private func record(from completion: Completion, parent: CKRecord, in zoneID: CKRecordZone.ID) -> CKRecord {
+        let record = CKRecord(recordType: SharedRecordKeys.completionRecordType, recordID: CKRecord.ID(recordName: completion.id.uuidString, zoneID: zoneID))
         record.parent = CKRecord.Reference(recordID: parent.recordID, action: .none)
         record["choreId"] = completion.choreId.uuidString as CKRecordValue
         record["date"] = completion.date as CKRecordValue
@@ -594,8 +867,17 @@ extension SharedCloudKitController: UICloudSharingControllerDelegate {
 
     func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
         guard let share = csc.share else { return }
-        storedShareRecordName = share.recordID.recordName
-        storedSubscriptionID = SharedRecordKeys.subscriptionID(for: share.recordID)
+        let zone = share.recordID.zoneID
+        Task {
+            let me = (try? await SharedRecordKeys.userRecordName()) ?? zone.ownerName
+            self.persistedShare = PersistedShare(
+                zoneName: zone.zoneName,
+                zoneOwner: me,
+                rootRecordName: self.rootRecordID?.recordName,
+                shareRecordName: share.recordID.recordName
+            )
+            self.storedSubscriptionID = SharedRecordKeys.subscriptionID(for: share.recordID)
+        }
     }
 
     func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) {

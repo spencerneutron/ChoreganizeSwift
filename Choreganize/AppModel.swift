@@ -1,9 +1,39 @@
 import Foundation
 import SwiftUI
 import UIKit
+import os
 
 @MainActor
 final class AppModel: ObservableObject {
+    static let schemaVersion: Int = 1
+    private let schemaVersionKey = "schemaVersion"
+    
+    // MARK: - Banner messaging
+    enum BannerStyle {
+        case info, success, warning, error
+    }
+
+    struct BannerMessage: Identifiable, Equatable {
+        let id = UUID()
+        let title: String?
+        let message: String
+        let style: BannerStyle
+        let actionTitle: String?
+        let action: (() -> Void)?
+        let duration: TimeInterval
+
+        init(title: String? = nil, message: String, style: BannerStyle = .info, actionTitle: String? = nil, action: (() -> Void)? = nil, duration: TimeInterval = 4.0) {
+            self.title = title
+            self.message = message
+            self.style = style
+            self.actionTitle = actionTitle
+            self.action = action
+            self.duration = duration
+        }
+
+        static func == (lhs: BannerMessage, rhs: BannerMessage) -> Bool { lhs.id == rhs.id }
+    }
+
     let cloudController: SharedCloudKitController
     @AppStorage("sharingEnabled") var sharingEnabled = false
     @Published var chores: [Chore] = []
@@ -12,7 +42,19 @@ final class AppModel: ObservableObject {
     @Published var completionCache: [Date: [Completion]] = [:]
     @Published var lockedDays: Set<Date> = []
 
-    private let fileURL: URL
+    @Published var isSyncing: Bool = false
+    @Published var lastError: String?
+    @Published var remoteSchemaVersion: Int?
+    @Published var currentBanner: BannerMessage?
+
+    // MARK: - Environment metadata ("Household")
+    @Published var environmentName: String = "Household"
+    @Published var environmentRole: EnvironmentRole = .none
+
+    private let fileURL : URL
+    private var saveTask: Task<Void, Never>?
+    private var bannerQueue: [BannerMessage] = []
+    private var bannerTask: Task<Void, Never>?
 
     init(cloudController: SharedCloudKitController = .shared) {
         self.cloudController = cloudController
@@ -32,20 +74,54 @@ final class AppModel: ObservableObject {
         Task {
             let restored = await cloudController.restorePersistedShare()
             if restored {
+                await MainActor.run { self.sharingEnabled = true }
                 await loadSharedState()
-                if sharingEnabled {
-                    await cloudController.subscribeToChanges()
-                }
-            } else if sharingEnabled {
-                sharingEnabled = false
+                await cloudController.subscribeToChanges()
+            } else {
+                await MainActor.run { self.sharingEnabled = false }
             }
+            // Preflight CloudKit schema compatibility before any further interactions.
+            do {
+                if let status = try await self.cloudController.ensureSchemaCompatibility(appSchemaVersion: AppModel.schemaVersion, localState: SavedState(chores: self.chores, areas: self.areas, completions: self.completions, lockedDays: self.lockedDays)) {
+                    switch status {
+                    case .ok:
+                        break
+                    case .upgraded(let newVersion):
+                        self.remoteSchemaVersion = newVersion
+                        Log.info("Cloud schema upgraded to version: \(newVersion)", category: .cloud)
+                        self.showBanner(title: "Shared Data Upgraded",
+                                        message: "Your shared data was updated to the latest version.",
+                                        style: .success,
+                                        duration: 3.5)
+                    case .blocked(let reason, let remoteVersion):
+                        self.remoteSchemaVersion = remoteVersion
+                        self.sharingEnabled = false
+                        self.lastError = reason
+                        Log.error("Cloud schema incompatible: \(reason)", category: .cloud)
+                        self.showBanner(title: "Incompatible Shared Data",
+                                        message: reason,
+                                        style: .error,
+                                        duration: 6.0)
+                    }
+                }
+            } catch {
+                Log.warning("Schema preflight failed: \(error.localizedDescription)", category: .cloud)
+            }
+            await self.refreshEnvironmentInfo()
         }
+    }
+
+    /// Refreshes the current environment's display name and role.
+    func refreshEnvironmentInfo() async {
+        self.environmentName = cloudController.environmentDisplayName()
+        self.environmentRole = await cloudController.currentEnvironmentRole()
     }
 
     // MARK: - Persistence
     func load() {
         guard let data = try? Data(contentsOf: fileURL) else { return }
-        if let decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
+        if var decoded = try? JSONDecoder().decode(SavedState.self, from: data) {
+            migrateIfNeeded(&decoded)
             self.chores = decoded.chores
             self.areas = decoded.areas
             self.completions = decoded.completions
@@ -55,12 +131,38 @@ final class AppModel: ObservableObject {
     }
 
     func save() {
+        Log.debug("save() requested; debouncing", category: .persistence)
+        // Coalesce rapid changes to reduce disk and network churn.
+        saveTask?.cancel()
+        saveTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 400_000_000) // 400ms debounce
+            self.pruneLockedDays()
+            let stateToPersist = SavedState(chores: self.chores, areas: self.areas, completions: self.completions, lockedDays: self.lockedDays)
+            Log.info("Persisting state to disk (debounced)", category: .persistence)
+            if let data = try? JSONEncoder().encode(stateToPersist) {
+                try? data.write(to: self.fileURL)
+            }
+            if self.sharingEnabled {
+                Log.info("Publishing state after debounced save", category: .cloud)
+                await self.cloudController.publish(state: stateToPersist)
+            }
+        }
+    }
+
+    /// Immediately writes the current state to disk and publishes to CloudKit if enabled,
+    /// cancelling any pending debounced save.
+    func flushPendingSavesNow() {
+        Log.info("Flushing pending saves now", category: .persistence)
+        // Cancel any pending debounce task and write the most recent state.
+        saveTask?.cancel()
         pruneLockedDays()
         let state = SavedState(chores: chores, areas: areas, completions: completions, lockedDays: lockedDays)
         if let data = try? JSONEncoder().encode(state) {
             try? data.write(to: fileURL)
         }
         if sharingEnabled {
+            Log.info("Publishing state after flush", category: .cloud)
             Task { await cloudController.publish(state: state) }
         }
     }
@@ -323,30 +425,54 @@ final class AppModel: ObservableObject {
 
     /// Loads any shared app state from CloudKit and merges it into the current state.
     func loadSharedState() async {
-        guard let decoded = try? await cloudController.fetchSharedState() else {
-            sharingEnabled = false
-            return
+        await MainActor.run { Log.info("Loading shared state", category: .cloud) }
+        await MainActor.run { isSyncing = true }
+        defer { Task { @MainActor in isSyncing = false } }
+        do {
+            guard let decoded = try? await cloudController.fetchSharedState() else {
+                await MainActor.run { self.sharingEnabled = false }
+                return
+            }
+            await MainActor.run {
+                sharingEnabled = true
+                self.chores = decoded.chores
+                self.areas = decoded.areas
+                self.completions = decoded.completions
+                self.lockedDays.formUnion(decoded.lockedDays)
+                pruneLockedDays()
+                Log.info("Merged shared state: chores=\(decoded.chores.count), areas=\(decoded.areas.count), completions=\(decoded.completions.count)", category: .cloud)
+            }
+            await refreshEnvironmentInfo()
+        } catch {
+            await MainActor.run {
+                self.lastError = "Failed to load shared data: \(error.localizedDescription)"
+                Log.error(self.lastError ?? "Failed to load shared data", category: .cloud)
+            }
         }
-        sharingEnabled = true
-        self.chores = decoded.chores
-        self.areas = decoded.areas
-        self.completions = decoded.completions
-        self.lockedDays.formUnion(decoded.lockedDays)
-        pruneLockedDays()
     }
 
     /// Initiates sharing by presenting the CloudKit share UI.
     @MainActor
     func startSharing(from controller: UIViewController) async {
+        Log.info("Presenting CloudKit share UI", category: .cloud)
+        isSyncing = true
+        defer { isSyncing = false }
         await cloudController.inviteCollaborator(from: controller)
         sharingEnabled = true
         await cloudController.subscribeToChanges()
+        Log.info("Subscribed to changes after starting sharing", category: .cloud)
+        await refreshEnvironmentInfo()
     }
 
     /// Removes all shared data and subscriptions.
     func stopSharing() async {
+        await MainActor.run { Log.info("Stopping sharing and cleaning up", category: .cloud) }
+        await MainActor.run { isSyncing = true }
+        defer { Task { @MainActor in isSyncing = false } }
         await cloudController.stopSharing()
-        sharingEnabled = false
+        await MainActor.run { sharingEnabled = false }
+        await MainActor.run { Log.info("Sharing disabled locally", category: .cloud) }
+        await refreshEnvironmentInfo()
     }
 
     /// Loads completions for the specified date from disk or CloudKit and caches them.
@@ -392,6 +518,62 @@ final class AppModel: ObservableObject {
         lockedDays = Set(lockedDays.filter { calendar.startOfDay(for: $0) >= today })
     }
 
+    /// Applies in-place migrations to a decoded state whose version is older than the app's current schema.
+    private func migrateIfNeeded(_ state: inout SavedState) {
+        let fromVersion = state.schemaVersion ?? 1
+        var workingVersion = fromVersion
+
+        // Example migration scaffolding: add future migration steps here.
+        // if workingVersion == 1 {
+        //     // Perform changes needed to bring data to version 2
+        //     workingVersion = 2
+        // }
+
+        // Update the version after applying migrations.
+        if workingVersion != fromVersion {
+            Log.info("Migrated local state from v\(fromVersion) to v\(workingVersion)", category: .persistence)
+        }
+        state.schemaVersion = workingVersion
+    }
+
+    // MARK: - Banner controls
+    func showBanner(title: String? = nil,
+                    message: String,
+                    style: BannerStyle = .info,
+                    actionTitle: String? = nil,
+                    action: (() -> Void)? = nil,
+                    duration: TimeInterval = 4.0) {
+        let banner = BannerMessage(title: title, message: message, style: style, actionTitle: actionTitle, action: action, duration: duration)
+        if currentBanner == nil {
+            present(banner)
+        } else {
+            bannerQueue.append(banner)
+        }
+    }
+
+    func dismissBanner(triggerAction: Bool = false) {
+        if triggerAction { currentBanner?.action?() }
+        currentBanner = nil
+        bannerTask?.cancel()
+        bannerTask = nil
+        if let next = bannerQueue.first {
+            bannerQueue.removeFirst()
+            present(next)
+        }
+    }
+
+    private func present(_ banner: BannerMessage) {
+        currentBanner = banner
+        bannerTask?.cancel()
+        bannerTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(nanoseconds: UInt64((banner.duration) * 1_000_000_000))
+                self.dismissBanner()
+            } catch { /* cancelled */ }
+        }
+    }
+
     // MARK: - Day Locking
     func isDayLocked(_ date: Date) -> Bool {
         let calendar = Calendar.current
@@ -410,7 +592,8 @@ final class AppModel: ObservableObject {
     }
 
     func unlockDay(_ date: Date) {
-        let day = Calendar.current.startOfDay(for: date)
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(for: date)
         lockedDays.remove(day)
         save()
     }
@@ -420,12 +603,18 @@ final class AppModel: ObservableObject {
         var areas: [Area]
         var completions: [Completion]
         var lockedDays: Set<Date> = []
+        var schemaVersion: Int?
 
-        init(chores: [Chore], areas: [Area], completions: [Completion], lockedDays: Set<Date> = []) {
+        enum CodingKeys: String, CodingKey {
+            case chores, areas, completions, lockedDays, schemaVersion
+        }
+
+        init(chores: [Chore], areas: [Area], completions: [Completion], lockedDays: Set<Date> = [], schemaVersion: Int? = AppModel.schemaVersion) {
             self.chores = chores
             self.areas = areas
             self.completions = completions
             self.lockedDays = lockedDays
+            self.schemaVersion = schemaVersion
         }
 
         init(from decoder: Decoder) throws {
@@ -434,6 +623,17 @@ final class AppModel: ObservableObject {
             areas = try container.decodeIfPresent([Area].self, forKey: .areas) ?? []
             completions = try container.decodeIfPresent([Completion].self, forKey: .completions) ?? []
             lockedDays = try container.decodeIfPresent(Set<Date>.self, forKey: .lockedDays) ?? []
+            schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(chores, forKey: .chores)
+            try container.encode(areas, forKey: .areas)
+            try container.encode(completions, forKey: .completions)
+            try container.encode(lockedDays, forKey: .lockedDays)
+            try container.encode(schemaVersion ?? AppModel.schemaVersion, forKey: .schemaVersion)
         }
     }
 }
+
