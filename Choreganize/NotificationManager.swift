@@ -67,8 +67,6 @@ enum NotificationManager {
     // MARK: - Scheduling
 
     private static let reminderPrefix = "chore-reminder-"
-    private static let maxOccurrences = 7
-    private static let lookaheadDays = 21
 
     /// Clears all chore reminders and re-schedules upcoming ones from the current
     /// store + prefs. Safe (and intended) to call often — on background, on
@@ -91,51 +89,78 @@ enum NotificationManager {
         let cal = Calendar.current
         let request = NSFetchRequest<CDChore>(entityName: "CDChore")
         let chores = ((try? context.fetch(request)) ?? []).inScope(activeHousehold)
-        guard !chores.isEmpty else { return }
 
-        var scheduled = 0
-        for offset in 0...lookaheadDays where scheduled < maxOccurrences {
-            guard let day = cal.date(byAdding: .day, value: offset, to: Date()) else { continue }
-            let weekday = weekday(for: day, cal: cal)
-            guard enabledDays.contains(weekday) else { continue }
-            guard let fireDate = cal.date(bySettingHour: hour, minute: minute, second: 0, of: day),
-                  fireDate > Date() else { continue }   // skip today's slot if already passed
-
-            let unresolved = unresolvedCount(in: chores, on: day)
-            guard unresolved > 0 else { continue }
-
+        let planned = plannedReminders(chores: chores, days: enabledDays,
+                                       hour: hour, minute: minute, from: Date(), calendar: cal)
+        for reminder in planned {
             let content = UNMutableNotificationContent()
             content.title = "Chores to finish"
-            content.body = unresolved == 1
+            content.body = reminder.unresolvedCount == 1
                 ? "1 chore still needs attention."
-                : "\(unresolved) chores still need attention."
+                : "\(reminder.unresolvedCount) chores still need attention."
             content.sound = .default
-            content.badge = NSNumber(value: unresolved)
+            content.badge = NSNumber(value: reminder.unresolvedCount)
 
-            let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
+            let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: reminder.fireDate)
             let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
             let id = "\(reminderPrefix)\(comps.year ?? 0)-\(comps.month ?? 0)-\(comps.day ?? 0)"
             do {
                 try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
-                scheduled += 1
             } catch {
                 Log.error("Failed to schedule reminder \(id): \(error.localizedDescription)", category: .app)
             }
         }
-        Log.info("Scheduled \(scheduled) chore reminder(s)", category: .app)
+        Log.info("Scheduled \(planned.count) chore reminder(s)", category: .app)
+    }
+
+    // MARK: - Planning (pure, testable)
+
+    /// One reminder we intend to schedule: when it fires and how many chores were
+    /// unresolved at planning time (drives the body + badge).
+    struct PlannedReminder: Equatable {
+        let fireDate: Date
+        let unresolvedCount: Int
+    }
+
+    /// The core scheduling decision — only on enabled weekdays, only when chores
+    /// are unresolved, skip today if its time has already passed, capped at
+    /// `maxOccurrences`. Pure (no notification-center or store side effects) so it
+    /// can be unit-tested with a fixed `now`.
+    nonisolated static func plannedReminders(
+        chores: [CDChore],
+        days: Set<Weekday>,
+        hour: Int,
+        minute: Int,
+        from now: Date,
+        calendar: Calendar = .current,
+        maxOccurrences: Int = 7,
+        lookaheadDays: Int = 21
+    ) -> [PlannedReminder] {
+        guard !days.isEmpty, !chores.isEmpty else { return [] }
+        var result: [PlannedReminder] = []
+        for offset in 0...lookaheadDays where result.count < maxOccurrences {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: now) else { continue }
+            guard days.contains(weekday(for: day, cal: calendar)) else { continue }
+            guard let fireDate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day),
+                  fireDate > now else { continue }   // skip today's slot if already passed
+            let count = unresolvedCount(in: chores, on: day)
+            guard count > 0 else { continue }
+            result.append(PlannedReminder(fireDate: fireDate, unresolvedCount: count))
+        }
+        return result
     }
 
     // MARK: - Helpers
 
     /// Chores still needing attention on `date` (the live unfinished set today;
     /// a prediction for future dates, where no completions exist yet).
-    private static func unresolvedCount(in chores: [CDChore], on date: Date) -> Int {
+    nonisolated static func unresolvedCount(in chores: [CDChore], on date: Date) -> Int {
         Scheduling.chores(chores, for: date)
             .filter { $0.needsAttention(on: date) && !$0.isCompleted(on: date) }
             .count
     }
 
-    private static func weekday(for date: Date, cal: Calendar) -> Weekday {
+    nonisolated static func weekday(for date: Date, cal: Calendar) -> Weekday {
         let index = cal.component(.weekday, from: date) - 1
         return Weekday.standardCases[index]
     }
