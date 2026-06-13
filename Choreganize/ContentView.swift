@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var showingSupport: Bool = false
     @State private var showingError: Bool = false
     @State private var showingLogs: Bool = false
+    @StateObject private var onboarding = OnboardingCoordinator()
 
     var body: some View {
         NavigationStack {
@@ -71,12 +72,22 @@ struct ContentView: View {
             .onChange(of: model.lastError) { _, newValue in
                 showingError = newValue != nil
             }
-            .sheet(isPresented: $showingSupport) {
+            .sheet(isPresented: $showingSupport, onDismiss: { onboarding.playPendingIfNeeded() }) {
                 SupportView()
+                    .environmentObject(onboarding)
             }
             .sheet(isPresented: $showingLogs) {
                 LogViewerView()
             }
+            .sheet(item: $onboarding.current) { step in
+                OnboardingCardView(
+                    step: step,
+                    hasNext: onboarding.hasNext,
+                    onNext: { onboarding.advance() },
+                    onSkip: { onboarding.finish() }
+                )
+            }
+            .task { onboarding.startFirstRunIfNeeded() }
             .safeAreaInset(edge: .bottom) {
                 ZStack {
                     // Match the system bar appearance
