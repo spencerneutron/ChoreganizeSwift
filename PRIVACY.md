@@ -56,8 +56,13 @@ transmit logs or diagnostics to the developer.
 
 ## Notifications
 
-The app uses Apple's push notification service to keep shared data up to date.
-Notification delivery is handled by Apple.
+The app uses Apple's push notification service to keep shared data up to date;
+that delivery is handled by Apple.
+
+You can also turn on **local reminders** for chores that still need attention.
+These are scheduled and shown on your device based on the days and time you
+choose, and which chores remain is computed on your device. Reminder settings and
+content are not collected by or sent to the developer.
 
 ## Your control over your data
 
