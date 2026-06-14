@@ -4,6 +4,11 @@ The widget code is written, but a widget is a separate **app-extension target**
 that must be created in Xcode (it can't be added by editing files alone). These
 are the one-time steps. ~10 minutes.
 
+> **Status:** this setup is **done and committed** on the release branch (widget
+> target, sources, App-Group-only entitlements, version match). The steps below
+> are kept as a record + a guide for redoing it from scratch, with the gotchas we
+> actually hit called out.
+
 ## 1. Create the widget target
 
 1. Xcode → **File ▸ New ▸ Target… ▸ Widget Extension**.
@@ -11,10 +16,14 @@ are the one-time steps. ~10 minutes.
 3. **Uncheck** "Include Live Activity" and "Include Configuration App Intent"
    (this widget uses `StaticConfiguration`).
 4. Finish → **Activate** the scheme when prompted.
-5. Xcode generates a template `ChoreganizeWidget.swift` (+ assets) in a new
-   group. **Delete the generated `.swift`** (move to Trash) — we ship our own in
-   the `ChoreganizeWidget/` folder. Keep the generated `Assets.xcassets` and
-   `Info.plist`.
+5. The current Xcode template generates **several** `.swift` files —
+   `ChoreganizeWidget.swift`, `ChoreganizeWidgetBundle.swift`, and
+   `ChoreganizeWidgetControl.swift` (plus a LiveActivity file if you left that
+   checked). **Delete all of them** (move to Trash) — we ship our own in the
+   `ChoreganizeWidget/` folder, and **our** `ChoreganizeWidget.swift` already
+   contains the `@main` `WidgetBundle`. Leaving the template's `…Bundle.swift`
+   (or `…Control.swift`) causes duplicate-`@main` / "invalid redeclaration"
+   errors. Keep the generated `Assets.xcassets` and `Info.plist`.
 
 ## 2. Add our sources to the widget target
 
@@ -42,13 +51,23 @@ For **each** of the `Choreganize` app target and the `ChoreganizeWidget` target:
 1. Signing & Capabilities → **+ Capability ▸ App Groups**.
 2. Add / check the group **`group.com.svk.Choreganize`**.
 
-This must match `WidgetShared.appGroupIdentifier`. The app target's entitlements
-files (`Choreganize.entitlements`, `ChoreganizeDebug.entitlements`) **already
-list this group** — so for the app you mainly need to confirm the capability is
-on and that the group is registered in the Developer portal (Identifiers ▸ App
-Groups). The widget target needs the capability added (its entitlements file is
-created by the template). Until both targets share it, the app's snapshot write
-and the widget's read are safe no-ops (the widget shows its placeholder).
+This must match `WidgetShared.appGroupIdentifier`. The app's entitlements files
+(`Choreganize.entitlements`, `ChoreganizeDebug.entitlements`) **already list this
+group** — just confirm the capability is on and the group is registered in the
+Developer portal (Identifiers ▸ App Groups).
+
+> **Gotcha we hit (this project):** `CODE_SIGN_ENTITLEMENTS` is set at the
+> **project level**, so a fresh widget target with no entitlements file of its
+> own **inherits the app's** entitlements (aps-environment + iCloud + App Group).
+> Checking the App Groups box on the widget then writes into the *app's* file,
+> not a new one — and the widget ends up signed with push/iCloud it shouldn't
+> carry. **Fix (already committed):** `ChoreganizeWidget/ChoreganizeWidget.entitlements`
+> holds **only** the App Group, and the widget target's `CODE_SIGN_ENTITLEMENTS`
+> (Build Settings ▸ "Code Signing Entitlements") points at it. Keep it that way;
+> don't let Xcode redirect the widget back to the app's entitlements.
+
+Until both targets share the group, the app's snapshot write and the widget's
+read are safe no-ops (the widget shows its placeholder).
 
 ## 3b. Match the app's version and build (REQUIRED for upload)
 
@@ -56,8 +75,8 @@ A fresh widget target defaults to version `1.0` / build `1`. The App Store
 **rejects** an extension whose version/build don't match the app. In the widget
 target's Build Settings set:
 
-- `MARKETING_VERSION` = the app's (currently **1.2.0**)
-- `CURRENT_PROJECT_VERSION` = the app's (currently **8**)
+- `MARKETING_VERSION` = the app's (currently **1.2.1**)
+- `CURRENT_PROJECT_VERSION` = the app's (currently **10**)
 
 Keep them in sync going forward (a shared `.xcconfig`, or just bump both).
 
