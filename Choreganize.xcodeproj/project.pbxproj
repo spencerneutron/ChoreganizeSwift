@@ -6,7 +6,20 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		200C4C742FDE31A4008F211D /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 200C4C732FDE31A4008F211D /* WidgetKit.framework */; };
+		200C4C762FDE31A4008F211D /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 200C4C752FDE31A4008F211D /* SwiftUI.framework */; };
+		200C4C832FDE31A5008F211D /* ChoreganizeWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 200C4C712FDE31A4008F211D /* ChoreganizeWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
+		200C4C812FDE31A5008F211D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 205385B02E0376CC00886352 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 200C4C702FDE31A4008F211D;
+			remoteInfo = ChoreganizeWidgetExtension;
+		};
 		205385C92E0376CD00886352 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 205385B02E0376CC00886352 /* Project object */;
@@ -23,7 +36,24 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		200C4C882FDE31A5008F211D /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				200C4C832FDE31A5008F211D /* ChoreganizeWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		200C4C712FDE31A4008F211D /* ChoreganizeWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ChoreganizeWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		200C4C732FDE31A4008F211D /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		200C4C752FDE31A4008F211D /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		205385B82E0376CC00886352 /* Choreganize.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Choreganize.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		205385C82E0376CD00886352 /* ChoreganizeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChoreganizeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		205385D22E0376CD00886352 /* ChoreganizeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChoreganizeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -37,13 +67,36 @@
 			);
 			target = 205385B72E0376CC00886352 /* Choreganize */;
 		};
+		200C4C872FDE31A5008F211D /* Exceptions for "ChoreganizeWidget" folder in "ChoreganizeWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 200C4C702FDE31A4008F211D /* ChoreganizeWidgetExtension */;
+		};
+		200C4C902FDE3576008F211D /* Exceptions for "Choreganize" folder in "ChoreganizeWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				WidgetShared.swift,
+			);
+			target = 200C4C702FDE31A4008F211D /* ChoreganizeWidgetExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		200C4C772FDE31A4008F211D /* ChoreganizeWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				200C4C872FDE31A5008F211D /* Exceptions for "ChoreganizeWidget" folder in "ChoreganizeWidgetExtension" target */,
+			);
+			path = ChoreganizeWidget;
+			sourceTree = "<group>";
+		};
 		205385BA2E0376CC00886352 /* Choreganize */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				2008A5682E1392AD005C6E4E /* Exceptions for "Choreganize" folder in "Choreganize" target */,
+				200C4C902FDE3576008F211D /* Exceptions for "Choreganize" folder in "ChoreganizeWidgetExtension" target */,
 			);
 			path = Choreganize;
 			sourceTree = "<group>";
@@ -61,6 +114,15 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		200C4C6E2FDE31A4008F211D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				200C4C762FDE31A4008F211D /* SwiftUI.framework in Frameworks */,
+				200C4C742FDE31A4008F211D /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		205385B52E0376CC00886352 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -85,12 +147,23 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		200C4C722FDE31A4008F211D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				200C4C732FDE31A4008F211D /* WidgetKit.framework */,
+				200C4C752FDE31A4008F211D /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		205385AF2E0376CC00886352 = {
 			isa = PBXGroup;
 			children = (
 				205385BA2E0376CC00886352 /* Choreganize */,
 				205385CB2E0376CD00886352 /* ChoreganizeTests */,
 				205385D52E0376CD00886352 /* ChoreganizeUITests */,
+				200C4C772FDE31A4008F211D /* ChoreganizeWidget */,
+				200C4C722FDE31A4008F211D /* Frameworks */,
 				205385B92E0376CC00886352 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -101,6 +174,7 @@
 				205385B82E0376CC00886352 /* Choreganize.app */,
 				205385C82E0376CD00886352 /* ChoreganizeTests.xctest */,
 				205385D22E0376CD00886352 /* ChoreganizeUITests.xctest */,
+				200C4C712FDE31A4008F211D /* ChoreganizeWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -108,6 +182,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		200C4C702FDE31A4008F211D /* ChoreganizeWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 200C4C842FDE31A5008F211D /* Build configuration list for PBXNativeTarget "ChoreganizeWidgetExtension" */;
+			buildPhases = (
+				200C4C6D2FDE31A4008F211D /* Sources */,
+				200C4C6E2FDE31A4008F211D /* Frameworks */,
+				200C4C6F2FDE31A4008F211D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				200C4C772FDE31A4008F211D /* ChoreganizeWidget */,
+			);
+			name = ChoreganizeWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = ChoreganizeWidgetExtension;
+			productReference = 200C4C712FDE31A4008F211D /* ChoreganizeWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		205385B72E0376CC00886352 /* Choreganize */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 205385DC2E0376CD00886352 /* Build configuration list for PBXNativeTarget "Choreganize" */;
@@ -115,10 +211,12 @@
 				205385B42E0376CC00886352 /* Sources */,
 				205385B52E0376CC00886352 /* Frameworks */,
 				205385B62E0376CC00886352 /* Resources */,
+				200C4C882FDE31A5008F211D /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				200C4C822FDE31A5008F211D /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				205385BA2E0376CC00886352 /* Choreganize */,
@@ -183,9 +281,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1640;
+				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
+					200C4C702FDE31A4008F211D = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
 					205385B72E0376CC00886352 = {
 						CreatedOnToolsVersion = 16.4;
 					};
@@ -216,11 +317,19 @@
 				205385B72E0376CC00886352 /* Choreganize */,
 				205385C72E0376CD00886352 /* ChoreganizeTests */,
 				205385D12E0376CD00886352 /* ChoreganizeUITests */,
+				200C4C702FDE31A4008F211D /* ChoreganizeWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		200C4C6F2FDE31A4008F211D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		205385B62E0376CC00886352 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -245,6 +354,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		200C4C6D2FDE31A4008F211D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		205385B42E0376CC00886352 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -269,6 +385,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		200C4C822FDE31A5008F211D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 200C4C702FDE31A4008F211D /* ChoreganizeWidgetExtension */;
+			targetProxy = 200C4C812FDE31A5008F211D /* PBXContainerItemProxy */;
+		};
 		205385CA2E0376CD00886352 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 205385B72E0376CC00886352 /* Choreganize */;
@@ -282,6 +403,73 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		200C4C852FDE31A5008F211D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEVELOPMENT_TEAM = YV4K38KS29;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ChoreganizeWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ChoreganizeWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.svk.Choreganize.ChoreganizeWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		200C4C862FDE31A5008F211D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEVELOPMENT_TEAM = YV4K38KS29;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ChoreganizeWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ChoreganizeWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.svk.Choreganize.ChoreganizeWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		205385DA2E0376CD00886352 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -571,6 +759,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		200C4C842FDE31A5008F211D /* Build configuration list for PBXNativeTarget "ChoreganizeWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				200C4C852FDE31A5008F211D /* Debug */,
+				200C4C862FDE31A5008F211D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		205385B32E0376CC00886352 /* Build configuration list for PBXProject "Choreganize" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
