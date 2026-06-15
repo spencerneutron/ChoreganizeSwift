@@ -86,10 +86,17 @@ will fail to sync until you deploy the schema.
 
 1. Dashboard → **Schema** → **Deploy Schema Changes…** (top right).
 2. Review the diff (Development → Production), confirm.
-3. Flip `aps-environment` in `Choreganize.entitlements` from `development` to
-   `production` for release builds (Debug uses `ChoreganizeDebug.entitlements`,
-   which stays `development`).
-4. Re-deploy schema whenever you add/rename Core Data entities or attributes.
+3. Re-deploy schema whenever you add/rename Core Data entities or attributes.
+
+> **Which CloudKit environment a build talks to is decided by its
+> signing/provisioning profile, not by an entitlements file.** A
+> development-signed install (Xcode → device) uses the **Development**
+> environment; a TestFlight/App Store build uses **Production**. The
+> `aps-environment` value rides along with the profile for push, but it is not
+> the switch — don't go editing entitlements to "change environment."
+> (`ChoreganizeDebug.entitlements` is orphaned: it's referenced only at a
+> project-level build config and isn't used to sign Debug builds, so its
+> `aps-environment = development` has no effect on anything.)
 
 > Do this **after** the model is stable. Re-deploying is cheap, but you can't
 > delete a field from Production once deployed — only add. Plan the model before
@@ -172,4 +179,5 @@ background mode (added in Phase 4) — without it, pushes don't wake the app.
 | TestFlight build doesn't sync | Schema not deployed to Production (§4) |
 | Share sheet never appears (Phase 3) | Share/root record not saved before presenting |
 | Participant sees nothing (Phase 3) | Share accept didn't import; `.shared` store not loaded |
+| Accepting a share errors "a newer version of the app is required" / "this app is not available on the App Store" | Cross-environment share: one peer is on a Development (Xcode) build, the other on a Production (TestFlight) build. Fix: put **both peers on TestFlight** (same Production environment) and deploy the CloudKit schema to Production (§4). |
 | Old + new data both visible | Expected during migration — purge old zone (§5 Option A) |
