@@ -1,47 +1,25 @@
 import SwiftUI
 import CoreData
 
-// P1: the guided "add chores & areas" wizard UI shell. Engine lives in AddFlow.swift.
-// NOT yet wired into the Edit tab — that's P2. This file is self-contained and
-// previewable so the flow can be exercised in isolation.
+// P2: the guided "add chores & areas" wizard, pushed in-tab from EditHomeView (not a
+// modal sheet — keeps the Edit tab context, matching how Chores/Areas already push onto
+// the ambient NavigationStack). Engine lives in AddFlow.swift; the step subviews below
+// are navigation-agnostic (callback-driven) and reused across both lenses.
 
-/// Temporary P1 host: pick a lens, then run the wizard. P2 relocates the lens choice
-/// into the reframed Edit home (replacing the sparse `EditHomeView`).
-struct AddFlowStartView: View {
-    @State private var grouping: AddFlowGrouping?
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Set Up Chores").font(.title2.bold())
-            Text("Add several at once — go room by room, or day by day.")
-                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            ForEach(AddFlowGrouping.allCases) { lens in
-                Button { grouping = lens } label: {
-                    Label(lens.title, systemImage: lens.systemImage)
-                        .frame(maxWidth: .infinity).padding(.vertical, 8)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding()
-        .sheet(item: $grouping) { lens in AddFlowView(grouping: lens) }
-    }
-}
-
-/// Wizard steps pushed onto the flow's navigation path. The root (group picker) is
-/// not in the path; selecting a group pushes `.addChores`.
-enum AddFlowStep: Hashable { case addChores, anotherGroup, review }
-
-/// The wizard. Root = group picker; pushes add-chores → another? → review → commit.
-/// One shell for both lenses, parameterized by `AddFlowGrouping` (the grouping key).
-struct AddFlowView: View {
+/// The guided add-flow, pushed in-tab from `EditHomeView`. One shell for both lenses,
+/// parameterized by `AddFlowGrouping` (the swappable grouping key). Steps advance in
+/// place; the system back button cancels the flow (drafts are uncommitted until
+/// Review → Save). A back-with-unsaved-drafts confirmation is deferred to P3.
+struct AddFlowFlowView: View {
     let grouping: AddFlowGrouping
 
     @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
     @StateObject private var flow: AddFlowModel
-    @State private var path: [AddFlowStep] = []
+    @State private var step: Step = .pickGroup
+
+    enum Step { case pickGroup, addChores, another, review }
 
     init(grouping: AddFlowGrouping) {
         self.grouping = grouping
@@ -49,33 +27,35 @@ struct AddFlowView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            AddFlowGroupPicker(flow: flow) { group in
-                flow.startGroup(group)
-                path = [.addChores]
-            }
-            .navigationTitle(grouping.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                if flow.draftCount > 0 {
-                    ToolbarItem(placement: .confirmationAction) { Button("Review") { path = [.review] } }
+        Group {
+            switch step {
+            case .pickGroup:
+                AddFlowGroupPicker(flow: flow) { group in
+                    flow.startGroup(group); advance(to: .addChores)
                 }
+            case .addChores:
+                AddChoresStep(flow: flow, onDone: { advance(to: .another) })
+            case .another:
+                AnotherGroupStep(flow: flow,
+                                 onAddAnother: { advance(to: .pickGroup) },
+                                 onReview: { advance(to: .review) })
+            case .review:
+                AddFlowReview(flow: flow, onSave: save)
             }
-            .navigationDestination(for: AddFlowStep.self) { step in
-                switch step {
-                case .addChores:
-                    AddChoresStep(flow: flow, onDone: { path.append(.anotherGroup) })
-                case .anotherGroup:
-                    AnotherGroupStep(flow: flow,
-                                     onAddAnother: { path = [] },
-                                     onReview: { path = [.review] })
-                case .review:
-                    AddFlowReview(flow: flow, onSave: save)
+        }
+        .navigationTitle(grouping.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Jump to Review from the group picker after looping back with drafts staged.
+            if step == .pickGroup && flow.draftCount > 0 {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Review") { advance(to: .review) }
                 }
             }
         }
     }
+
+    private func advance(to next: Step) { withAnimation(.snappy) { step = next } }
 
     private func save() {
         flow.commit(in: context, household: model.activeHousehold)
@@ -321,7 +301,7 @@ private struct AddFlowReview: View {
 
 #if DEBUG
 #Preview {
-    AddFlowStartView()
+    NavigationStack { AddFlowFlowView(grouping: .byArea) }
         .environment(\.managedObjectContext, PreviewStack.context)
         .environmentObject(AppModel())
 }

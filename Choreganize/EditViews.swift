@@ -4,8 +4,34 @@ import CoreData
 struct EditHomeView: View {
     var body: some View {
         List {
-            NavigationLink("Chores") { ChoreListView() }
-            NavigationLink("Areas") { AreaListView() }
+            Section {
+                ForEach(AddFlowGrouping.allCases) { lens in
+                    NavigationLink {
+                        AddFlowFlowView(grouping: lens)
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(lens.title)
+                                Text(lens == .byArea
+                                     ? "Pick a room, then add its chores."
+                                     : "Pick a day, then add chores for it.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: lens.systemImage)
+                        }
+                    }
+                }
+            } header: {
+                Text("Add chores & areas")
+            } footer: {
+                Text("Add several at once — go room by room, or day by day. You can fine-tune anything afterward below.")
+            }
+
+            Section("Manage") {
+                NavigationLink("Chores") { ChoreListView() }
+                NavigationLink("Areas") { AreaListView() }
+            }
         }
     }
 }
