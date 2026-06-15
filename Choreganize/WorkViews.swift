@@ -152,6 +152,7 @@ struct DayPage: View {
         // must exceed it to actually add space — 32 clears the chevrons with a gap.
         // (Tunable: one number; the list background still spans full-width, no edge strip.)
         .contentMargins(.horizontal, 32, for: .scrollContent)
+        .scrollIndicators(.hidden)   // hide the scroll bar; scrolling still works
         .alert("Finish day?", isPresented: $showDoneAlert) {
             Button("Confirm") {
                 DayLock.lock(date, existing: scopedLocks, household: active, in: context)
