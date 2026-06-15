@@ -24,6 +24,7 @@ enum NotificationManager {
         static let days = "notif.days"      // [String] of Weekday rawValues
         static let hour = "notif.hour"
         static let minute = "notif.minute"
+        static let badgeScopes = "badge.scopes"  // [String] of AppScope rawValues; unset == both
     }
 
     static var isEnabled: Bool {
@@ -46,6 +47,19 @@ enum NotificationManager {
     /// Hour of day to remind (24h). Defaults to 18:00.
     static var hour: Int { UserDefaults.standard.object(forKey: Keys.hour) as? Int ?? 18 }
     static var minute: Int { UserDefaults.standard.object(forKey: Keys.minute) as? Int ?? 0 }
+
+    /// Scopes whose unfinished chores feed the app-icon badge. *Unset* defaults to
+    /// both; an explicit empty set means "no badge". (Distinguishing unset from empty
+    /// is why this reads the raw array directly rather than going through a default.)
+    static var badgeScopes: Set<AppScope> {
+        get {
+            guard let raw = UserDefaults.standard.array(forKey: Keys.badgeScopes) as? [String] else {
+                return Set(AppScope.allCases)
+            }
+            return Set(raw.compactMap(AppScope.init(rawValue:)))
+        }
+        set { UserDefaults.standard.set(newValue.map(\.rawValue), forKey: Keys.badgeScopes) }
+    }
 
     // MARK: - Authorization
 
@@ -99,7 +113,6 @@ enum NotificationManager {
                 ? "1 chore still needs attention."
                 : "\(reminder.unresolvedCount) chores still need attention."
             content.sound = .default
-            content.badge = NSNumber(value: reminder.unresolvedCount)
 
             let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: reminder.fireDate)
             let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
@@ -113,10 +126,62 @@ enum NotificationManager {
         Log.info("Scheduled \(planned.count) chore reminder(s)", category: .app)
     }
 
+    // MARK: - Badge (decoupled from reminders)
+
+    /// Recomputes and applies the app-icon badge: today's unfinished chores summed
+    /// across the user's selected scopes. Silently no-ops without badge authorization,
+    /// so it never prompts when called on foreground/background.
+    static func refreshBadge(using context: NSManagedObjectContext, household: CDHousehold?) async {
+        let count = badgeCount(using: context, household: household)
+        try? await UNUserNotificationCenter.current().setBadgeCount(count)
+        let scopeLabel = badgeScopes.isEmpty ? "none" : badgeScopes.map(\.rawValue).sorted().joined(separator: "+")
+        Log.info("Badge refresh → \(count) unfinished today (scopes: \(scopeLabel))", category: .app)
+    }
+
+    /// Today's badge count from the live store + current prefs. Fetches once and
+    /// defers the decision to the pure core below.
+    static func badgeCount(using context: NSManagedObjectContext, household: CDHousehold?) -> Int {
+        let all = ((try? context.fetch(NSFetchRequest<CDChore>(entityName: "CDChore"))) ?? [])
+        return badgeCount(in: all, household: household, scopes: badgeScopes, from: Date())
+    }
+
+    /// Pure core: today's unfinished-chore count over the selected scopes, partitioning
+    /// `chores` by household itself. Counts each scope independent of the *active* scope
+    /// (Solo == no household; Household uses the resolved household even when the user is
+    /// viewing Solo). Strictly today (`from`), so a locked, uncloseable past-day miss can
+    /// never keep the badge lit. `nonisolated` + deterministic, so it unit-tests without
+    /// touching UserDefaults or the notification center.
+    nonisolated static func badgeCount(
+        in chores: [CDChore],
+        household: CDHousehold?,
+        scopes: Set<AppScope>,
+        from now: Date
+    ) -> Int {
+        guard !scopes.isEmpty else { return 0 }
+        var total = 0
+        if scopes.contains(.solo) {
+            total += unresolvedCount(in: chores.inScope(nil), on: now)
+        }
+        if scopes.contains(.household), let household {
+            total += unresolvedCount(in: chores.inScope(household), on: now)
+        }
+        return total
+    }
+
+    /// Removes already-delivered chore reminders from Notification Center (called on
+    /// foreground). Mirrors the `reminderPrefix` filtering used for pending requests.
+    static func clearDeliveredReminders() async {
+        let center = UNUserNotificationCenter.current()
+        let ids = (await center.deliveredNotifications())
+            .map(\.request.identifier)
+            .filter { $0.hasPrefix(reminderPrefix) }
+        if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
+    }
+
     // MARK: - Planning (pure, testable)
 
     /// One reminder we intend to schedule: when it fires and how many chores were
-    /// unresolved at planning time (drives the body + badge).
+    /// unresolved at planning time (drives the body text).
     struct PlannedReminder: Equatable {
         let fireDate: Date
         let unresolvedCount: Int

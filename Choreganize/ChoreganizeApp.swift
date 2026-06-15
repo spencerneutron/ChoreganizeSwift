@@ -38,8 +38,12 @@ struct ChoreganizeApp: App {
                     if phase == .active || phase == .background {
                         let context = CoreDataStack.shared.viewContext
                         let household = model.activeHousehold
+                        let badgeHousehold = model.resolvedHousehold
+                        let isForeground = phase == .active
                         Task {
                             await NotificationManager.reschedule(using: context, activeHousehold: household)
+                            await NotificationManager.refreshBadge(using: context, household: badgeHousehold)
+                            if isForeground { await NotificationManager.clearDeliveredReminders() }
                         }
                         WidgetSnapshotWriter.update(
                             using: context,

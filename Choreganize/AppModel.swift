@@ -64,7 +64,14 @@ final class AppModel: ObservableObject {
     /// shared one after accepting an invite.
     var activeHousehold: CDHousehold? {
         guard scope == .household else { return nil }
-        return household(in: CoreDataStack.shared.sharedStore) ?? household(in: nil)
+        return resolvedHousehold
+    }
+
+    /// The household backing Household-scoped data, *regardless* of the active scope.
+    /// `activeHousehold` is nil while in Solo, but the badge counts Household chores
+    /// even from Solo, so it resolves the household through this instead.
+    var resolvedHousehold: CDHousehold? {
+        household(in: CoreDataStack.shared.sharedStore) ?? household(in: nil)
     }
 
     /// The first household in the given store (or across all stores when `nil`).

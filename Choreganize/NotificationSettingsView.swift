@@ -15,6 +15,7 @@ struct NotificationSettingsView: View {
     @AppStorage(NotificationManager.Keys.minute) private var minute = 0
 
     @State private var selectedDays: Set<Weekday> = Set(Weekday.standardCases)
+    @State private var badgeScopes: Set<AppScope> = Set(AppScope.allCases)
     @State private var status: UNAuthorizationStatus = .notDetermined
     @State private var didLoad = false
 
@@ -65,12 +66,47 @@ struct NotificationSettingsView: View {
                     Text("You're only reminded on days that still have chores to do.")
                 }
             }
+
+            // Independent of the reminder toggle above: the badge reflects today's
+            // open chores per these scopes whenever notifications are authorized.
+            if !deniedInSystem {
+                Section {
+                    ForEach(AppScope.allCases) { scope in
+                        Button {
+                            toggleBadgeScope(scope)
+                        } label: {
+                            HStack {
+                                Label(scope.title, systemImage: scope.systemImage)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if badgeScopes.contains(scope) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("App Icon Badge")
+                } footer: {
+                    Text("Badge the app icon with today's unfinished chores. Pick which lists it counts; uncheck both to hide it.")
+                }
+            }
         }
         .navigationTitle("Reminders")
         .task {
             status = await NotificationManager.authorizationStatus()
+            // Single, low-frequency auth prompt: only the first time the user opens
+            // this screen (never on launch/foreground), so we don't badger them.
+            if status == .notDetermined {
+                _ = await NotificationManager.requestAuthorization()
+                status = await NotificationManager.authorizationStatus()
+            }
             if !didLoad {
                 selectedDays = NotificationManager.days
+                badgeScopes = NotificationManager.badgeScopes
                 didLoad = true
             }
         }
@@ -82,6 +118,10 @@ struct NotificationSettingsView: View {
         .onChange(of: selectedDays) { _, newValue in
             NotificationManager.days = newValue
             apply()
+        }
+        .onChange(of: badgeScopes) { _, newValue in
+            NotificationManager.badgeScopes = newValue
+            Task { await NotificationManager.refreshBadge(using: context, household: model.resolvedHousehold) }
         }
     }
 
@@ -100,6 +140,11 @@ struct NotificationSettingsView: View {
     private func toggleDay(_ day: Weekday) {
         if selectedDays.contains(day) { selectedDays.remove(day) }
         else { selectedDays.insert(day) }
+    }
+
+    private func toggleBadgeScope(_ scope: AppScope) {
+        if badgeScopes.contains(scope) { badgeScopes.remove(scope) }
+        else { badgeScopes.insert(scope) }
     }
 
     private func handleEnabledChange(to newValue: Bool) async {
