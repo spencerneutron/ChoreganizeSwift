@@ -20,6 +20,8 @@ final class ChoreganizeUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        app.launchEnvironment["CHOREGANIZE_LOCAL_ONLY"] = "1"   // skip CloudKit (avoids launch trap)
+        app.launchArguments += ["-hasSeenOnboarding", "YES"]
         app.launch()
 
         // Insert steps here to perform after app launch but before taking a screenshot,

@@ -9,12 +9,32 @@ import os
 /// `NSPersistentCloudKitContainer` mirrors each to the matching CloudKit
 /// database. CloudKit is skipped for tests / previews / `CHOREGANIZE_LOCAL_ONLY`.
 final class CoreDataStack {
-    static let shared = CoreDataStack()
+    /// Shared app stack. UI tests pass `CHOREGANIZE_UITEST_INMEMORY=1` for a clean,
+    /// ephemeral store each launch (hermetic UI tests); production is unaffected.
+    static let shared = CoreDataStack(
+        inMemory: ProcessInfo.processInfo.environment["CHOREGANIZE_UITEST_INMEMORY"] == "1"
+    )
 
     /// Must match the iCloud container in the entitlements.
     static let cloudContainerIdentifier = "iCloud.com.svk.Choreganize"
     /// Must match the `.xcdatamodeld` filename (without extension).
     static let modelName = "Choreganize"
+
+    /// The managed object model, loaded **once** and shared by every container.
+    /// `NSPersistentCloudKitContainer(name:)` otherwise reloads the model from the
+    /// bundle per init, registering the `CD…` subclasses against multiple
+    /// `NSEntityDescription`s — which races under parallel tests as "Unacceptable
+    /// type of value … desired CDX; given CDX". One shared instance removes the
+    /// ambiguity (sharing a model across coordinators is explicitly supported).
+    static let managedObjectModel: NSManagedObjectModel = {
+        let bundle = Bundle(for: CoreDataStack.self)
+        guard let url = bundle.url(forResource: modelName, withExtension: "momd")
+                ?? bundle.url(forResource: modelName, withExtension: "mom"),
+              let model = NSManagedObjectModel(contentsOf: url) else {
+            fatalError("CoreDataStack: failed to load managed object model '\(modelName)'")
+        }
+        return model
+    }()
 
     let container: NSPersistentCloudKitContainer
 
@@ -45,7 +65,7 @@ final class CoreDataStack {
     }
 
     init(inMemory: Bool = false) {
-        container = NSPersistentCloudKitContainer(name: Self.modelName)
+        container = NSPersistentCloudKitContainer(name: Self.modelName, managedObjectModel: Self.managedObjectModel)
         cloudKitEnabled = !inMemory && !Self.skipCloudKit
 
         guard let privateDescription = container.persistentStoreDescriptions.first else {
@@ -110,7 +130,11 @@ final class CoreDataStack {
         context.automaticallyMergesChangesFromParent = true
         context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
         context.transactionAuthor = "app"
-        try? context.setQueryGenerationFrom(.current)
+        // The ephemeral in-memory store (UI tests) doesn't support query-generation
+        // pinning; only pin the real on-disk store.
+        if !inMemory {
+            try? context.setQueryGenerationFrom(.current)
+        }
     }
 
     /// Background context for imports and bulk writes.
