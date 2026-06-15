@@ -16,6 +16,22 @@ final class CoreDataStack {
     /// Must match the `.xcdatamodeld` filename (without extension).
     static let modelName = "Choreganize"
 
+    /// The managed object model, loaded **once** and shared by every container.
+    /// `NSPersistentCloudKitContainer(name:)` otherwise reloads the model from the
+    /// bundle per init, registering the `CD…` subclasses against multiple
+    /// `NSEntityDescription`s — which races under parallel tests as "Unacceptable
+    /// type of value … desired CDX; given CDX". One shared instance removes the
+    /// ambiguity (sharing a model across coordinators is explicitly supported).
+    static let managedObjectModel: NSManagedObjectModel = {
+        let bundle = Bundle(for: CoreDataStack.self)
+        guard let url = bundle.url(forResource: modelName, withExtension: "momd")
+                ?? bundle.url(forResource: modelName, withExtension: "mom"),
+              let model = NSManagedObjectModel(contentsOf: url) else {
+            fatalError("CoreDataStack: failed to load managed object model '\(modelName)'")
+        }
+        return model
+    }()
+
     let container: NSPersistentCloudKitContainer
 
     /// Whether CloudKit mirroring (and therefore sharing) is active.
@@ -45,7 +61,7 @@ final class CoreDataStack {
     }
 
     init(inMemory: Bool = false) {
-        container = NSPersistentCloudKitContainer(name: Self.modelName)
+        container = NSPersistentCloudKitContainer(name: Self.modelName, managedObjectModel: Self.managedObjectModel)
         cloudKitEnabled = !inMemory && !Self.skipCloudKit
 
         guard let privateDescription = container.persistentStoreDescriptions.first else {
