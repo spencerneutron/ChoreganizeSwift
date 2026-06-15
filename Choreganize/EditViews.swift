@@ -9,17 +9,21 @@ struct EditHomeView: View {
                     NavigationLink {
                         AddFlowFlowView(grouping: lens)
                     } label: {
-                        Label {
+                        HStack(spacing: 14) {
+                            Image(systemName: lens.systemImage)
+                                .font(.title2)
+                                .foregroundStyle(.tint)
+                                .frame(width: 36, height: 36)
+                                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(lens.title)
+                                Text(lens.title).font(.headline)
                                 Text(lens == .byArea
                                      ? "Pick a room, then add its chores."
                                      : "Pick a day, then add chores for it.")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
-                        } icon: {
-                            Image(systemName: lens.systemImage)
                         }
+                        .padding(.vertical, 4)
                     }
                     .accessibilityIdentifier("addflow.lens.\(lens.rawValue)")
                 }

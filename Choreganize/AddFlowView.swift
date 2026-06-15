@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreData
+import UIKit
 
 // P2: the guided "add chores & areas" wizard, pushed in-tab from EditHomeView (not a
 // modal sheet — keeps the Edit tab context, matching how Chores/Areas already push onto
@@ -27,21 +28,12 @@ struct AddFlowFlowView: View {
     }
 
     var body: some View {
-        Group {
-            switch step {
-            case .pickGroup:
-                AddFlowGroupPicker(flow: flow) { group in
-                    flow.startGroup(group); advance(to: .addChores)
-                }
-            case .addChores:
-                AddChoresStep(flow: flow, onDone: { advance(to: .another) })
-            case .another:
-                AnotherGroupStep(flow: flow,
-                                 onAddAnother: { advance(to: .pickGroup) },
-                                 onReview: { advance(to: .review) })
-            case .review:
-                AddFlowReview(flow: flow, onSave: save)
-            }
+        ZStack {
+            stepView
+                .id(step)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)))
         }
         .navigationTitle(grouping.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -55,10 +47,28 @@ struct AddFlowFlowView: View {
         }
     }
 
+    @ViewBuilder private var stepView: some View {
+        switch step {
+        case .pickGroup:
+            AddFlowGroupPicker(flow: flow) { group in
+                flow.startGroup(group); advance(to: .addChores)
+            }
+        case .addChores:
+            AddChoresStep(flow: flow, onDone: { advance(to: .another) })
+        case .another:
+            AnotherGroupStep(flow: flow,
+                             onAddAnother: { advance(to: .pickGroup) },
+                             onReview: { advance(to: .review) })
+        case .review:
+            AddFlowReview(flow: flow, onSave: save)
+        }
+    }
+
     private func advance(to next: Step) { withAnimation(.snappy) { step = next } }
 
     private func save() {
         flow.commit(in: context, household: model.activeHousehold)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
         dismiss()
     }
 }
@@ -127,6 +137,7 @@ private struct AddChoresStep: View {
     @State private var day: Weekday? = .monday
     // Per-chore area (day lens only).
     @State private var areaId: UUID?
+    @FocusState private var nameFocused: Bool
 
     private var scopedAreas: [CDArea] { areas.inScope(model.activeHousehold) }
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -142,6 +153,8 @@ private struct AddChoresStep: View {
                     .accessibilityIdentifier("addflow.choreNameField")
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
+                    .focused($nameFocused)
+                    .onSubmit(addChore)
                 if case .area = flow.activeGroup {
                     Toggle("Every Day", isOn: $isDaily)
                     if !isDaily {
@@ -164,6 +177,8 @@ private struct AddChoresStep: View {
         }
         .navigationTitle(groupTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .sensoryFeedback(.increase, trigger: flow.draftCount)
+        .onAppear { nameFocused = true }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("Done") { onDone() } }
         }
@@ -191,6 +206,7 @@ private struct AddChoresStep: View {
             break
         }
         name = ""   // reset for the next add — no growing list crowding the view
+        nameFocused = true   // keep focus for rapid successive adds
     }
 }
 
@@ -206,6 +222,7 @@ private struct ChipTray: View {
         HStack(spacing: 6) {
             ForEach(0..<min(count, maxChips), id: \.self) { _ in
                 Circle().frame(width: 8, height: 8).foregroundStyle(.tint)
+                    .transition(.scale.combined(with: .opacity))
             }
             if count > maxChips {
                 Text("+\(count - maxChips)").font(.caption2).foregroundStyle(.secondary)
