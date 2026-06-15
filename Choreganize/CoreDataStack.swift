@@ -9,7 +9,11 @@ import os
 /// `NSPersistentCloudKitContainer` mirrors each to the matching CloudKit
 /// database. CloudKit is skipped for tests / previews / `CHOREGANIZE_LOCAL_ONLY`.
 final class CoreDataStack {
-    static let shared = CoreDataStack()
+    /// Shared app stack. UI tests pass `CHOREGANIZE_UITEST_INMEMORY=1` for a clean,
+    /// ephemeral store each launch (hermetic UI tests); production is unaffected.
+    static let shared = CoreDataStack(
+        inMemory: ProcessInfo.processInfo.environment["CHOREGANIZE_UITEST_INMEMORY"] == "1"
+    )
 
     /// Must match the iCloud container in the entitlements.
     static let cloudContainerIdentifier = "iCloud.com.svk.Choreganize"
@@ -126,7 +130,11 @@ final class CoreDataStack {
         context.automaticallyMergesChangesFromParent = true
         context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
         context.transactionAuthor = "app"
-        try? context.setQueryGenerationFrom(.current)
+        // The ephemeral in-memory store (UI tests) doesn't support query-generation
+        // pinning; only pin the real on-disk store.
+        if !inMemory {
+            try? context.setQueryGenerationFrom(.current)
+        }
     }
 
     /// Background context for imports and bulk writes.
