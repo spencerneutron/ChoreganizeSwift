@@ -37,6 +37,14 @@ enum AreaRef: Equatable {
     case new(String)      // a room named in-flow; created once (deduped) on commit
 }
 
+/// A group being filled in the wizard. Pins one field of every chore added to it:
+/// `.area` pins `areaRef` (room-by-room); `.day` pins the weekday (day-by-day, where
+/// `.all` means "every day"/daily). This is the swappable grouping key made concrete.
+enum AddFlowGroup: Equatable {
+    case area(AreaRef)
+    case day(Weekday)
+}
+
 /// An in-flight chore before it is written to Core Data. Mirrors the parameters of
 /// `CDChore.make` so commit is a direct translation, not a transformation.
 struct ChoreDraft: Identifiable, Equatable {
@@ -147,6 +155,50 @@ final class AddFlowModel: ObservableObject {
     func add(_ draft: ChoreDraft) { drafts.append(draft) }
 
     func remove(_ id: ChoreDraft.ID) { drafts.removeAll { $0.id == id } }
+
+    // MARK: - Grouped building (P1 wizard)
+
+    /// The group currently being filled; pins one field of every chore added to it.
+    @Published var activeGroup: AddFlowGroup?
+
+    /// Begin (or resume) filling a group.
+    func startGroup(_ group: AddFlowGroup) { activeGroup = group }
+
+    /// Stage a chore into the active group, applying the group's pinned field. The
+    /// caller supplies only the per-chore (non-pinned) fields; the pinned one is set
+    /// from `activeGroup`. No-op if no group is active.
+    func addToActiveGroup(name: String,
+                          isDaily: Bool = false,
+                          frequency: Frequency = .weekly,
+                          day: Weekday? = nil,
+                          areaRef: AreaRef = .none) {
+        guard let group = activeGroup else { return }
+        var draft = ChoreDraft(name: name, isDaily: isDaily, frequency: frequency, day: day, areaRef: areaRef)
+        switch group {
+        case .area(let ref):
+            draft.areaRef = ref               // room lens: pin area, keep per-chore schedule
+        case .day(.all):
+            draft.isDaily = true              // "every day" group ⇒ daily
+            draft.day = nil
+        case .day(let weekday):
+            draft.isDaily = false
+            draft.day = weekday               // day lens: pin weekday, keep per-chore area
+        }
+        drafts.append(draft)
+    }
+
+    /// Count of staged drafts belonging to a group — feeds the chip tray indicator.
+    func count(in group: AddFlowGroup) -> Int {
+        drafts.filter { Self.belongs($0, to: group) }.count
+    }
+
+    private static func belongs(_ draft: ChoreDraft, to group: AddFlowGroup) -> Bool {
+        switch group {
+        case .area(let ref):    return draft.areaRef == ref
+        case .day(.all):        return draft.isDaily
+        case .day(let weekday): return !draft.isDaily && draft.day == weekday
+        }
+    }
 
     /// Commits the staged drafts and clears them. Returns the created chores.
     @discardableResult

@@ -145,4 +145,40 @@ struct AddFlowModelTests {
         #expect(model.draftCount == 0)            // drafts cleared after commit
         #expect(made[0].assignedDayValue == .monday)
     }
+
+    @Test func addToActiveGroupPinsAreaInRoomLens() {
+        let model = AddFlowModel(grouping: .byArea)
+        model.startGroup(.area(.new("Kitchen")))
+        model.addToActiveGroup(name: "Dishes", isDaily: true)
+        model.addToActiveGroup(name: "Mop", isDaily: false, frequency: .weekly, day: .monday)
+        #expect(model.drafts.allSatisfy { $0.areaRef == .new("Kitchen") })   // area pinned
+        #expect(model.drafts[0].isDaily)                                     // per-chore schedule kept
+        #expect(model.drafts[1].day == .monday)
+        #expect(model.count(in: .area(.new("Kitchen"))) == 2)
+    }
+
+    @Test func addToActiveGroupPinsDayInDayLens() {
+        let model = AddFlowModel(grouping: .byDay)
+        model.startGroup(.day(.tuesday))
+        model.addToActiveGroup(name: "Trash", areaRef: .new("Garage"))
+        #expect(model.drafts[0].day == .tuesday)        // day pinned
+        #expect(model.drafts[0].isDaily == false)
+        #expect(model.drafts[0].areaRef == .new("Garage"))   // per-chore area kept
+        #expect(model.count(in: .day(.tuesday)) == 1)
+    }
+
+    @Test func everyDayGroupMakesDailyDrafts() {
+        let model = AddFlowModel(grouping: .byDay)
+        model.startGroup(.day(.all))
+        model.addToActiveGroup(name: "Make bed")
+        #expect(model.drafts[0].isDaily)
+        #expect(model.drafts[0].day == nil)
+        #expect(model.count(in: .day(.all)) == 1)
+    }
+
+    @Test func addToActiveGroupNoopWithoutActiveGroup() {
+        let model = AddFlowModel(grouping: .byArea)
+        model.addToActiveGroup(name: "Orphan")
+        #expect(model.draftCount == 0)
+    }
 }
