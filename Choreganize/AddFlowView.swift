@@ -172,15 +172,30 @@ private struct AddChoresStep: View {
                         ForEach(scopedAreas, id: \.objectID) { Text($0.name ?? "Untitled").tag($0.id) }
                     }
                 }
-                Button("Add chore") { addChore() }.disabled(trimmedName.isEmpty)
             }
         }
         .navigationTitle(groupTitle)
         .navigationBarTitleDisplayMode(.inline)
         .sensoryFeedback(.increase, trigger: flow.draftCount)
         .onAppear { nameFocused = true }
+        // Prominent call-to-action floating beneath the form — and above the keyboard,
+        // so rapid back-to-back entry stays a type → tap rhythm.
+        .safeAreaInset(edge: .bottom) {
+            Button(action: addChore) {
+                Label("Add chore", systemImage: "plus.circle.fill")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(trimmedName.isEmpty)
+            .padding()
+            .background(.bar)
+        }
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) { Button("Done") { onDone() } }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { nameFocused = false; onDone() }   // drop keyboard before transitioning
+            }
         }
     }
 
