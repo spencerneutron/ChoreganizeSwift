@@ -83,6 +83,9 @@ private struct AddFlowGroupPicker: View {
                 Section("New room") {
                     HStack {
                         TextField("Room name", text: $newRoom)
+                            .accessibilityIdentifier("addflow.newRoomField")
+                            .textInputAutocapitalization(.words)
+                            .autocorrectionDisabled()
                         Button("Add") { onSelect(.area(.new(trimmedRoom))); newRoom = "" }
                             .disabled(trimmedRoom.isEmpty)
                     }
@@ -136,6 +139,9 @@ private struct AddChoresStep: View {
             }
             Section("Add a chore") {
                 TextField("Name", text: $name)
+                    .accessibilityIdentifier("addflow.choreNameField")
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
                 if case .area = flow.activeGroup {
                     Toggle("Every Day", isOn: $isDaily)
                     if !isDaily {

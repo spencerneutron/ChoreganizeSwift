@@ -21,6 +21,7 @@ struct EditHomeView: View {
                             Image(systemName: lens.systemImage)
                         }
                     }
+                    .accessibilityIdentifier("addflow.lens.\(lens.rawValue)")
                 }
             } header: {
                 Text("Add chores & areas")
