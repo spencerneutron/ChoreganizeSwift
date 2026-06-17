@@ -41,7 +41,14 @@ struct ChoreganizeApp: App {
                         let badgeHousehold = model.resolvedHousehold
                         let isForeground = phase == .active
                         Task {
-                            await NotificationManager.reschedule(using: context, activeHousehold: household)
+                            // Reminders only need (re)scheduling when the app leaves the
+                            // foreground — local notifications fire while we're away, and the
+                            // plan only changes via data or prefs (prefs reschedule themselves
+                            // in NotificationSettingsView). Re-running on every foreground was
+                            // wasteful and spammed the scheduling log (#61).
+                            if !isForeground {
+                                await NotificationManager.reschedule(using: context, activeHousehold: household)
+                            }
                             await NotificationManager.refreshBadge(using: context, household: badgeHousehold)
                             if isForeground { await NotificationManager.clearDeliveredReminders() }
                         }

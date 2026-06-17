@@ -123,9 +123,12 @@ struct DayPage: View {
     @EnvironmentObject private var model: AppModel
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var chores: FetchedResults<CDChore>
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDLockedDay.date)]) private var lockedDays: FetchedResults<CDLockedDay>
+    @AppStorage(SettingsKeys.workGrouping) private var workGroupingRaw = WorkGrouping.none.rawValue
     var date: Date
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
+
+    private var grouping: WorkGrouping { WorkGrouping(rawValue: workGroupingRaw) ?? .none }
 
     private var isPast: Bool {
         Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: Date())
@@ -140,9 +143,33 @@ struct DayPage: View {
         List {
             let weekdayName = date.formatted(.dateTime.weekday(.wide))
             let dateText = date.formatted(date: .abbreviated, time: .omitted)
-            Section(header: Text("\(weekdayName), \(dateText)")) {
-                ForEach(dayChores, id: \.objectID) { chore in
-                    ChoreRowView(chore: chore, locked: isLocked, date: date)
+            let header = "\(weekdayName), \(dateText)"
+            // The Hub "Group tasks by" preference (#60). `.none` (or an empty day) keeps the
+            // single dated section; otherwise one section per group, the date riding the
+            // first group's header so it stays visible (WeekView shows no date of its own).
+            let groups = grouping == .none ? [] : grouping.sections(for: dayChores)
+            if groups.isEmpty {
+                Section(header: Text(header)) {
+                    ForEach(dayChores, id: \.objectID) { chore in
+                        ChoreRowView(chore: chore, locked: isLocked, date: date)
+                    }
+                }
+            } else {
+                ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                    Section {
+                        ForEach(group.chores, id: \.objectID) { chore in
+                            ChoreRowView(chore: chore, locked: isLocked, date: date)
+                        }
+                    } header: {
+                        if index == 0 {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(header).font(.headline).textCase(nil).foregroundStyle(.primary)
+                                Text(group.title)
+                            }
+                        } else {
+                            Text(group.title)
+                        }
+                    }
                 }
             }
         }

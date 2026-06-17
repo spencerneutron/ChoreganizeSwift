@@ -19,6 +19,9 @@ struct HubView: View {
     /// it onto `CDCompletion`. Empty by default (no attribution shown).
     @AppStorage(SettingsKeys.displayName) private var displayName: String = ""
 
+    /// How the Work view's day list is grouped (default none). Stored as the raw value.
+    @AppStorage(SettingsKeys.workGrouping) private var workGrouping: String = WorkGrouping.none.rawValue
+
     var body: some View {
         NavigationStack {
             Form {
@@ -29,6 +32,16 @@ struct HubView: View {
                     } label: {
                         Label("Notifications", systemImage: "bell.badge")
                     }
+                }
+
+                Section {
+                    Picker("Group tasks by", selection: $workGrouping) {
+                        ForEach(WorkGrouping.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                } header: {
+                    Text("Work View")
+                } footer: {
+                    Text("Group each day's tasks in the Work view by frequency or by room.")
                 }
 
                 Section {
@@ -110,6 +123,7 @@ struct HubView: View {
 /// Stable UserDefaults keys shared across the app (display name, future prefs).
 enum SettingsKeys {
     static let displayName = "displayName"
+    static let workGrouping = "workGrouping"
 }
 
 #if DEBUG
