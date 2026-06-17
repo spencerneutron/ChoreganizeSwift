@@ -1,13 +1,49 @@
 import CoreData
 
+/// A single facet of a chore to bulk-change across a selection (#55). Each case
+/// keeps the model's daily/frequency/day invariant intact (daily ⇒ no frequency
+/// and `assignedDay == .all`; scheduled ⇒ a real frequency, day optional).
+enum ChoreFacetChange: Equatable {
+    case makeDaily               // "Every Day" — clears frequency + pins assignedDay to .all
+    case frequency(Frequency)    // a weekly/monthly/yearly rhythm — implies non-daily
+    case day(Weekday?)           // a specific weekday, or `nil` for Unassigned — implies non-daily
+}
+
 /// Bulk operations on chores selected by object ID — extracted from
-/// `ChoreListView` so the multi-select Move/Delete logic is unit-testable
+/// `ChoreListView` so the multi-select Change/Move/Delete logic is unit-testable
 /// without a SwiftUI `List`/`FetchedResults`.
 enum BulkChoreOps {
     /// Reassigns every chore in `ids` to `area` (or to no area when `nil`).
     static func move(_ ids: Set<NSManagedObjectID>, to area: CDArea?, in context: NSManagedObjectContext) {
         for chore in chores(ids, in: context) { chore.area = area }
         saveIfNeeded(context)
+    }
+
+    /// Applies `change` to one facet of every chore in `ids`, leaving the others
+    /// untouched. Used to correct entry mistakes / handle a move en masse.
+    static func change(_ ids: Set<NSManagedObjectID>, _ change: ChoreFacetChange, in context: NSManagedObjectContext) {
+        for chore in chores(ids, in: context) { apply(change, to: chore) }
+        saveIfNeeded(context)
+    }
+
+    /// Mirrors `NewChoreView`/`EditChoreView` save semantics so a bulk change can
+    /// never strand a chore in an inconsistent daily/scheduled state.
+    private static func apply(_ change: ChoreFacetChange, to chore: CDChore) {
+        switch change {
+        case .makeDaily:
+            chore.isDaily = true
+            chore.frequencyValue = nil
+            chore.assignedDayValue = .all
+        case .frequency(let freq):
+            let wasDaily = chore.isDaily
+            chore.isDaily = false
+            chore.frequencyValue = freq
+            if wasDaily { chore.assignedDayValue = nil }   // .all is a daily-only marker
+        case .day(let weekday):
+            chore.isDaily = false
+            chore.assignedDayValue = weekday
+            if chore.frequencyValue == nil { chore.frequencyValue = .weekly }   // ensure a rhythm
+        }
     }
 
     /// Deletes every chore in `ids`. Their completions cascade away (model rule).

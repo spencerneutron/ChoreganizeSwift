@@ -92,12 +92,31 @@ struct ChoreListView: View {
             }
             if isEditing {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu("Move") {
-                        ForEach(scopedAreas, id: \.objectID) { area in
-                            Button(area.name ?? "Untitled") { move(to: area) }
+                    // Bulk-change one facet across the whole selection (#55) — fix entry
+                    // mistakes, recover from a bug, or handle a move, without editing each.
+                    Menu {
+                        Button { change(.makeDaily) } label: { Label("Every Day", systemImage: "sun.max") }
+                        Menu("Frequency") {
+                            ForEach(Frequency.allCases) { freq in
+                                Button(freq.rawValue.capitalized) { change(.frequency(freq)) }
+                            }
                         }
-                        if !scopedAreas.isEmpty { Divider() }
-                        Button("No Area") { move(to: nil) }
+                        Menu("Day") {
+                            ForEach(Weekday.standardCases) { day in
+                                Button(day.displayName) { change(.day(day)) }
+                            }
+                            Divider()
+                            Button("Unassigned") { change(.day(nil)) }
+                        }
+                        Menu("Area") {
+                            ForEach(scopedAreas, id: \.objectID) { area in
+                                Button(area.name ?? "Untitled") { move(to: area) }
+                            }
+                            if !scopedAreas.isEmpty { Divider() }
+                            Button("No Area") { move(to: nil) }
+                        }
+                    } label: {
+                        Label("Change", systemImage: "slider.horizontal.3")
                     }
                     .disabled(selection.isEmpty)
                 }
@@ -147,6 +166,11 @@ struct ChoreListView: View {
 
     private func move(to area: CDArea?) {
         BulkChoreOps.move(selection, to: area, in: context)
+        endEditing()
+    }
+
+    private func change(_ change: ChoreFacetChange) {
+        BulkChoreOps.change(selection, change, in: context)
         endEditing()
     }
 
