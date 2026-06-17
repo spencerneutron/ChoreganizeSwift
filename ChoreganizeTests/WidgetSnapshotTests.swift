@@ -20,11 +20,11 @@ struct WidgetSnapshotTests {
             dishes.recordCompletion(on: Date(), in: ctx)
 
             let chores = try ctx.fetch(NSFetchRequest<CDChore>(entityName: "CDChore"))
-            let snap = WidgetSnapshotBuilder.snapshot(from: chores, on: Date(), scopeLabel: "Solo")
+            let snap = WidgetSnapshotBuilder.snapshot(from: chores, on: Date(), scopeLabel: "Personal")
 
             #expect(snap.total == 2)
             #expect(snap.remaining == 1)
-            #expect(snap.scopeLabel == "Solo")
+            #expect(snap.scopeLabel == "Personal")
             #expect(snap.items.first { $0.name == "Dishes" }?.isDone == true)
             #expect(snap.items.first { $0.name == "Trash" }?.isDone == false)
         }
@@ -41,7 +41,7 @@ struct WidgetSnapshotTests {
             try ctx.save()
 
             let chores = try ctx.fetch(NSFetchRequest<CDChore>(entityName: "CDChore"))
-            let snap = WidgetSnapshotBuilder.snapshot(from: chores, on: Date(), scopeLabel: "Solo")
+            let snap = WidgetSnapshotBuilder.snapshot(from: chores, on: Date(), scopeLabel: "Personal")
 
             #expect(snap.items.map { $0.name } == ["Daily"])
         }

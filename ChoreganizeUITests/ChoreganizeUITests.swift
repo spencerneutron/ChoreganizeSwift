@@ -74,6 +74,16 @@ final class ChoreganizeUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts[choreName].waitForExistence(timeout: 5),
                       "Chore added via the wizard should appear in the Chores list")
+
+        // #51: tapping the row's empty trailing area (not the name text, which is
+        // leading-aligned) must still open the editor — the whole row is the tap target.
+        // The whole row is a single full-width Button. Tap it ~0.85 across — well right of
+        // the leading name text — to prove the off-text area opens the editor (#51).
+        let rowButton = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", choreName)).firstMatch
+        XCTAssertTrue(rowButton.waitForExistence(timeout: 5), "Chore row button should exist")
+        rowButton.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
+        XCTAssertTrue(app.navigationBars["Edit Chore"].waitForExistence(timeout: 5),
+                      "Tapping the row off the name text should open the editor (#51)")
     }
 
     @MainActor

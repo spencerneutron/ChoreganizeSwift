@@ -54,7 +54,12 @@ struct ContentView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: model.scope.systemImage)
+                            // Long household names must not blow out the corner control (#58).
                             Text(model.scope == .household ? model.householdName : model.scope.title)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: 160, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .onboardingAnchor(.scopeSwitch)
