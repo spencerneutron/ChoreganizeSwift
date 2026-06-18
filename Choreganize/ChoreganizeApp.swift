@@ -1,4 +1,5 @@
 import SwiftUI
+import Metal
 
 @main
 struct ChoreganizeApp: App {
@@ -18,6 +19,11 @@ struct ChoreganizeApp: App {
         // is set; see the `deploy` skill). Release builds never include this.
         JSONImporter.seedFromEnvironmentIfNeeded()
         #endif
+
+        // Pre-warm the GPU/Metal stack off the main thread at launch, so the first
+        // Liquid Glass morph (the floating switcher's first expand) doesn't pay the
+        // ~0.8s AGXMetal/RenderBox driver load on the main thread (cz_device12 hang).
+        Task.detached(priority: .utility) { _ = MTLCreateSystemDefaultDevice() }
     }
 
     var body: some Scene {
