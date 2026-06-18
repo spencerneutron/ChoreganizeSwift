@@ -144,7 +144,7 @@ struct ContentView: View {
                         Color.black.opacity(0.001)
                             .ignoresSafeArea()
                             .contentShape(Rectangle())
-                            .onTapGesture { withAnimation(.snappy) { navExpanded = false } }
+                            .onTapGesture { withAnimation(switcherMorph) { navExpanded = false } }
                     }
                     FloatingTabSwitcher(mode: $mode, expanded: $navExpanded)
                         .onboardingAnchor(.modePicker)
@@ -160,6 +160,10 @@ struct ContentView: View {
         }
     }
 }
+
+/// Shared morph timing for the floating switcher (#65). A gentle, low-bounce spring
+/// reads as a fluid Liquid Glass flow between the pill and the bar, rather than a snap.
+private let switcherMorph: Animation = .spring(response: 0.45, dampingFraction: 0.82)
 
 /// The floating mode switcher (#65). Collapses to a glass pill showing the current
 /// tab; tapping expands it to the three-way selector. Choosing a tab (or tapping
@@ -206,7 +210,7 @@ private struct MorphingTabSwitcher: View {
                     .glassEffectID("modeSwitcher", in: glassNS)
                 } else {
                     Button {
-                        withAnimation(.snappy) { expanded = true }
+                        withAnimation(switcherMorph) { expanded = true }
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: mode.systemImage)
@@ -226,7 +230,7 @@ private struct MorphingTabSwitcher: View {
         }
         // Selecting a tab collapses the expanded selector back onto the new tab.
         .onChange(of: mode) {
-            if expanded { withAnimation(.snappy) { expanded = false } }
+            if expanded { withAnimation(switcherMorph) { expanded = false } }
         }
     }
 }
@@ -247,7 +251,7 @@ private struct LegacyTabSwitcher: View {
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
             } else {
                 Button {
-                    withAnimation(.snappy) { expanded = true }
+                    withAnimation(switcherMorph) { expanded = true }
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: mode.systemImage)
@@ -266,7 +270,7 @@ private struct LegacyTabSwitcher: View {
         .background(.bar, in: Capsule())
         // Selecting a tab collapses the expanded selector back onto the new tab.
         .onChange(of: mode) {
-            if expanded { withAnimation(.snappy) { expanded = false } }
+            if expanded { withAnimation(switcherMorph) { expanded = false } }
         }
     }
 }
