@@ -24,4 +24,11 @@ struct SiriIntentTests {
         #expect(s.contains("Plants"))
         #expect(s.hasSuffix("."))
     }
+
+    /// The Hub's "Siri" section (#66) teaches the declared shortcuts via
+    /// `SiriTipView`. Guard against accidentally dropping one, which would
+    /// silently empty that guidance.
+    @Test func declaresBothShortcutsForHubGuidance() {
+        #expect(ChoreShortcuts.appShortcuts.count == 2)
+    }
 }

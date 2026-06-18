@@ -29,7 +29,7 @@ struct ChoreWidgetSnapshot: Codable {
 
     /// Start-of-day this snapshot describes.
     var date: Date
-    /// Scope label shown on the widget ("Solo" or the household name).
+    /// Scope label shown on the widget ("Personal" or the household name).
     var scopeLabel: String
     var items: [Item]
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import Metal
 
 @main
 struct ChoreganizeApp: App {
@@ -18,6 +19,11 @@ struct ChoreganizeApp: App {
         // is set; see the `deploy` skill). Release builds never include this.
         JSONImporter.seedFromEnvironmentIfNeeded()
         #endif
+
+        // Pre-warm the GPU/Metal stack off the main thread at launch, so the first
+        // Liquid Glass morph (the floating switcher's first expand) doesn't pay the
+        // ~0.8s AGXMetal/RenderBox driver load on the main thread (cz_device12 hang).
+        Task.detached(priority: .utility) { _ = MTLCreateSystemDefaultDevice() }
     }
 
     var body: some Scene {
@@ -40,15 +46,23 @@ struct ChoreganizeApp: App {
                         let household = model.activeHousehold
                         let badgeHousehold = model.resolvedHousehold
                         let isForeground = phase == .active
+                        let householdID = household?.objectID
+                        let scopeLabel = model.scope == .household ? model.householdName : AppScope.solo.title
                         Task {
-                            await NotificationManager.reschedule(using: context, activeHousehold: household)
+                            // Reminders only need (re)scheduling when the app leaves the
+                            // foreground — local notifications fire while we're away, and the
+                            // plan only changes via data or prefs (prefs reschedule themselves
+                            // in NotificationSettingsView). Re-running on every foreground was
+                            // wasteful and spammed the scheduling log (#61).
+                            if !isForeground {
+                                await NotificationManager.reschedule(using: context, activeHousehold: household)
+                            }
                             await NotificationManager.refreshBadge(using: context, household: badgeHousehold)
                             if isForeground { await NotificationManager.clearDeliveredReminders() }
+                            // Off the main thread: the App Group write + chore fetch are disk
+                            // I/O that otherwise hitch scene activation (cz_device10 hang).
+                            await WidgetSnapshotWriter.update(householdID: householdID, scopeLabel: scopeLabel)
                         }
-                        WidgetSnapshotWriter.update(
-                            using: context,
-                            activeHousehold: household,
-                            scopeLabel: model.scope == .household ? model.householdName : "Solo")
                     }
                 }
         }
