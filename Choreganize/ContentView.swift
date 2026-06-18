@@ -117,20 +117,20 @@ struct ContentView: View {
                 #endif
             }
             .safeAreaInset(edge: .bottom) {
-                ZStack {
-                    // Match the system bar appearance
-                    Rectangle()
-                        .fill(.bar)
-                        .ignoresSafeArea()
-                        .frame(height: 60)
-
-                    Picker("Mode", selection: $mode) {
-                        ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal)
-                    .onboardingAnchor(.modePicker)
+                // #65: the mode switcher floats above the content in a Liquid Glass
+                // capsule, inset from every edge, instead of sitting in a full-width
+                // opaque bar. `safeAreaInset` still reserves room, so list content
+                // scrolls clear of it.
+                Picker("Mode", selection: $mode) {
+                    ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
                 }
+                .pickerStyle(.segmented)
+                .onboardingAnchor(.modePicker)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .modifier(FloatingNavBackground())
+                .padding(.horizontal, 24)
+                .padding(.bottom, 4)
                 .contentShape(Rectangle())
                 .simultaneousGesture(LongPressGesture().onEnded { _ in
                     showingLogs = true
@@ -139,6 +139,18 @@ struct ContentView: View {
         }
         .overlayPreferenceValue(SpotlightAnchorsKey.self) { anchors in
             OnboardingSpotlightOverlay(coordinator: onboarding, anchors: anchors)
+        }
+    }
+}
+
+/// Backs the floating mode switcher (#65): Liquid Glass on iOS 26+, falling back
+/// to the system bar material in a capsule on earlier releases (deploy target 18.6).
+private struct FloatingNavBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect()
+        } else {
+            content.background(.bar, in: Capsule())
         }
     }
 }
