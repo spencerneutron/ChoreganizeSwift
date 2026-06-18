@@ -4,6 +4,18 @@ import Foundation
 // Scheduling / completion / overdue logic, ported from AppModel onto the managed
 // objects so the views can drive everything through Core Data + @FetchRequest.
 
+/// A chore fetch that prefetches the relationships list/Work rendering touches —
+/// `area`, `completions`, `household` — so SwiftUI doesn't fault them one row at a
+/// time on the main thread. That per-row faulting was the N+1 `sqlite3_step` storm
+/// behind the Edit/Work-open hang (cz_device10 triage). Used by `ChoreListView`
+/// and `DayPage`.
+func displayChoresFetchRequest() -> NSFetchRequest<CDChore> {
+    let request = NSFetchRequest<CDChore>(entityName: "CDChore")
+    request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+    request.relationshipKeyPathsForPrefetching = ["area", "completions", "household"]
+    return request
+}
+
 // MARK: - Completion state & due-date logic
 
 extension CDChore {

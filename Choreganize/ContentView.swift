@@ -161,9 +161,9 @@ struct ContentView: View {
     }
 }
 
-/// Shared morph timing for the floating switcher (#65). A gentle, low-bounce spring
+/// Shared morph timing for the floating switcher (#65). A longer, low-bounce spring
 /// reads as a fluid Liquid Glass flow between the pill and the bar, rather than a snap.
-private let switcherMorph: Animation = .spring(response: 0.45, dampingFraction: 0.82)
+private let switcherMorph: Animation = .spring(response: 0.6, dampingFraction: 0.85)
 
 /// The floating mode switcher (#65). Collapses to a glass pill showing the current
 /// tab; tapping expands it to the three-way selector. Choosing a tab (or tapping

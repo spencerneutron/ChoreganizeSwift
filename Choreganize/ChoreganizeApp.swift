@@ -40,6 +40,8 @@ struct ChoreganizeApp: App {
                         let household = model.activeHousehold
                         let badgeHousehold = model.resolvedHousehold
                         let isForeground = phase == .active
+                        let householdID = household?.objectID
+                        let scopeLabel = model.scope == .household ? model.householdName : AppScope.solo.title
                         Task {
                             // Reminders only need (re)scheduling when the app leaves the
                             // foreground — local notifications fire while we're away, and the
@@ -51,11 +53,10 @@ struct ChoreganizeApp: App {
                             }
                             await NotificationManager.refreshBadge(using: context, household: badgeHousehold)
                             if isForeground { await NotificationManager.clearDeliveredReminders() }
+                            // Off the main thread: the App Group write + chore fetch are disk
+                            // I/O that otherwise hitch scene activation (cz_device10 hang).
+                            await WidgetSnapshotWriter.update(householdID: householdID, scopeLabel: scopeLabel)
                         }
-                        WidgetSnapshotWriter.update(
-                            using: context,
-                            activeHousehold: household,
-                            scopeLabel: model.scope == .household ? model.householdName : AppScope.solo.title)
                     }
                 }
         }
