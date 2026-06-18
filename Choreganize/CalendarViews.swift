@@ -3,7 +3,9 @@ import SwiftUI
 /// Presents a month grid with chore counts.
 struct CalendarHomeView: View {
     @EnvironmentObject private var model: AppModel
-    @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var allChores: FetchedResults<CDChore>
+    // Prefetches area/completions/household so the month grid's per-day completion
+    // checks don't fault each chore's relationships on the main thread (cz_device11).
+    @FetchRequest(fetchRequest: displayChoresFetchRequest()) private var allChores: FetchedResults<CDChore>
     @State private var month: Date = Date()
 
     private var calendar: Calendar { Calendar.current }
