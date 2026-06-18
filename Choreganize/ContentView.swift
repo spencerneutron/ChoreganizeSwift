@@ -6,11 +6,20 @@ enum AppMode: String, CaseIterable, Identifiable {
     case edit = "Edit"
     case calendar = "Calendar"
     var id: String { rawValue }
+
+    var systemImage: String {
+        switch self {
+        case .work: "checklist"
+        case .edit: "slider.horizontal.3"
+        case .calendar: "calendar"
+        }
+    }
 }
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var mode: AppMode = .work
+    @State private var navExpanded: Bool = false
     @State private var showingHub: Bool = false
     @State private var showingError: Bool = false
     @State private var showingLogs: Bool = false
@@ -122,29 +131,74 @@ struct ContentView: View {
                 }
                 #endif
             }
+            // #65: reserve room for the floating switcher so list content scrolls
+            // clear of it; the control itself is drawn in the overlay below.
             .safeAreaInset(edge: .bottom) {
-                // #65: the mode switcher floats above the content in a Liquid Glass
-                // capsule, inset from every edge, instead of sitting in a full-width
-                // opaque bar. `safeAreaInset` still reserves room, so list content
-                // scrolls clear of it.
-                Picker("Mode", selection: $mode) {
-                    ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
+                Color.clear.frame(height: 52)
+            }
+            .overlay(alignment: .bottom) {
+                ZStack(alignment: .bottom) {
+                    // Tap-away scrim: present only while expanded, sitting beneath the
+                    // switcher so taps anywhere else collapse it.
+                    if navExpanded {
+                        Color.black.opacity(0.001)
+                            .ignoresSafeArea()
+                            .contentShape(Rectangle())
+                            .onTapGesture { withAnimation(.snappy) { navExpanded = false } }
+                    }
+                    FloatingTabSwitcher(mode: $mode, expanded: $navExpanded)
+                        .onboardingAnchor(.modePicker)
+                        .padding(.bottom, 6)
+                        .simultaneousGesture(LongPressGesture().onEnded { _ in
+                            showingLogs = true
+                        })
                 }
-                .pickerStyle(.segmented)
-                .onboardingAnchor(.modePicker)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .modifier(FloatingNavBackground())
-                .padding(.horizontal, 24)
-                .padding(.bottom, 4)
-                .contentShape(Rectangle())
-                .simultaneousGesture(LongPressGesture().onEnded { _ in
-                    showingLogs = true
-                })
             }
         }
         .overlayPreferenceValue(SpotlightAnchorsKey.self) { anchors in
             OnboardingSpotlightOverlay(coordinator: onboarding, anchors: anchors)
+        }
+    }
+}
+
+/// The floating mode switcher (#65). Collapses to a glass pill showing the current
+/// tab; tapping expands it to the three-way selector. Choosing a tab (or tapping
+/// away — handled by the scrim in `ContentView`) collapses it back onto the new tab.
+private struct FloatingTabSwitcher: View {
+    @Binding var mode: AppMode
+    @Binding var expanded: Bool
+
+    var body: some View {
+        ZStack {
+            if expanded {
+                Picker("Mode", selection: $mode) {
+                    ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 280)
+                .transition(.scale(scale: 0.85).combined(with: .opacity))
+            } else {
+                Button {
+                    withAnimation(.snappy) { expanded = true }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: mode.systemImage)
+                        Text(mode.rawValue).fontWeight(.semibold)
+                    }
+                    .font(.subheadline)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("modeSwitcherCollapsed")
+                .accessibilityLabel("Current view: \(mode.rawValue). Double-tap to switch.")
+                .transition(.scale(scale: 0.85).combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, expanded ? 8 : 16)
+        .padding(.vertical, 8)
+        .modifier(FloatingNavBackground())
+        // Selecting a tab collapses the expanded selector back onto the new tab.
+        .onChange(of: mode) {
+            if expanded { withAnimation(.snappy) { expanded = false } }
         }
     }
 }
