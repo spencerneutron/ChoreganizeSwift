@@ -164,7 +164,75 @@ struct ContentView: View {
 /// The floating mode switcher (#65). Collapses to a glass pill showing the current
 /// tab; tapping expands it to the three-way selector. Choosing a tab (or tapping
 /// away — handled by the scrim in `ContentView`) collapses it back onto the new tab.
+///
+/// On iOS 26 the collapse/expand is a fluid Liquid Glass morph (the pill and the
+/// selector share a `glassEffectID` inside a `GlassEffectContainer`, so the glass
+/// flows between the two shapes). Earlier releases get a scale/opacity transition
+/// over the `.bar` material (deploy floor 18.6).
 private struct FloatingTabSwitcher: View {
+    @Binding var mode: AppMode
+    @Binding var expanded: Bool
+
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            MorphingTabSwitcher(mode: $mode, expanded: $expanded)
+        } else {
+            LegacyTabSwitcher(mode: $mode, expanded: $expanded)
+        }
+    }
+}
+
+/// iOS 26 Liquid Glass morph. The collapsed pill and the expanded selector share one
+/// `glassEffectID` inside a `GlassEffectContainer`, so toggling `expanded` within an
+/// animation makes the glass fluidly flow between the two shapes.
+@available(iOS 26.0, *)
+private struct MorphingTabSwitcher: View {
+    @Binding var mode: AppMode
+    @Binding var expanded: Bool
+    @Namespace private var glassNS
+
+    var body: some View {
+        GlassEffectContainer(spacing: 12) {
+            ZStack {
+                if expanded {
+                    Picker("Mode", selection: $mode) {
+                        ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 280)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
+                    .glassEffect()
+                    .glassEffectID("modeSwitcher", in: glassNS)
+                } else {
+                    Button {
+                        withAnimation(.snappy) { expanded = true }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: mode.systemImage)
+                            Text(mode.rawValue).fontWeight(.semibold)
+                        }
+                        .font(.subheadline)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect()
+                    .glassEffectID("modeSwitcher", in: glassNS)
+                    .accessibilityIdentifier("modeSwitcherCollapsed")
+                    .accessibilityLabel("Current view: \(mode.rawValue). Double-tap to switch.")
+                }
+            }
+        }
+        // Selecting a tab collapses the expanded selector back onto the new tab.
+        .onChange(of: mode) {
+            if expanded { withAnimation(.snappy) { expanded = false } }
+        }
+    }
+}
+
+/// Pre-iOS-26 fallback: scale/opacity transition over the `.bar` material capsule.
+private struct LegacyTabSwitcher: View {
     @Binding var mode: AppMode
     @Binding var expanded: Bool
 
@@ -195,22 +263,10 @@ private struct FloatingTabSwitcher: View {
         }
         .padding(.horizontal, expanded ? 8 : 16)
         .padding(.vertical, 8)
-        .modifier(FloatingNavBackground())
+        .background(.bar, in: Capsule())
         // Selecting a tab collapses the expanded selector back onto the new tab.
         .onChange(of: mode) {
             if expanded { withAnimation(.snappy) { expanded = false } }
-        }
-    }
-}
-
-/// Backs the floating mode switcher (#65): Liquid Glass on iOS 26+, falling back
-/// to the system bar material in a capsule on earlier releases (deploy target 18.6).
-private struct FloatingNavBackground: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.glassEffect()
-        } else {
-            content.background(.bar, in: Capsule())
         }
     }
 }
