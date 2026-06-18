@@ -54,13 +54,19 @@ struct ContentView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: model.scope.systemImage)
-                            // Long household names must not blow out the corner control (#58).
                             Text(model.scope == .household ? model.householdName : model.scope.title)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
-                                .frame(maxWidth: 160, alignment: .leading)
-                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        // #52: pin the corner control to the leading edge and cap its
+                        // width so it grows/shrinks to the *right* and can never extend
+                        // past the screen bound mid-animation. Disabling the implicit
+                        // resize animation stops the "widen-then-recenter" jump when the
+                        // label changes (scope toggle / household-name edit).
+                        // #58: long household names still truncate at the tail.
+                        .frame(maxWidth: 160, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transaction { $0.disablesAnimations = true }
                     }
                     .onboardingAnchor(.scopeSwitch)
                 }
