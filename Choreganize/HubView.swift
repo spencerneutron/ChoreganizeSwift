@@ -1,4 +1,5 @@
 import SwiftUI
+import AppIntents
 
 /// The app's "Hub" — the single entry point for settings *and* support, reached
 /// from the toolbar. It hosts reminder prefs (Phase B), the per-device display
@@ -86,6 +87,19 @@ struct HubView: View {
                             Label(step.title, systemImage: step.systemImage)
                         }
                     }
+                }
+
+                // MARK: Siri (#66) — teach the app's declared AppIntents. SiriTipView
+                // reflects the real phrases from `ChoreShortcuts`, so the guidance
+                // can't drift from what Siri actually accepts.
+                Section {
+                    SiriTipView(intent: TodaysChoresIntent())
+                    SiriTipView(intent: CompleteChoreIntent())
+                    ShortcutsLink()
+                } header: {
+                    Text("Siri")
+                } footer: {
+                    Text("Hands-free with Siri — try “What Chores do I have today?” or “Complete a Chores task.” Tap a tip to add it, or open Shortcuts to see them all.")
                 }
 
                 Section {
