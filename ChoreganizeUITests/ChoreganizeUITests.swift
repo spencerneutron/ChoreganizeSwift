@@ -22,17 +22,23 @@ final class ChoreganizeUITests: XCTestCase {
         return app
     }
 
-    /// Switches the bottom mode switcher to the named tab. The switcher collapses to
-    /// a pill showing the current tab (#65 refinement), so expand it first, then pick.
+    /// Switches the bottom mode switcher to the named tab. The Menu-backed switcher
+    /// (#65) is a glass pill that opens a system Menu, so tap the pill, then tap the
+    /// named menu item.
     @MainActor
     private func selectMode(_ app: XCUIApplication, _ title: String) {
         let collapsed = app.buttons["modeSwitcherCollapsed"]
-        if collapsed.waitForExistence(timeout: 5) {
-            collapsed.tap()
+        XCTAssertTrue(collapsed.waitForExistence(timeout: 10), "mode switcher pill should exist")
+        collapsed.tap()
+        // Menu items expose their label/identifier; accept either query.
+        let asButton = app.buttons[title]
+        if asButton.waitForExistence(timeout: 5) {
+            asButton.tap()
+        } else {
+            let asMenuItem = app.menuItems[title]
+            XCTAssertTrue(asMenuItem.waitForExistence(timeout: 5), "\(title) menu item should exist")
+            asMenuItem.tap()
         }
-        let segment = app.segmentedControls.buttons[title]
-        XCTAssertTrue(segment.waitForExistence(timeout: 10), "\(title) mode segment should exist")
-        segment.tap()
     }
 
     /// Drives the day-by-day wizard end to end and confirms the chore persists into the

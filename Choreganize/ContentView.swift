@@ -19,7 +19,6 @@ enum AppMode: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var mode: AppMode = .work
-    @State private var navExpanded: Bool = false
     @State private var showingHub: Bool = false
     @State private var showingError: Bool = false
     @State private var showingLogs: Bool = false
@@ -131,28 +130,15 @@ struct ContentView: View {
                 }
                 #endif
             }
-            // #65: reserve room for the floating switcher so list content scrolls
-            // clear of it; the control itself is drawn in the overlay below.
+            // #65: the floating mode switcher lives in the bottom safe-area inset — it
+            // reserves its own room and only hit-tests its own frame (no scrim, no
+            // full-screen overlay). Default style is the Menu-backed glass pill; the
+            // system owns expansion + outside-tap dismissal. See
+            // .claude-work/current/liquid-glass-switcher-spec.md.
             .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: 52)
-            }
-            .overlay(alignment: .bottom) {
-                ZStack(alignment: .bottom) {
-                    // Tap-away scrim: present only while expanded, sitting beneath the
-                    // switcher so taps anywhere else collapse it.
-                    if navExpanded {
-                        Color.black.opacity(0.001)
-                            .ignoresSafeArea()
-                            .contentShape(Rectangle())
-                            .onTapGesture { withAnimation(switcherMorph) { navExpanded = false } }
-                    }
-                    FloatingTabSwitcher(mode: $mode, expanded: $navExpanded)
-                        .onboardingAnchor(.modePicker)
-                        .padding(.bottom, 6)
-                        .simultaneousGesture(LongPressGesture().onEnded { _ in
-                            showingLogs = true
-                        })
-                }
+                ModeSwitcher(mode: $mode, style: .menu, onLongPress: { showingLogs = true })
+                    .onboardingAnchor(.modePicker)
+                    .padding(.bottom, 6)
             }
         }
         .overlayPreferenceValue(SpotlightAnchorsKey.self) { anchors in
@@ -161,116 +147,220 @@ struct ContentView: View {
     }
 }
 
-/// Shared morph timing for the floating switcher (#65). A longer, low-bounce spring
-/// reads as a fluid Liquid Glass flow between the pill and the bar, rather than a snap.
-private let switcherMorph: Animation = .spring(response: 0.6, dampingFraction: 0.85)
+/// How the floating mode switcher presents its options (#65). `.menu` (default) is the
+/// robust, idiomatic iOS 26 path — a glass pill that opens a system Menu, so the OS owns
+/// expansion + outside-tap dismissal + hit-testing (no scrim, no custom glass-morph →
+/// none of the hit-test/Metal hangs). `.morph` is the opt-in custom GlassEffectContainer
+/// pill⇄bar morph. See .claude-work/current/liquid-glass-switcher-spec.md.
+enum SwitcherStyle { case menu, morph }
 
-/// The floating mode switcher (#65). Collapses to a glass pill showing the current
-/// tab; tapping expands it to the three-way selector. Choosing a tab (or tapping
-/// away — handled by the scrim in `ContentView`) collapses it back onto the new tab.
-///
-/// On iOS 26 the collapse/expand is a fluid Liquid Glass morph (the pill and the
-/// selector share a `glassEffectID` inside a `GlassEffectContainer`, so the glass
-/// flows between the two shapes). Earlier releases get a scale/opacity transition
-/// over the `.bar` material (deploy floor 18.6).
-private struct FloatingTabSwitcher: View {
+/// Public entry point for the floating Work/Edit/Calendar switcher.
+struct ModeSwitcher: View {
     @Binding var mode: AppMode
-    @Binding var expanded: Bool
+    var style: SwitcherStyle = .menu
+    var onLongPress: () -> Void = {}
+
+    var body: some View {
+        switch style {
+        case .menu:  MenuModeSwitcher(mode: $mode, onLongPress: onLongPress)
+        case .morph: MorphModeSwitcher(mode: $mode, onLongPress: onLongPress)
+        }
+    }
+}
+
+private extension View {
+    /// Liquid Glass capsule on iOS 26+, a `.bar` capsule fallback on iOS 18.6.
+    @ViewBuilder
+    func switcherGlass(interactive: Bool = true) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(interactive ? .regular.interactive() : .regular, in: .capsule)
+        } else {
+            self
+                .background(.bar, in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+                .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+        }
+    }
+}
+
+/// Default switcher: a glass pill that opens a system Menu of the three modes. The OS
+/// owns presentation and outside-tap dismissal, so there's no scrim to strand touches
+/// and the glass-morph pipeline is never invoked.
+struct MenuModeSwitcher: View {
+    @Binding var mode: AppMode
+    var onLongPress: () -> Void = {}
+
+    var body: some View {
+        Menu {
+            Picker("View", selection: $mode) {
+                ForEach(AppMode.allCases) { m in
+                    Label(m.rawValue, systemImage: m.systemImage)
+                        .tag(m)
+                        .accessibilityIdentifier(m.rawValue)   // UITest taps menu items by name
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: mode.systemImage)
+                Text(mode.rawValue).fontWeight(.semibold)
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .contentShape(Capsule())
+        }
+        .menuStyle(.button)
+        .switcherGlass()
+        .fixedSize()
+        .animation(.snappy, value: mode)
+        .accessibilityIdentifier("modeSwitcherCollapsed")
+        .accessibilityLabel("Switch view")
+        .accessibilityValue(mode.rawValue)
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in onLongPress() })
+    }
+}
+
+/// Opt-in custom morph: the glass pill stretches into a 3-segment glass bar and back.
+/// Corrected per the spec — no permanent scrim (the outside-tap backdrop is gated by
+/// `allowsHitTesting(expanded)` so it can never linger), a single shared namespace, and
+/// interactive glass.
+struct MorphModeSwitcher: View {
+    @Binding var mode: AppMode
+    var onLongPress: () -> Void = {}
+    @State private var expanded = false
 
     var body: some View {
         if #available(iOS 26.0, *) {
-            MorphingTabSwitcher(mode: $mode, expanded: $expanded)
+            GlassMorph(mode: $mode, expanded: $expanded, onLongPress: onLongPress)
         } else {
-            LegacyTabSwitcher(mode: $mode, expanded: $expanded)
+            LegacyMorph(mode: $mode, expanded: $expanded, onLongPress: onLongPress)
         }
     }
 }
 
-/// iOS 26 Liquid Glass morph. The collapsed pill and the expanded selector share one
-/// `glassEffectID` inside a `GlassEffectContainer`, so toggling `expanded` within an
-/// animation makes the glass fluidly flow between the two shapes.
 @available(iOS 26.0, *)
-private struct MorphingTabSwitcher: View {
+private struct GlassMorph: View {
     @Binding var mode: AppMode
     @Binding var expanded: Bool
-    @Namespace private var glassNS
+    var onLongPress: () -> Void
+    @Namespace private var glassNS                  // declared once, owns both states
+    private let morph: Animation = .spring(response: 0.5, dampingFraction: 0.86)
 
     var body: some View {
-        GlassEffectContainer(spacing: 12) {
+        GlassEffectContainer(spacing: 10) {
             ZStack {
-                if expanded {
-                    Picker("Mode", selection: $mode) {
-                        ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 280)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
-                    .glassEffect()
-                    .glassEffectID("modeSwitcher", in: glassNS)
-                } else {
-                    Button {
-                        withAnimation(switcherMorph) { expanded = true }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: mode.systemImage)
-                            Text(mode.rawValue).fontWeight(.semibold)
-                        }
-                        .font(.subheadline)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect()
-                    .glassEffectID("modeSwitcher", in: glassNS)
-                    .accessibilityIdentifier("modeSwitcherCollapsed")
-                    .accessibilityLabel("Current view: \(mode.rawValue). Double-tap to switch.")
-                }
+                if expanded { expandedBar } else { collapsedPill }
             }
         }
-        // Selecting a tab collapses the expanded selector back onto the new tab.
-        .onChange(of: mode) {
-            if expanded { withAnimation(switcherMorph) { expanded = false } }
+        // Outside-tap dismissal WITHOUT a permanent scrim: a backdrop that exists only
+        // while expanded and never hit-tests when collapsed.
+        .background {
+            if expanded {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .ignoresSafeArea()
+                    .onTapGesture { withAnimation(morph) { expanded = false } }
+                    .allowsHitTesting(expanded)
+                    .transition(.opacity)
+            }
         }
+        .onChange(of: mode) { _, _ in
+            if expanded { withAnimation(morph) { expanded = false } }
+        }
+    }
+
+    private var collapsedPill: some View {
+        Button { withAnimation(morph) { expanded = true } } label: {
+            HStack(spacing: 6) {
+                Image(systemName: mode.systemImage)
+                Text(mode.rawValue).fontWeight(.semibold)
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .glassEffectID("modeSwitcher", in: glassNS)
+        .accessibilityIdentifier("modeSwitcherCollapsed")
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in onLongPress() })
+    }
+
+    private var expandedBar: some View {
+        HStack(spacing: 4) {
+            ForEach(AppMode.allCases) { m in
+                Button { withAnimation(morph) { mode = m } } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: m.systemImage)
+                        Text(m.rawValue)
+                    }
+                    .font(.subheadline.weight(m == mode ? .semibold : .regular))
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(m.rawValue)
+            }
+        }
+        .padding(.horizontal, 4).padding(.vertical, 4)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .glassEffectID("modeSwitcher", in: glassNS)
     }
 }
 
-/// Pre-iOS-26 fallback: scale/opacity transition over the `.bar` material capsule.
-private struct LegacyTabSwitcher: View {
+/// Pre-iOS-26 fallback for the morph: scale/opacity transition over the `.bar` material.
+private struct LegacyMorph: View {
     @Binding var mode: AppMode
     @Binding var expanded: Bool
+    var onLongPress: () -> Void
+    private let morph: Animation = .spring(response: 0.5, dampingFraction: 0.86)
 
     var body: some View {
         ZStack {
             if expanded {
-                Picker("Mode", selection: $mode) {
-                    ForEach(AppMode.allCases) { Text($0.rawValue).tag($0) }
+                HStack(spacing: 4) {
+                    ForEach(AppMode.allCases) { m in
+                        Button { withAnimation(morph) { mode = m } } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: m.systemImage)
+                                Text(m.rawValue)
+                            }
+                            .font(.subheadline.weight(m == mode ? .semibold : .regular))
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier(m.rawValue)
+                    }
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 280)
-                .transition(.scale(scale: 0.85).combined(with: .opacity))
+                .padding(4)
+                .background(.bar, in: Capsule())
+                .transition(.scale.combined(with: .opacity))
             } else {
-                Button {
-                    withAnimation(switcherMorph) { expanded = true }
-                } label: {
+                Button { withAnimation(morph) { expanded = true } } label: {
                     HStack(spacing: 6) {
                         Image(systemName: mode.systemImage)
                         Text(mode.rawValue).fontWeight(.semibold)
                     }
                     .font(.subheadline)
+                    .padding(.horizontal, 16).padding(.vertical, 8)
                 }
                 .buttonStyle(.plain)
+                .background(.bar, in: Capsule())
                 .accessibilityIdentifier("modeSwitcherCollapsed")
-                .accessibilityLabel("Current view: \(mode.rawValue). Double-tap to switch.")
-                .transition(.scale(scale: 0.85).combined(with: .opacity))
+                .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in onLongPress() })
+                .transition(.scale.combined(with: .opacity))
             }
         }
-        .padding(.horizontal, expanded ? 8 : 16)
-        .padding(.vertical, 8)
-        .background(.bar, in: Capsule())
-        // Selecting a tab collapses the expanded selector back onto the new tab.
-        .onChange(of: mode) {
-            if expanded { withAnimation(switcherMorph) { expanded = false } }
+        .background {
+            if expanded {
+                Color.clear.contentShape(Rectangle()).ignoresSafeArea()
+                    .onTapGesture { withAnimation(morph) { expanded = false } }
+                    .allowsHitTesting(expanded)
+            }
+        }
+        .onChange(of: mode) { _, _ in
+            if expanded { withAnimation(morph) { expanded = false } }
         }
     }
 }
