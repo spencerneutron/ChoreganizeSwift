@@ -9,6 +9,14 @@ struct ChoreShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: TodaysChoresIntent(),
             phrases: [
+                // This first phrase is what the Hub's SiriTipView displays, so it
+                // leads with the literal word "chores" and positions
+                // \(.applicationName) as the app — "What chores do I have today in
+                // Choreganize". (\(.applicationName) always *displays* the primary app
+                // name; the "Chores" alias only affects what Siri *recognises*, so it
+                // can't be forced to display in its place.) The remaining phrases keep
+                // the token-as-noun forms purely to widen recognition.
+                "What chores do I have today in \(.applicationName)",
                 "What \(.applicationName) do I have today",
                 "What \(.applicationName) do I have to do today",
                 "What are my \(.applicationName) today",
