@@ -149,9 +149,15 @@ struct ChoreListView: View {
         if isEditing {
             ChoreRowView(chore: chore, showToggle: false)
         } else {
-            ChoreRowView(chore: chore, showToggle: false)
-                .contentShape(Rectangle())
-                .onTapGesture { editingChore = chore }
+            // A plain Button makes the *whole* row the tap target. `.onTapGesture` is
+            // unreliable inside `List(selection:)` — taps off the leading text fall through
+            // to the List's row selection instead of opening the editor (#51).
+            Button { editingChore = chore } label: {
+                ChoreRowView(chore: chore, showToggle: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 

@@ -55,7 +55,7 @@ struct ChoreganizeApp: App {
                         WidgetSnapshotWriter.update(
                             using: context,
                             activeHousehold: household,
-                            scopeLabel: model.scope == .household ? model.householdName : "Solo")
+                            scopeLabel: model.scope == .household ? model.householdName : AppScope.solo.title)
                     }
                 }
         }
