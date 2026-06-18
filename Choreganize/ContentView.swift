@@ -20,6 +20,9 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var mode: AppMode = .work
     @State private var showingHub: Bool = false
+    /// Which switcher style to use (#65 A/B). Flip it live from the Hub's Developer
+    /// section (DEBUG). Defaults to the robust Menu-backed pill.
+    @AppStorage(SettingsKeys.switcherStyle) private var switcherStyleRaw = SwitcherStyle.menu.rawValue
     @State private var showingError: Bool = false
     @State private var showingLogs: Bool = false
     @StateObject private var onboarding = OnboardingCoordinator()
@@ -136,7 +139,9 @@ struct ContentView: View {
             // system owns expansion + outside-tap dismissal. See
             // .claude-work/current/liquid-glass-switcher-spec.md.
             .safeAreaInset(edge: .bottom) {
-                ModeSwitcher(mode: $mode, style: .menu, onLongPress: { showingLogs = true })
+                ModeSwitcher(mode: $mode,
+                             style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
+                             onLongPress: { showingLogs = true })
                     .onboardingAnchor(.modePicker)
                     .padding(.bottom, 6)
             }
@@ -152,7 +157,16 @@ struct ContentView: View {
 /// expansion + outside-tap dismissal + hit-testing (no scrim, no custom glass-morph →
 /// none of the hit-test/Metal hangs). `.morph` is the opt-in custom GlassEffectContainer
 /// pill⇄bar morph. See .claude-work/current/liquid-glass-switcher-spec.md.
-enum SwitcherStyle { case menu, morph }
+enum SwitcherStyle: String, CaseIterable, Identifiable {
+    case menu, morph
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .menu:  "Menu (recommended)"
+        case .morph: "Glass morph"
+        }
+    }
+}
 
 /// Public entry point for the floating Work/Edit/Calendar switcher.
 struct ModeSwitcher: View {
