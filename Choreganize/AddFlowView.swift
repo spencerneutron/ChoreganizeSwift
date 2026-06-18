@@ -19,6 +19,7 @@ struct AddFlowFlowView: View {
     @EnvironmentObject private var model: AppModel
     @StateObject private var flow: AddFlowModel
     @State private var step: Step = .pickGroup
+    @State private var showDiscardConfirm = false
 
     enum Step { case pickGroup, addChores, another, review }
 
@@ -37,13 +38,26 @@ struct AddFlowFlowView: View {
         }
         .navigationTitle(grouping.title)
         .navigationBarTitleDisplayMode(.inline)
+        // With staged drafts uncommitted, replace the system back button (which would pop
+        // and silently discard them) with a Cancel that confirms first (#53).
+        .navigationBarBackButtonHidden(flow.draftCount > 0)
         .toolbar {
+            if flow.draftCount > 0 {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { showDiscardConfirm = true }
+                }
+            }
             // Jump to Review from the group picker after looping back with drafts staged.
             if step == .pickGroup && flow.draftCount > 0 {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Review") { advance(to: .review) }
                 }
             }
+        }
+        .confirmationDialog("Discard \(flow.draftCount) unsaved chore\(flow.draftCount == 1 ? "" : "s")?",
+                            isPresented: $showDiscardConfirm, titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { dismiss() }
+            Button("Keep Editing", role: .cancel) {}
         }
     }
 
@@ -138,10 +152,17 @@ private struct AddChoresStep: View {
     // Per-chore area (day lens only).
     @State private var areaId: UUID?
     @FocusState private var nameFocused: Bool
+    @State private var showUnaddedConfirm = false
 
     private var scopedAreas: [CDArea] { areas.inScope(model.activeHousehold) }
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var groupCount: Int { flow.activeGroup.map { flow.count(in: $0) } ?? 0 }
+    private var isRoomLens: Bool {
+        if case .area = flow.activeGroup { return true }
+        return false
+    }
+    // Finishing the *group* (room/day), not the chore being typed — phrased for finality.
+    private var doneLabel: String { isRoomLens ? "Room Complete" : "Day Complete" }
 
     var body: some View {
         Form {
@@ -155,29 +176,27 @@ private struct AddChoresStep: View {
                     .autocorrectionDisabled()
                     .focused($nameFocused)
                     .onSubmit(addChore)
-                if case .area = flow.activeGroup {
-                    Toggle("Every Day", isOn: $isDaily)
-                    if !isDaily {
-                        Picker("Frequency", selection: $frequency) {
-                            ForEach(Frequency.allCases) { Text($0.rawValue.capitalized).tag($0) }
-                        }
-                        Picker("Day", selection: $day) {
-                            Text("None").tag(Weekday?.none)
-                            ForEach(Weekday.standardCases) { Text($0.displayName).tag(Optional($0)) }
-                        }
-                    }
-                } else {
-                    Picker("Area", selection: $areaId) {
-                        Text("None").tag(UUID?.none)
-                        ForEach(scopedAreas, id: \.objectID) { Text($0.name ?? "Untitled").tag($0.id) }
-                    }
-                }
+                // Reuse the shared chore-detail rows (the same component New/Edit Chore
+                // use — #49), hiding whichever field the active group pins: the area in
+                // the room lens, the daily-toggle + day in the day lens. The day lens now
+                // keeps its Frequency picker, which it previously dropped (#50).
+                ChoreFormRows(name: $name, isDaily: $isDaily, frequency: $frequency,
+                              day: $day, areaId: $areaId, areas: scopedAreas,
+                              showsName: false,
+                              showsDailyToggle: isRoomLens,
+                              showsDay: isRoomLens,
+                              showsArea: !isRoomLens)
             }
         }
         .navigationTitle(groupTitle)
         .navigationBarTitleDisplayMode(.inline)
         .sensoryFeedback(.increase, trigger: flow.draftCount)
-        .onAppear { nameFocused = true }
+        .onAppear {
+            nameFocused = true
+            // The "Every day" day-group makes daily chores; pin isDaily so Frequency/Day
+            // (both hidden here) stay irrelevant. Specific weekdays stay non-daily.
+            if case .day(.all) = flow.activeGroup { isDaily = true }
+        }
         // Prominent call-to-action floating beneath the form — and above the keyboard,
         // so rapid back-to-back entry stays a type → tap rhythm.
         .safeAreaInset(edge: .bottom) {
@@ -194,8 +213,31 @@ private struct AddChoresStep: View {
         }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { nameFocused = false; onDone() }   // drop keyboard before transitioning
+                // "Done" was ambiguous (done with this chore vs done with the group);
+                // "Room/Day Complete" reads as finishing the group.
+                Button(doneLabel) { finishAdding() }
             }
+        }
+        // Guard against finishing with a typed-but-unadded chore — easy to miss the Add
+        // control the first time, and the text would otherwise be silently dropped (#54).
+        .confirmationDialog("\u{201C}\(trimmedName)\u{201D} hasn't been added yet",
+                            isPresented: $showUnaddedConfirm, titleVisibility: .visible) {
+            Button("Add & Finish") { addChore(); onDone() }
+            Button("Discard", role: .destructive) { name = ""; onDone() }
+            Button("Keep Editing", role: .cancel) { nameFocused = true }
+        } message: {
+            Text("Tap Add to stage it, or discard it before finishing.")
+        }
+    }
+
+    /// Finish adding to this group. If a chore was typed but never added, confirm first
+    /// so it isn't silently lost; otherwise advance straight through.
+    private func finishAdding() {
+        nameFocused = false   // drop keyboard before transitioning
+        if trimmedName.isEmpty {
+            onDone()
+        } else {
+            showUnaddedConfirm = true
         }
     }
 
@@ -216,7 +258,10 @@ private struct AddChoresStep: View {
             flow.addToActiveGroup(name: trimmedName, isDaily: isDaily, frequency: frequency,
                                   day: isDaily ? nil : day)
         case .day:
-            flow.addToActiveGroup(name: trimmedName, areaRef: areaId.map { .existing($0) } ?? .none)
+            // Carry the per-chore frequency (the engine pins the weekday). For the
+            // "every day" group the engine forces daily and ignores frequency.
+            flow.addToActiveGroup(name: trimmedName, frequency: frequency,
+                                  areaRef: areaId.map { .existing($0) } ?? .none)
         case .none:
             break
         }

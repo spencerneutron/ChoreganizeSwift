@@ -167,6 +167,17 @@ struct AddFlowModelTests {
         #expect(model.count(in: .day(.tuesday)) == 1)
     }
 
+    @Test func dayLensCarriesPerChoreFrequency() {
+        // The day lens pins the weekday but must still let each chore set its own
+        // frequency — the gap the UI used to have (#50). The engine carries it through.
+        let model = AddFlowModel(grouping: .byDay)
+        model.startGroup(.day(.wednesday))
+        model.addToActiveGroup(name: "Deep clean", frequency: .monthly)
+        #expect(model.drafts[0].frequency == .monthly)
+        #expect(model.drafts[0].day == .wednesday)
+        #expect(model.drafts[0].isDaily == false)
+    }
+
     @Test func everyDayGroupMakesDailyDrafts() {
         let model = AddFlowModel(grouping: .byDay)
         model.startGroup(.day(.all))

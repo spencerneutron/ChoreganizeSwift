@@ -58,8 +58,8 @@ final class ChoreganizeUITests: XCTestCase {
         app.navigationBars.firstMatch.tap()
         app.buttons["Add chore"].tap()
 
-        // Finish the group → review → save.
-        app.buttons["Done"].tap()
+        // Finish the group → review → save. ("Done" relabeled per-lens — #54; day lens here.)
+        app.buttons["Day Complete"].tap()
         let reviewSave = app.buttons["Review & Save"]
         XCTAssertTrue(reviewSave.waitForExistence(timeout: 5))
         reviewSave.tap()
