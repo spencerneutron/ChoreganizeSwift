@@ -26,7 +26,7 @@ struct HubView: View {
     #if DEBUG
     /// #65 A/B: which floating mode-switcher style to use (toggled in the Developer
     /// section below). Shares the key `ContentView` reads, so the switch is live.
-    @AppStorage(SettingsKeys.switcherStyle) private var switcherStyleRaw = SwitcherStyle.menu.rawValue
+    @AppStorage(SettingsKeys.switcherStyle) private var switcherStyleRaw = SwitcherStyle.morph.rawValue
     #endif
 
     var body: some View {

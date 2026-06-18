@@ -20,9 +20,9 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var mode: AppMode = .work
     @State private var showingHub: Bool = false
-    /// Which switcher style to use (#65 A/B). Flip it live from the Hub's Developer
-    /// section (DEBUG). Defaults to the robust Menu-backed pill.
-    @AppStorage(SettingsKeys.switcherStyle) private var switcherStyleRaw = SwitcherStyle.menu.rawValue
+    /// Which switcher style to use (#65). Settled on the Liquid Glass morph; the
+    /// Menu-backed pill stays available via the Hub's Developer toggle (DEBUG).
+    @AppStorage(SettingsKeys.switcherStyle) private var switcherStyleRaw = SwitcherStyle.morph.rawValue
     @State private var showingError: Bool = false
     @State private var showingLogs: Bool = false
     @StateObject private var onboarding = OnboardingCoordinator()
@@ -162,8 +162,8 @@ enum SwitcherStyle: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .menu:  "Menu (recommended)"
-        case .morph: "Glass morph"
+        case .menu:  "Menu"
+        case .morph: "Glass morph (default)"
         }
     }
 }
