@@ -20,6 +20,9 @@ struct AddFlowFlowView: View {
     @StateObject private var flow: AddFlowModel
     @State private var step: Step = .pickGroup
     @State private var showDiscardConfirm = false
+    // Reused + pre-warmed so the success haptic on Done doesn't cold-start the
+    // CHHapticEngine/AVAudioSession on the main thread (multi-second hang; cz_device11).
+    @State private var successHaptic = UINotificationFeedbackGenerator()
 
     enum Step { case pickGroup, addChores, another, review }
 
@@ -38,6 +41,8 @@ struct AddFlowFlowView: View {
         }
         .navigationTitle(grouping.title)
         .navigationBarTitleDisplayMode(.inline)
+        // Warm the haptic engine on entry so the Done haptic fires instantly (cz_device11).
+        .onAppear { successHaptic.prepare() }
         // With staged drafts uncommitted, replace the system back button (which would pop
         // and silently discard them) with a Cancel that confirms first (#53).
         .navigationBarBackButtonHidden(flow.draftCount > 0)
@@ -78,11 +83,14 @@ struct AddFlowFlowView: View {
         }
     }
 
-    private func advance(to next: Step) { withAnimation(.snappy) { step = next } }
+    private func advance(to next: Step) {
+        successHaptic.prepare()   // keep the Taptic engine warm ahead of the Done haptic
+        withAnimation(.snappy) { step = next }
+    }
 
     private func save() {
         flow.commit(in: context, household: model.activeHousehold)
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        successHaptic.notificationOccurred(.success)
         dismiss()
     }
 }

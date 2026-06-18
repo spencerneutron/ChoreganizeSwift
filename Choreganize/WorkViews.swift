@@ -121,7 +121,9 @@ struct WeekView: View {
 struct DayPage: View {
     @Environment(\.managedObjectContext) private var context
     @EnvironmentObject private var model: AppModel
-    @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var chores: FetchedResults<CDChore>
+    // Prefetches area/completions/household so rows don't fault them one-by-one on
+    // the main thread (Work/Edit-open hang, cz_device10).
+    @FetchRequest(fetchRequest: displayChoresFetchRequest()) private var chores: FetchedResults<CDChore>
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDLockedDay.date)]) private var lockedDays: FetchedResults<CDLockedDay>
     @AppStorage(SettingsKeys.workGrouping) private var workGroupingRaw = WorkGrouping.none.rawValue
     var date: Date

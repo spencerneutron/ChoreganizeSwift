@@ -23,6 +23,12 @@ struct HubView: View {
     /// How the Work view's day list is grouped (default none). Stored as the raw value.
     @AppStorage(SettingsKeys.workGrouping) private var workGrouping: String = WorkGrouping.none.rawValue
 
+    #if DEBUG
+    /// #65 A/B: which floating mode-switcher style to use (toggled in the Developer
+    /// section below). Shares the key `ContentView` reads, so the switch is live.
+    @AppStorage(SettingsKeys.switcherStyle) private var switcherStyleRaw = SwitcherStyle.morph.rawValue
+    #endif
+
     var body: some View {
         NavigationStack {
             Form {
@@ -113,6 +119,18 @@ struct HubView: View {
                     Text("Thanks for using Choreganize! Ways to support development are coming soon. In the meantime, your feedback is invaluable.")
                 }
 
+                #if DEBUG
+                Section {
+                    Picker("View switcher", selection: $switcherStyleRaw) {
+                        ForEach(SwitcherStyle.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                } header: {
+                    Text("Developer")
+                } footer: {
+                    Text("A/B the floating Work/Edit/Calendar switcher. “Menu” is the production default; “Glass morph” is the experimental custom morph.")
+                }
+                #endif
+
                 Section("About") {
                     LabeledContent("Version", value: Self.appVersion)
                 }
@@ -138,6 +156,7 @@ struct HubView: View {
 enum SettingsKeys {
     static let displayName = "displayName"
     static let workGrouping = "workGrouping"
+    static let switcherStyle = "switcherStyle"
 }
 
 #if DEBUG

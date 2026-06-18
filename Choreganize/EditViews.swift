@@ -45,7 +45,9 @@ struct ChoreListView: View {
     @Environment(\.managedObjectContext) private var context
     @Environment(\.editMode) private var editMode
     @EnvironmentObject private var model: AppModel
-    @FetchRequest(sortDescriptors: [SortDescriptor(\CDChore.name)]) private var chores: FetchedResults<CDChore>
+    // Prefetches area/completions/household so rows don't fault them one-by-one on
+    // the main thread (Edit-open hang, cz_device10).
+    @FetchRequest(fetchRequest: displayChoresFetchRequest()) private var chores: FetchedResults<CDChore>
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDArea.name)]) private var areas: FetchedResults<CDArea>
     @State private var showingNew = false
     @State private var editingChore: CDChore?
