@@ -8,6 +8,8 @@ struct CalendarHomeView: View {
     @FetchRequest(fetchRequest: displayChoresFetchRequest()) private var allChores: FetchedResults<CDChore>
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDLockedDay.date)]) private var lockedDays: FetchedResults<CDLockedDay>
     @State private var month: Date = Date()
+    /// One shared device-motion source; the glow bars' specular sweep tracks roll (#57 fast-follow).
+    @StateObject private var tilt = TiltProvider()
 
     private var calendar: Calendar { Calendar.current }
 
@@ -30,8 +32,26 @@ struct CalendarHomeView: View {
         Scheduling.choresByDate(inMonth: monthStart, chores: Array(allChores).inScope(model.activeHousehold))
     }
 
+    /// Days in the visible grid that earn the glow — used to conduct one specular sweep across a
+    /// run of consecutive perfect days.
+    private func perfectDays(scopedLocks: [CDLockedDay]) -> Set<Date> {
+        let today = calendar.startOfDay(for: Date())
+        var set: Set<Date> = []
+        for case let date? in days {
+            let day = calendar.startOfDay(for: date)
+            let p = CalendarMarks.progress(
+                choresByDate[day] ?? [], on: date,
+                mode: CalendarMarks.mode(for: date),
+                daysAgo: calendar.dateComponents([.day], from: day, to: today).day ?? 0,
+                locked: DayLock.isLocked(date, in: scopedLocks))
+            if p.earnsGlow { set.insert(day) }
+        }
+        return set
+    }
+
     var body: some View {
         let scopedLocks = Array(lockedDays).inScope(model.activeHousehold)
+        let streaks = CalendarStreaks.slots(for: perfectDays(scopedLocks: scopedLocks))
         return VStack {
             HStack {
                 Button(action: { month = calendar.date(byAdding: .month, value: -1, to: month)! }) {
@@ -64,7 +84,9 @@ struct CalendarHomeView: View {
                         ) {
                             DayCell(date: date,
                                     chores: choresByDate[calendar.startOfDay(for: date)] ?? [],
-                                    isLocked: DayLock.isLocked(date, in: scopedLocks))
+                                    isLocked: DayLock.isLocked(date, in: scopedLocks),
+                                    tilt: tilt,
+                                    streak: streaks[calendar.startOfDay(for: date)] ?? (slot: 0, count: 1))
                         }
                     } else {
                         Color.clear
@@ -75,6 +97,10 @@ struct CalendarHomeView: View {
                 .padding(.horizontal)
         }
         .toolbar(.hidden, for: .navigationBar)
+        // Drive device-motion at the calendar level (one source for all glow bars), and stop it
+        // when the calendar isn't visible. No-op where motion is unavailable (Simulator).
+        .onAppear { tilt.start() }
+        .onDisappear { tilt.stop() }
     }
 }
 
@@ -138,24 +164,56 @@ enum CalendarMarks {
             locked: locked
         )
     }
+
+    /// Whether a date is past, today, or future relative to now. Shared by the cell and the
+    /// streak scan so the two can't disagree about what "today" means.
+    nonisolated static func mode(for date: Date, calendar cal: Calendar = .current) -> CellMode {
+        let today = cal.startOfDay(for: Date())
+        let day = cal.startOfDay(for: date)
+        if day < today { return .past }
+        return day == today ? .currentWeek : .future
+    }
+}
+
+/// Groups perfect (glow-earning) days into maximal runs of consecutive calendar days so a single
+/// specular sweep can be conducted across a streak (#57 fast-follow). For each perfect day it
+/// returns its 0-based `slot` within its run and the run's `count`; a lone perfect day is slot 0
+/// of 1. Pure + `nonisolated` so it's unit-testable.
+enum CalendarStreaks {
+    nonisolated static func slots(for perfectDays: Set<Date>,
+                                  calendar cal: Calendar = .current) -> [Date: (slot: Int, count: Int)] {
+        let days = perfectDays.map { cal.startOfDay(for: $0) }.sorted()
+        var result: [Date: (slot: Int, count: Int)] = [:]
+        var i = 0
+        while i < days.count {
+            var j = i
+            while j + 1 < days.count,
+                  let next = cal.date(byAdding: .day, value: 1, to: days[j]),
+                  cal.isDate(next, inSameDayAs: days[j + 1]) {
+                j += 1
+            }
+            let count = j - i + 1
+            for k in i...j { result[days[k]] = (slot: k - i, count: count) }
+            i = j + 1
+        }
+        return result
+    }
 }
 
 private struct DayCell: View {
     var date: Date
     var chores: [CDChore]
     var isLocked: Bool
+    var tilt: TiltProvider
+    /// This day's place in a run of consecutive perfect days (slot 0 of 1 when not in a streak).
+    var streak: (slot: Int, count: Int) = (0, 1)
 
     private var cal: Calendar { Calendar.current }
     private var dayNumber: Int { cal.component(.day, from: date) }
     private var isToday: Bool { cal.isDateInToday(date) }
     /// Completion semantics (green/red + %) apply to today and past days; any day
     /// after today is "upcoming" (blue, no %) — even when it falls in the current week.
-    private var mode: CellMode {
-        let today = cal.startOfDay(for: Date())
-        let d = cal.startOfDay(for: date)
-        if d < today { return .past }
-        return d == today ? .currentWeek : .future
-    }
+    private var mode: CellMode { CalendarMarks.mode(for: date, calendar: cal) }
     private var daysAgo: Int {
         cal.dateComponents([.day], from: cal.startOfDay(for: date),
                            to: cal.startOfDay(for: Date())).day ?? 0
@@ -185,8 +243,9 @@ private struct DayCell: View {
             if p.earnsGlow {
                 // A settled, fully-completed day (any past day, or today once locked):
                 // the three segments fuse into one glowing green bar. The glow says
-                // "100%" on its own, so the label is dropped.
-                NeonCompletionBar()
+                // "100%" on its own, so the label is dropped. `tilt` + `streak` drive the
+                // device-motion-reactive sweep and conduct it across consecutive perfect days.
+                NeonCompletionBar(tilt: tilt, slot: streak.slot, slots: streak.count)
             } else if p.showsMeter {
                 HStack(spacing: 3) {
                     DayMeter(progress: p)
@@ -257,7 +316,8 @@ enum GlowPrewarm {
         Task.detached(priority: .utility) {
             let shader = ShaderLibrary.perfectDayGlow(.float(0),
                                                       .float2(CGSize(width: 1, height: 1)),
-                                                      .float(0), .float(1))
+                                                      .float(0), .float(1),   // slot, slots
+                                                      .float(0), .float(1))   // tilt, intensity
             try? await shader.compile(as: .colorEffect)
         }
     }
@@ -274,11 +334,18 @@ enum GlowPrewarm {
 ///
 /// Implemented with a Metal `colorEffect` shader (`PerfectDayGlow.metal`) that paints a
 /// traveling specular highlight, pre-compiled at launch (`GlowPrewarm`) to avoid a first-use
-/// hitch. Reduce Motion / Low Power fall back to a static glossy bar. Tilt-reactivity (the
-/// shader's `tilt` param is wired to 0 for now) and streak conduction (phase-offset adjacent
-/// perfect days via the shared `GlowClock` epoch) are deferred fast-follows — see
-/// calendar-glow-recommendation.
+/// hitch. Reduce Motion / Low Power fall back to a static glossy bar.
+///
+/// The sweep is **device-motion reactive** (`tilt` ← `TiltProvider.roll`, so the highlight slides
+/// as the phone tilts and settles when set down) and **conducts across a streak** of consecutive
+/// perfect days (`slot`/`slots`): one highlight relays from one day to the next via the shared
+/// `GlowClock` epoch, so a run reads as a single glowing strip. See calendar-glow-recommendation.
 private struct NeonCompletionBar: View {
+    var tilt: TiltProvider
+    /// Position within a consecutive-perfect-day streak (slot 0 of 1 = a lone perfect day).
+    var slot: Int = 0
+    var slots: Int = 1
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityDifferentiateWithoutColor) private var diffWithoutColor
     @Environment(\.colorScheme) private var scheme
@@ -331,7 +398,9 @@ private struct NeonCompletionBar: View {
                     let t = Float(tl.date.timeIntervalSince(GlowClock.epoch))
                     shape.fill(base)
                         .colorEffect(ShaderLibrary.perfectDayGlow(
-                            .float(t), .float2(geo.size), .float(0), .float(1.0)))
+                            .float(t), .float2(geo.size),
+                            .float(Float(slot)), .float(Float(slots)),
+                            .float(Float(tilt.roll)), .float(1.0)))
                 }
             }
         }

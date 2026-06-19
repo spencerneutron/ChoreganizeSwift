@@ -5,19 +5,27 @@ using namespace metal;
 // Perfect-day glow (#57): adds a slow traveling specular highlight + glassy core to an
 // already-green bar, for a calendar day whose chores were all completed. Used as a SwiftUI
 // `colorEffect`, so `position` (view-space px) and `color` (current pixel) are implicit;
-// custom params follow in order: time (s), view size (px), tilt (-1...1), intensity (0...1).
+// custom params follow in order: time (s), view size (px), slot, slots, tilt (-1...1),
+// intensity (0...1).
 //
-// `tilt` is reserved for a future device-motion-reactive sweep (passed 0 today). Keeping it
-// in the signature means wiring CoreMotion later needs no shader change.
+// Streak conduction: a run of consecutive perfect days shares one sweep. `slots` is the run
+// length and `slot` this bar's 0-based index in it, so a single highlight travels bar 0 → 1 →
+// … across the whole run. A lone perfect day is just slot 0 of 1 (the band sweeps it directly).
+//
+// `tilt` is device roll (-1...1); it slides the highlight, so the glow is alive in the hand and
+// still when the phone is set down. 0 where device motion is unavailable (e.g. the Simulator).
 [[ stitchable ]] half4 perfectDayGlow(float2 position, half4 color,
                                       float time, float2 size,
+                                      float slot, float slots,
                                       float tilt, float intensity) {
     if (color.a < 0.01h) { return color; }          // never light pixels outside the bar
 
     float2 uv = position / size;                     // 0...1 across the bar
 
-    // A specular band glides left -> right slowly; tilt nudges it (0 until motion is wired).
-    float center = fract(time * 0.18) + tilt * 0.35;
+    // Global sweep position across the whole streak (0...1), nudged by device tilt; this bar's
+    // local highlight coordinate places the band as it relays from one day to the next.
+    float global = fract(time * 0.18) + tilt * 0.35;
+    float center = global * slots - slot;
     float dx = uv.x - center;
     float band = exp(-(dx * dx) / (2.0 * 0.02));     // gaussian highlight
 
