@@ -12,7 +12,7 @@ struct WorkGroupingTests {
 
     @Test func noneReturnsOneImplicitGroupOrEmpty() throws {
         let ctx = makeContext()
-        try ctx.performAndWait {
+        ctx.performAndWait {
             #expect(WorkGrouping.none.sections(for: []).isEmpty)
             let daily = CDChore.make(in: ctx, name: "Dishes", isDaily: true)
             let groups = WorkGrouping.none.sections(for: [daily])
@@ -24,7 +24,7 @@ struct WorkGroupingTests {
 
     @Test func frequencyOrdersEveryDayThenWeeklyMonthlyYearly() throws {
         let ctx = makeContext()
-        try ctx.performAndWait {
+        ctx.performAndWait {
             let daily   = CDChore.make(in: ctx, name: "Make bed", isDaily: true)
             let weekly  = CDChore.make(in: ctx, name: "Vacuum", isDaily: false, frequency: .weekly, assignedDay: .monday)
             let monthly = CDChore.make(in: ctx, name: "Filters", isDaily: false, frequency: .monthly, assignedDay: .monday)
@@ -39,7 +39,7 @@ struct WorkGroupingTests {
 
     @Test func frequencyDropsEmptyGroups() throws {
         let ctx = makeContext()
-        try ctx.performAndWait {
+        ctx.performAndWait {
             let weekly = CDChore.make(in: ctx, name: "Vacuum", isDaily: false, frequency: .weekly, assignedDay: .monday)
             let groups = WorkGrouping.frequency.sections(for: [weekly])
             #expect(groups.map(\.title) == ["Weekly"])   // no empty Every Day/Monthly/Yearly
@@ -48,7 +48,7 @@ struct WorkGroupingTests {
 
     @Test func roomGroupsAlphabeticallyWithNoRoomLast() throws {
         let ctx = makeContext()
-        try ctx.performAndWait {
+        ctx.performAndWait {
             let kitchen = CDArea.make(in: ctx, name: "Kitchen")
             let bath    = CDArea.make(in: ctx, name: "Bathroom")
             let dishes  = CDChore.make(in: ctx, name: "Dishes", isDaily: true);  dishes.area = kitchen
@@ -63,7 +63,7 @@ struct WorkGroupingTests {
 
     @Test func roomWithNoAreasIsSingleNoRoomGroup() throws {
         let ctx = makeContext()
-        try ctx.performAndWait {
+        ctx.performAndWait {
             let a = CDChore.make(in: ctx, name: "A", isDaily: true)
             let b = CDChore.make(in: ctx, name: "B", isDaily: true)
             let groups = WorkGrouping.room.sections(for: [a, b])
