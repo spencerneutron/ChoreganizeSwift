@@ -9,7 +9,11 @@ struct CalendarHomeView: View {
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDLockedDay.date)]) private var lockedDays: FetchedResults<CDLockedDay>
     @State private var month: Date = Date()
     /// One shared device-motion source; the glow bars' specular sweep tracks roll (#57 fast-follow).
-    @StateObject private var tilt = TiltProvider()
+    /// Held as plain `@State` (not `@StateObject`) so its 30 Hz `roll` updates DON'T re-render the
+    /// whole calendar — the bars read `roll` per-frame via their own `TimelineView`.
+    @State private var tilt = TiltProvider()
+    /// False while a sheet (e.g. the Hub) covers the calendar; pause motion sampling then.
+    @Environment(\.glowAnimationActive) private var glowActive
 
     private var calendar: Calendar { Calendar.current }
 
@@ -97,10 +101,12 @@ struct CalendarHomeView: View {
                 .padding(.horizontal)
         }
         .toolbar(.hidden, for: .navigationBar)
-        // Drive device-motion at the calendar level (one source for all glow bars), and stop it
-        // when the calendar isn't visible. No-op where motion is unavailable (Simulator).
-        .onAppear { tilt.start() }
+        // Drive device-motion at the calendar level (one source for all glow bars). Stop it when
+        // the calendar isn't visible OR is covered by a sheet (no point sampling behind the Hub).
+        // No-op where motion is unavailable (Simulator).
+        .onAppear { if glowActive { tilt.start() } }
         .onDisappear { tilt.stop() }
+        .onChange(of: glowActive) { _, active in active ? tilt.start() : tilt.stop() }
     }
 }
 

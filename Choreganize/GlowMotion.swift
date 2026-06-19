@@ -9,10 +9,15 @@ import Foundation
 /// `CMMotionManager` serves the whole grid), sampled at a gentle 30 Hz, and disabled under Low
 /// Power Mode. A **no-op where device motion is unavailable** (e.g. the Simulator): `roll` stays 0
 /// and the sweep falls back to purely time-driven.
+///
+/// **Deliberately NOT `ObservableObject`.** `roll` updates ~30×/sec; if the calendar observed it,
+/// the whole grid would re-render 30 fps (recomputing every cell) — which tanked the Hub's scroll
+/// when it was presented over the Calendar. Instead the bar's own per-frame `TimelineView` reads
+/// `roll` at render time, so motion drives the shader without invalidating any SwiftUI view.
 @MainActor
-final class TiltProvider: ObservableObject {
-    /// Normalized device roll, clamped to a comfortable −1...1.
-    @Published private(set) var roll: Double = 0
+final class TiltProvider {
+    /// Normalized device roll, clamped to a comfortable −1...1. Plain (unobserved) on purpose.
+    private(set) var roll: Double = 0
 
     private let manager = CMMotionManager()
     private var running = false
