@@ -181,6 +181,8 @@ final class ChoreganizeScreenshotTests: XCTestCase {
         settle(2.5)   // let the glow pulse reach a bright phase before the still
         snap("cal-glow-grid")
         settle(6)     // dwell so a concurrent screen recording captures several pulses
+    }
+
     /// Captures the Backup & Restore screen (#63): Hub → Data → Backup & Restore.
     @MainActor
     func testCaptureBackupRestore() throws {
