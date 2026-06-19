@@ -181,5 +181,28 @@ final class ChoreganizeScreenshotTests: XCTestCase {
         settle(2.5)   // let the glow pulse reach a bright phase before the still
         snap("cal-glow-grid")
         settle(6)     // dwell so a concurrent screen recording captures several pulses
+    /// Captures the Backup & Restore screen (#63): Hub → Data → Backup & Restore.
+    @MainActor
+    func testCaptureBackupRestore() throws {
+        let app = launchSeeded()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30),
+                      "seeded rows should render")
+        settle()
+
+        let hub = app.buttons["Hub"]
+        XCTAssertTrue(hub.waitForExistence(timeout: 5), "Hub toolbar button should exist")
+        hub.tap()
+        _ = app.navigationBars["Hub"].waitForExistence(timeout: 5)
+        settle()
+
+        let row = app.buttons["Backup & Restore"]
+        if row.waitForExistence(timeout: 5) {
+            row.tap()
+        } else {
+            app.staticTexts["Backup & Restore"].firstMatch.tap()
+        }
+        _ = app.navigationBars["Backup & Restore"].waitForExistence(timeout: 5)
+        settle()
+        snap("backup-restore")
     }
 }
