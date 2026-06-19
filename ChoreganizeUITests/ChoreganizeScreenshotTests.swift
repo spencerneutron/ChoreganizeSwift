@@ -127,4 +127,84 @@ final class ChoreganizeScreenshotTests: XCTestCase {
             snap("5-scope")
         }
     }
+
+    /// Focused capture of the #57 calendar redesign: the month grid (discrete
+    /// fill/outline status bars + tinted "today"), a past-day detail (with the new
+    /// "Log a completion" affordance), and the retroactive log sheet.
+    @MainActor
+    func testCaptureCalendarRedesign() throws {
+        let app = launchSeeded()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30),
+                      "seeded Work rows should render")
+        settle()
+
+        // 1. The redesigned month grid.
+        selectMode(app, "Calendar")
+        settle()
+        snap("cal-1-grid")
+
+        // 2. A recent past day's detail (June 16 — a Tuesday carrying completions).
+        var day = app.buttons["calendar-day-16"]
+        if !day.waitForExistence(timeout: 5) {
+            day = app.descendants(matching: .any)["calendar-day-16"]
+        }
+        guard day.waitForExistence(timeout: 3) else { return }   // grid shot already saved
+        day.tap()
+        settle()
+        snap("cal-2-pastday")
+
+        // 3. The retroactive log-completion sheet.
+        let logButton = app.buttons["logCompletionButton"]
+        if logButton.waitForExistence(timeout: 5) {
+            logButton.tap()
+            settle()
+            snap("cal-3-logsheet")
+        }
+    }
+
+    /// Captures the fully-completed-past-day glow bar (#57). Uses a dedicated seed
+    /// (`/tmp/cz_glow_seed.json`) with two 100% past days, since the standard demo set
+    /// has none. A still can't show the pulse — pair with a screen recording for that.
+    @MainActor
+    func testCaptureCalendarGlow() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["CHOREGANIZE_LOCAL_ONLY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_UITEST_INMEMORY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_SEED_JSON"] = "/tmp/cz_glow_seed.json"
+        app.launchArguments += ["-hasSeenOnboarding", "YES", "-activeScope", "solo"]
+        app.launch()
+
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30),
+                      "seeded Work rows should render")
+        settle()
+        selectMode(app, "Calendar")
+        settle(2.5)   // let the glow pulse reach a bright phase before the still
+        snap("cal-glow-grid")
+        settle(6)     // dwell so a concurrent screen recording captures several pulses
+    }
+
+    /// Captures the Backup & Restore screen (#63): Hub → Data → Backup & Restore.
+    @MainActor
+    func testCaptureBackupRestore() throws {
+        let app = launchSeeded()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30),
+                      "seeded rows should render")
+        settle()
+
+        let hub = app.buttons["Hub"]
+        XCTAssertTrue(hub.waitForExistence(timeout: 5), "Hub toolbar button should exist")
+        hub.tap()
+        _ = app.navigationBars["Hub"].waitForExistence(timeout: 5)
+        settle()
+
+        let row = app.buttons["Backup & Restore"]
+        if row.waitForExistence(timeout: 5) {
+            row.tap()
+        } else {
+            app.staticTexts["Backup & Restore"].firstMatch.tap()
+        }
+        _ = app.navigationBars["Backup & Restore"].waitForExistence(timeout: 5)
+        settle()
+        snap("backup-restore")
+    }
 }

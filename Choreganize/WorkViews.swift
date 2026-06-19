@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreData
 
 /// A single chore row showing completion state and last completion summary.
 struct ChoreRowView: View {
@@ -129,6 +130,7 @@ struct DayPage: View {
     var date: Date
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
+    @State private var showLogSheet = false
 
     private var grouping: WorkGrouping { WorkGrouping(rawValue: workGroupingRaw) ?? .none }
 
@@ -139,7 +141,8 @@ struct DayPage: View {
     var body: some View {
         let active = model.activeHousehold
         let scopedLocks = Array(lockedDays).inScope(active)
-        let dayChores = Scheduling.chores(Array(chores).inScope(active), for: date)
+        let inScopeChores = Array(chores).inScope(active)
+        let dayChores = Scheduling.chores(inScopeChores, for: date)
         let isLocked = DayLock.isLocked(date, in: scopedLocks)
 
         List {
@@ -174,6 +177,20 @@ struct DayPage: View {
                     }
                 }
             }
+
+            // #57 Part 2 — past days are auto-locked (DayLock.isLocked) so the row toggles
+            // are disabled. This opens a checklist editor to add OR remove completions for
+            // the day (the only way to fix a forgotten / mis-logged past completion).
+            if isPast {
+                Section {
+                    Button {
+                        showLogSheet = true
+                    } label: {
+                        Label("Log completions", systemImage: "checklist")
+                    }
+                    .accessibilityIdentifier("logCompletionButton")
+                }
+            }
         }
         .listStyle(.insetGrouped)
         // Inset the rows past the left/right paging chevrons WeekView overlays near the
@@ -182,6 +199,9 @@ struct DayPage: View {
         // (Tunable: one number; the list background still spans full-width, no edge strip.)
         .contentMargins(.horizontal, 32, for: .scrollContent)
         .scrollIndicators(.hidden)   // hide the scroll bar; scrolling still works
+        .sheet(isPresented: $showLogSheet) {
+            LogCompletionSheet(date: date, chores: inScopeChores)
+        }
         .alert("Finish day?", isPresented: $showDoneAlert) {
             Button("Confirm") {
                 DayLock.lock(date, existing: scopedLocks, household: active, in: context)
@@ -213,6 +233,95 @@ struct DayPage: View {
                     .padding(.bottom, 40)
                     .onboardingAnchor(.doneButton)
             }
+        }
+    }
+}
+
+/// Per-day completion editor for a (locked) past day (#57 Part 2). Past-day row
+/// toggles are disabled, so this is the place to record OR remove what was actually
+/// done on `date`. Shows every in-scope chore grouped by area and searchable; tapping
+/// a row toggles its completion for the day. Completion state is mirrored into local
+/// `@State` so the checkmarks update instantly (the managed objects aren't observed).
+private struct LogCompletionSheet: View {
+    let date: Date
+    let chores: [CDChore]
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.managedObjectContext) private var context
+    @State private var query = ""
+    @State private var completedIDs: Set<NSManagedObjectID> = []
+
+    private var filtered: [CDChore] {
+        guard !query.isEmpty else { return chores }
+        return chores.filter { ($0.name ?? "").localizedCaseInsensitiveContains(query) }
+    }
+
+    /// Grouped by area name, A→Z, with "No Area" last. Chores sorted by name within.
+    private var groups: [(title: String, chores: [CDChore])] {
+        let byArea = Dictionary(grouping: filtered) { $0.area?.name ?? "" }
+        let sortChores: ([CDChore]) -> [CDChore] = { $0.sorted { ($0.name ?? "") < ($1.name ?? "") } }
+        let named = byArea.filter { !$0.key.isEmpty }
+            .sorted { $0.key < $1.key }
+            .map { (title: $0.key, chores: sortChores($0.value)) }
+        let noArea = byArea[""].map { [(title: "No Area", chores: sortChores($0))] } ?? []
+        return named + noArea
+    }
+
+    private func toggle(_ chore: CDChore) {
+        if completedIDs.contains(chore.objectID) {
+            chore.removeCompletion(on: date, in: context)
+            completedIDs.remove(chore.objectID)
+        } else {
+            chore.recordCompletion(on: date, in: context)
+            completedIDs.insert(chore.objectID)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if chores.isEmpty {
+                    ContentUnavailableView("No chores", systemImage: "checklist",
+                                           description: Text("Add chores in the Edit tab first."))
+                } else {
+                    ForEach(groups, id: \.title) { group in
+                        Section(group.title) {
+                            ForEach(group.chores, id: \.objectID) { chore in
+                                let done = completedIDs.contains(chore.objectID)
+                                Button {
+                                    toggle(chore)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(done ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                                        Text(chore.name ?? "Untitled").foregroundStyle(.primary)
+                                        Spacer()
+                                    }
+                                }
+                                .accessibilityIdentifier("logRow-\(chore.name ?? "")")
+                                .accessibilityAddTraits(done ? .isSelected : [])
+                            }
+                        }
+                    }
+                }
+            }
+            .searchable(text: $query, prompt: "Find a chore")
+            .overlay {
+                if !chores.isEmpty && filtered.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                }
+            }
+            .navigationTitle(date.formatted(.dateTime.weekday(.abbreviated).month().day()))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .onAppear {
+            completedIDs = Set(chores.filter { $0.isCompleted(on: date) }.map(\.objectID))
         }
     }
 }

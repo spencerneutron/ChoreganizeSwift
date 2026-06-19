@@ -24,6 +24,9 @@ struct ChoreganizeApp: App {
         // Liquid Glass morph (the floating switcher's first expand) doesn't pay the
         // ~0.8s AGXMetal/RenderBox driver load on the main thread (cz_device12 hang).
         Task.detached(priority: .utility) { _ = MTLCreateSystemDefaultDevice() }
+        // Pre-compile the calendar's perfect-day glow shader so the first 100%-day bar
+        // doesn't hitch on first use (#57).
+        GlowPrewarm.run()
     }
 
     var body: some Scene {
