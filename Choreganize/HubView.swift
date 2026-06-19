@@ -77,6 +77,19 @@ struct HubView: View {
                     }
                 }
 
+                // MARK: Data — JSON backup/restore of Personal chores & history (#63).
+                Section {
+                    NavigationLink {
+                        BackupRestoreView()
+                    } label: {
+                        Label("Backup & Restore", systemImage: "externaldrive")
+                    }
+                } header: {
+                    Text("Data")
+                } footer: {
+                    Text("Export your Personal chores and history to a file, or restore from a backup.")
+                }
+
                 // MARK: Help & Support (folded from the old Support sheet)
                 Section("Learn the app") {
                     Button {
