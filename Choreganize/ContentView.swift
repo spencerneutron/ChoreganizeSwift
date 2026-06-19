@@ -49,6 +49,12 @@ struct ContentView: View {
             }
             .toolbar(.visible, for: .automatic)
             .animation(.easeInOut, value: mode)
+            // Freeze the calendar's perfect-day glow (shader + TimelineView) while a full-cover
+            // sheet is up — otherwise it keeps rendering behind the sheet and tanks its framerate
+            // (the Hub opened over the Calendar). Sheets opened from Work/Edit don't mount the
+            // calendar, so this is a no-op there.
+            .environment(\.glowAnimationActive,
+                         !(showingHub || showingLogs || cardStep.wrappedValue != nil))
             .toolbar {
                 // Solo vs Household scope switch. (CloudKit sharing of the
                 // Household returns in Phase 3.)

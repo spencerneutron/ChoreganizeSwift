@@ -309,6 +309,19 @@ private struct DayMeter: View {
 /// of adjacent perfect days just by phase-offsetting each bar (see calendar-glow-handoff §streaks).
 enum GlowClock { static let epoch = Date() }
 
+private struct GlowAnimationActiveKey: EnvironmentKey { static let defaultValue = true }
+
+extension EnvironmentValues {
+    /// False when a full-cover sheet (e.g. the Hub) is presented over the calendar. A sheet
+    /// doesn't unmount its presenter, so the glow's `TimelineView` + Metal shaders would keep
+    /// running behind it at 60 fps and starve the sheet's scroll framerate. The calendar sets
+    /// this from `ContentView`'s sheet state; `NeonCompletionBar` freezes to a static bar when false.
+    var glowAnimationActive: Bool {
+        get { self[GlowAnimationActiveKey.self] }
+        set { self[GlowAnimationActiveKey.self] = newValue }
+    }
+}
+
 /// Pre-compiles the perfect-day glow shader off-main at launch so the first perfect bar
 /// doesn't hitch on first use — the glow analog of the Metal/haptic pre-warms in the app.
 enum GlowPrewarm {
@@ -349,6 +362,7 @@ private struct NeonCompletionBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityDifferentiateWithoutColor) private var diffWithoutColor
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.glowAnimationActive) private var glowActive
     @State private var lit = false
 
     /// Deepen the green in light mode (halos read poorly on white; lean on core + glyph).
@@ -356,7 +370,12 @@ private struct NeonCompletionBar: View {
         scheme == .dark ? Color(red: 0.18, green: 0.95, blue: 0.45)
                         : Color(red: 0.05, green: 0.62, blue: 0.30)
     }
-    private var still: Bool { reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled }
+    /// Render the static (non-animated) bar — no `TimelineView`/shader churn — under Reduce
+    /// Motion, Low Power, or when the calendar is obscured by a sheet (so the shader doesn't
+    /// burn frames behind, e.g., the Hub).
+    private var still: Bool {
+        reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled || !glowActive
+    }
 
     var body: some View {
         ZStack(alignment: .trailing) {
