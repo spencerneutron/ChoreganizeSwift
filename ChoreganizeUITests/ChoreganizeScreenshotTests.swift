@@ -207,4 +207,83 @@ final class ChoreganizeScreenshotTests: XCTestCase {
         settle()
         snap("backup-restore")
     }
+
+    /// v1.6.0 "Free Foundation" wave — focused captures of the new IN-APP surfaces:
+    /// DayPage "Mark all done" (CG-08/#91), the Hub streak readout (CG-10/#93), and the
+    /// editable add-flow Review step + its inline draft editor (CG-09/#92).
+    /// NOTE: widgets (CG-02/04/05), the reminder "Mark done" action (CG-03), and the sync
+    /// status banner (CG-06/07) are device/OS surfaces that don't render under the
+    /// local-only simulator seed — verify those on device.
+    @MainActor
+    func testCaptureV160Features() throws {
+        let app = launchSeeded()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30),
+                      "seeded Work rows should render")
+        settle()
+
+        // 1. DayPage "Mark all done" (CG-08) — scroll the Work list to reveal the button.
+        let markAll = app.buttons["markAllDoneButton"]
+        for _ in 0..<5 where !markAll.isHittable { app.swipeUp(); settle(0.2) }
+        if markAll.waitForExistence(timeout: 3) {
+            settle(0.4)
+            snap("v160-1-markalldone")
+        }
+
+        // 2. Hub streak readout (CG-10) — open Hub, scroll to the Streaks section.
+        let hub = app.buttons["Hub"]
+        if hub.waitForExistence(timeout: 5) {
+            hub.tap()
+            _ = app.navigationBars["Hub"].waitForExistence(timeout: 5)
+            settle()
+            let streak = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Current streak")).firstMatch
+            for _ in 0..<6 where !streak.isHittable { app.swipeUp(); settle(0.2) }
+            settle(0.4)
+            snap("v160-2-streaks")
+            // Dismiss the Hub sheet (scope to the Hub nav bar — a bare "Done" is ambiguous).
+            let done = app.navigationBars["Hub"].buttons["Done"]
+            if done.waitForExistence(timeout: 3) { done.tap() } else { app.swipeDown(velocity: .fast) }
+            _ = app.navigationBars["Hub"].waitForNonExistence(timeout: 5)
+            settle()
+        }
+
+        // 3. Editable Review step + inline editor (CG-09) — drive the day-lens add flow:
+        //    lens → "Every day" → type a chore → "Day Complete" → "Add & Finish"
+        //    (the unadded-chore confirmation) → "Review & Save" → Review.
+        selectMode(app, "Edit")
+        settle()
+        var lens = app.buttons["addflow.lens.byDay"]
+        if !lens.exists { lens = app.descendants(matching: .any)["addflow.lens.byDay"] }
+        guard lens.waitForExistence(timeout: 5) else { return }
+        lens.tap()
+        settle()
+        let everyDay = app.buttons["Every day"]
+        guard everyDay.waitForExistence(timeout: 5) else { return }
+        everyDay.tap(); settle()
+        let nameField = app.textFields["addflow.choreNameField"]
+        guard nameField.waitForExistence(timeout: 5) else { return }
+        nameField.tap(); nameField.typeText("Wipe counters")
+        // Finish the group; the "unadded chore" confirmation surfaces "Add & Finish".
+        let dayComplete = app.buttons["Day Complete"]
+        guard dayComplete.waitForExistence(timeout: 5) else { return }
+        dayComplete.tap(); settle()
+        let addFinish = app.buttons["Add & Finish"]
+        if addFinish.waitForExistence(timeout: 5) { addFinish.tap(); settle() }
+        // .another step ("Nice work") → Review.
+        let review = app.buttons["Review & Save"]
+        guard review.waitForExistence(timeout: 5) else { return }
+        review.tap()
+        _ = app.navigationBars["Review"].waitForExistence(timeout: 5)
+        settle()
+        snap("v160-3-review")
+        // Tap the staged draft to open the inline editor sheet (navTitle "Edit Chore").
+        let row = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Wipe counters")).firstMatch
+        if row.waitForExistence(timeout: 3) {
+            row.tap()
+            _ = app.navigationBars["Edit Chore"].waitForExistence(timeout: 5)
+            settle()
+            snap("v160-4-review-editor")
+        }
+    }
 }
