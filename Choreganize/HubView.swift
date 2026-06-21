@@ -32,6 +32,16 @@ struct HubView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // MARK: Streaks (#93, basic) — current run + best-ever record, derived
+                // from the calendar's perfect-day machinery (no new persistence).
+                Section {
+                    StreakSummaryView()
+                } header: {
+                    Text("Streaks")
+                } footer: {
+                    Text("A streak is a run of days where every chore was done. Keep it going!")
+                }
+
                 // MARK: Settings
                 Section("Reminders") {
                     NavigationLink {
@@ -162,6 +172,57 @@ struct HubView: View {
         let version = info?["CFBundleShortVersionString"] as? String ?? "—"
         let build = info?["CFBundleVersion"] as? String ?? "—"
         return "\(version) (\(build))"
+    }
+}
+
+/// The Hub's streak readout (#93, basic): the current run of perfect days and the
+/// best-ever record, derived from the same perfect-day rule the calendar uses
+/// (`CalendarStreaks`). No new persistence — it recomputes from existing chores and
+/// completions. A synced "streak freeze" token is explicitly deferred.
+private struct StreakSummaryView: View {
+    @EnvironmentObject private var model: AppModel
+    // Same prefetch as the calendar so the per-day scoring doesn't fault relationships
+    // one row at a time on the main thread.
+    @FetchRequest(fetchRequest: displayChoresFetchRequest()) private var allChores: FetchedResults<CDChore>
+    @FetchRequest(sortDescriptors: [SortDescriptor(\CDLockedDay.date)]) private var lockedDays: FetchedResults<CDLockedDay>
+
+    private var summary: CalendarStreaks.Summary {
+        let scope = model.activeHousehold
+        let perfect = CalendarStreaks.perfectDays(
+            scopedChores: Array(allChores).inScope(scope),
+            scopedLocks: Array(lockedDays).inScope(scope))
+        return CalendarStreaks.summary(for: perfect)
+    }
+
+    var body: some View {
+        let s = summary
+        HStack(spacing: 0) {
+            stat(value: s.current, caption: "Current", systemImage: "flame.fill",
+                 tint: s.current > 0 ? .orange : .secondary)
+            Divider()
+            stat(value: s.longest, caption: "Record", systemImage: "trophy.fill",
+                 tint: s.longest > 0 ? .yellow : .secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Current streak \(s.current) \(s.current == 1 ? "day" : "days"), best \(s.longest) \(s.longest == 1 ? "day" : "days").")
+    }
+
+    @ViewBuilder
+    private func stat(value: Int, caption: String, systemImage: String, tint: Color) -> some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(tint)
+                Text("\(value)")
+                    .font(.title2).fontWeight(.semibold)
+                    .contentTransition(.numericText())
+            }
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

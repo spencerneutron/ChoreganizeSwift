@@ -73,12 +73,15 @@ read are safe no-ops (the widget shows its placeholder).
 
 A fresh widget target defaults to version `1.0` / build `1`. The App Store
 **rejects** an extension whose version/build don't match the app. In the widget
-target's Build Settings set:
+target's Build Settings keep these equal to the app target's:
 
-- `MARKETING_VERSION` = the app's (currently **1.2.1**)
-- `CURRENT_PROJECT_VERSION` = the app's (currently **10**)
+- `MARKETING_VERSION` = the app's `MARKETING_VERSION`
+- `CURRENT_PROJECT_VERSION` = the app's `CURRENT_PROJECT_VERSION`
 
-Keep them in sync going forward (a shared `.xcconfig`, or just bump both).
+Both targets are kept in lockstep (currently **1.5.0 / build 14**; the `deploy`
+skill bumps both at release time). Also keep `IPHONEOS_DEPLOYMENT_TARGET` equal
+to the app's (**18.0**) — the widget was briefly at 18.6, which would have hidden
+it on 18.0–18.5 devices that could still run the app; realigned to 18.0.
 
 ## 4. Run
 
@@ -90,17 +93,35 @@ Keep them in sync going forward (a shared `.xcconfig`, or just bump both).
 3. Complete/uncomplete a chore in the app, background it → the widget updates
    (the app calls `WidgetCenter…reloadTimelines`).
 
-## Notes / deferred
+## Notes
 
-- **Read-only for now.** Tapping the widget opens the app. Interactive
-  completion (tap a chore in the widget to mark it done) needs an `AppIntent`
-  that writes back into the shared store — a follow-up that requires giving the
-  widget access to Core Data (or a write-back queue in the App Group).
+- **Interactive completion (CG-02, v1.6.0).** Each home-screen chore row has a
+  `Button(intent: CompleteChoreIntent(choreID:name:))`. Tapping it marks the chore
+  done. The intent runs in the **app's** process (`openAppWhenRun = false`), so it
+  uses the live Core Data + CloudKit stack normally — the widget never owns Core
+  Data. `CompleteChoreIntent` is compiled into the widget too (so the `Button` can
+  construct it), but its Core Data `perform()` body is gated out of the widget build
+  via the `WIDGET_EXTENSION` Swift compilation condition (set on the widget target's
+  build configs only — never the app's, or the app would get the no-op stub). After a
+  write the app calls `WidgetCenter…reloadTimelines` so the widget reflects it.
+  Requires the App Group on both targets (above) — it already is.
+- **Lock Screen / accessory widgets (CG-04, v1.6.0).** `supportedFamilies` includes
+  `.accessoryCircular` (a Gauge of chores remaining today) and `.accessoryRectangular`
+  ("N of M left"), reusing the snapshot's precomputed remaining/total.
+- **Deep-linking (CG-05, v1.6.0).** Widget rows carry `choreganize://chore/<uuid>`
+  links; the `choreganize://` URL scheme is registered in `Info.plist`, and
+  `ChoreganizeApp.onOpenURL` → `handleDeepLink` aligns the active scope to the chore
+  and sets `AppModel.deepLinkChore`. The Work view consumes that: `ContentView`
+  switches to Work mode, `WeekView` snaps back to today, and today's `DayPage` scrolls
+  the target row into view and briefly flashes it, then clears the request. Routed
+  through observed `AppModel` state (not a one-shot `Notification`) so it survives the
+  mode switch — the Work view can mount *in response* to the link and still see the
+  target.
 - The widget shows the **active scope's** chores (Solo or the current
   household), because that's what the app snapshots. Switching scope in the app
   republishes on next foreground/background.
-- `containerBackground(_:for:)` needs iOS 17+. The app's deployment target is
-  **iOS 18.0**, so set the widget target to iOS 18.0 to match — fine either way.
+- `containerBackground(_:for:)` and widget `Button(intent:)` need iOS 17+. The app
+  and widget deployment targets are both **iOS 18.0**.
 - **Privacy:** the widget reads chore data from the on-device App Group only — no
   new data collection or transmission, so the App Store privacy labels are
   unchanged. The widget's `PrivacyInfo.xcprivacy` (added above) covers its

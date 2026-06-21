@@ -49,6 +49,19 @@ struct ContentView: View {
             }
             .toolbar(.visible, for: .automatic)
             .animation(.easeInOut, value: mode)
+            // Transient app banners (sync paused / not signed in, errors, info) live
+            // in a top safe-area inset — symmetric with the bottom mode switcher, it
+            // reserves its own room and pushes content down rather than overlapping.
+            // The banner queue already existed on AppModel; this surfaces it (CG-06).
+            .safeAreaInset(edge: .top) {
+                if let banner = model.currentBanner {
+                    AppBannerView(banner: banner) { model.dismissBanner() }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: model.currentBanner)
             // Freeze the calendar's perfect-day glow (shader + TimelineView) while a full-cover
             // sheet is up — otherwise it keeps rendering behind the sheet and tanks its framerate
             // (the Hub opened over the Calendar). Sheets opened from Work/Edit don't mount the
@@ -87,11 +100,6 @@ struct ContentView: View {
                     }
                     .onboardingAnchor(.scopeSwitch)
                 }
-                ToolbarItem(placement: .status) {
-                    if model.isSyncing {
-                        ProgressView().controlSize(.small)
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     if model.scope == .household {
                         HouseholdShareControl()
@@ -112,6 +120,12 @@ struct ContentView: View {
             })
             .onChange(of: model.lastError) { _, newValue in
                 showingError = newValue != nil
+            }
+            // CG-05: a widget deep-link points at a chore on the Work surface, so bring
+            // Work forward if we're in Edit/Calendar. WeekView + DayPage then handle the
+            // day reset, scroll, and highlight (see AppModel.deepLinkChore).
+            .onChange(of: model.deepLinkChore) { _, target in
+                if target != nil { mode = .work }
             }
             .sheet(isPresented: $showingHub, onDismiss: { onboarding.playPendingIfNeeded() }) {
                 HubView()
@@ -144,16 +158,131 @@ struct ContentView: View {
             // full-screen overlay). Default style is the Menu-backed glass pill; the
             // system owns expansion + outside-tap dismissal. See
             // .claude-work/current/liquid-glass-switcher-spec.md.
-            .safeAreaInset(edge: .bottom) {
-                ModeSwitcher(mode: $mode,
-                             style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
-                             onLongPress: { showingLogs = true })
-                    .onboardingAnchor(.modePicker)
-                    .padding(.bottom, 6)
+            // #65: the switcher floats OVER the content (an overlay, not a safeAreaInset)
+            // so the scroll views run full-bleed underneath and content slides under the
+            // translucent glass. A safeAreaInset would instead reserve an opaque band the
+            // content stops above — the regression we're undoing. Each mode's scroll view
+            // adds bottom contentMargins so its last rows still clear the floating chrome.
+            .overlay(alignment: .bottom) {
+                ZStack {
+                    ModeSwitcher(mode: $mode,
+                                 style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
+                                 onLongPress: { showingLogs = true })
+                        .onboardingAnchor(.modePicker)
+                    // CG-06: the sync status floats as its own glass chip BESIDE the
+                    // switcher (trailing) — never under it, and never via a
+                    // ToolbarItem(.status), which materializes an opaque bottom bar that
+                    // covers content and breaks the switcher's float-over-content design.
+                    // Non-interactive, so it never steals the switcher's touches.
+                    HStack {
+                        Spacer()
+                        SyncStatusIndicator(state: model.syncState)
+                            .allowsHitTesting(false)
+                            .padding(.trailing, 20)
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: model.syncState)
+                }
+                .padding(.bottom, 6)
             }
         }
         .overlayPreferenceValue(SpotlightAnchorsKey.self) { anchors in
             OnboardingSpotlightOverlay(coordinator: onboarding, anchors: anchors)
+        }
+    }
+}
+
+/// Floating CloudKit sync status chip (CG-06), shown BESIDE the mode switcher in the
+/// bottom safe-area inset — deliberately NOT a `.status` toolbar item, which would
+/// materialize an opaque bottom bar that covers content and breaks the floating switcher
+/// (#65). A spinner while a mirroring event runs; a "sync paused" cloud-slash when
+/// CloudKit is intended but no iCloud account is available. Idle / disabled /
+/// transient-error render nothing (errors surface via the banner), so the corner stays
+/// empty in the common case.
+struct SyncStatusIndicator: View {
+    let state: AppModel.SyncState
+
+    var body: some View {
+        switch state {
+        case .syncing:
+            badge { ProgressView().controlSize(.small) }
+        case .notSignedIn:
+            badge { Image(systemName: "exclamationmark.icloud").foregroundStyle(.secondary) }
+                .accessibilityLabel("Sync paused — not signed in to iCloud")
+        case .idle, .disabled, .error:
+            EmptyView()
+        }
+    }
+
+    /// The shared floating-glass treatment — matches the switcher's material so the chip
+    /// reads as a sibling floating control rather than chrome.
+    private func badge(@ViewBuilder _ content: () -> some View) -> some View {
+        content()
+            .frame(width: 30, height: 30)
+            .switcherGlass(interactive: false)
+            .transition(.scale.combined(with: .opacity))
+    }
+}
+
+/// Renders one queued `AppModel.BannerMessage`. Tapping the action (if any) runs it;
+/// the close button dismisses. Styling keys off the banner's style; the banner's own
+/// timer auto-dismisses it (see `AppModel.present`).
+struct AppBannerView: View {
+    let banner: AppModel.BannerMessage
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.headline)
+                .foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 2) {
+                if let title = banner.title {
+                    Text(title).font(.subheadline.weight(.semibold))
+                }
+                Text(banner.message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            if let actionTitle = banner.actionTitle {
+                Button(actionTitle) { onDismiss(); banner.action?() }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.borderless)
+            }
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(tint.opacity(0.35), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+    }
+
+    private var iconName: String {
+        switch banner.style {
+        case .info:    "info.circle.fill"
+        case .success: "checkmark.circle.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .error:   "xmark.octagon.fill"
+        }
+    }
+
+    private var tint: Color {
+        switch banner.style {
+        case .info:    .accentColor
+        case .success: .green
+        case .warning: .orange
+        case .error:   .red
         }
     }
 }

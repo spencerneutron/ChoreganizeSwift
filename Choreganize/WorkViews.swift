@@ -10,6 +10,8 @@ struct ChoreRowView: View {
     var locked: Bool = false
     /// The date represented by this row when determining completion status.
     var date: Date = Date()
+    /// Briefly tinted when a widget deep-link (CG-05) targets this chore.
+    var highlighted: Bool = false
 
     private var lastLine: some View {
         Group {
@@ -69,6 +71,13 @@ struct ChoreRowView: View {
             }
         }
         .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accentColor.opacity(highlighted ? 0.18 : 0))
+                .padding(.vertical, 2)
+                .padding(.horizontal, -8)
+                .animation(.easeInOut(duration: 0.3), value: highlighted)
+        )
     }
 }
 
@@ -80,6 +89,7 @@ struct WorkHomeView: View {
 }
 
 struct WeekView: View {
+    @EnvironmentObject private var model: AppModel
     // Expose a range before and after today so the user can page
     // through recent days.
     private var dates: [Date] {
@@ -89,6 +99,11 @@ struct WeekView: View {
     // Today sits in the middle of the range
     @State private var currentIndex: Int = 6
 
+    /// Index of today within `dates` (today is the middle of the range).
+    private var todayIndex: Int {
+        dates.firstIndex { Calendar.current.isDateInToday($0) } ?? 6
+    }
+
     var body: some View {
         TabView(selection: $currentIndex) {
             ForEach(Array(dates.enumerated()), id: \.offset) { index, date in
@@ -97,6 +112,17 @@ struct WeekView: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        // A .page TabView otherwise stops its pages at the bottom safe area, leaving a
+        // home-indicator-height band the DayPage list can't fill — content gets clipped
+        // above the floating switcher instead of scrolling under it. Extend to the edge.
+        .ignoresSafeArea(.container, edges: .bottom)
+        // CG-05: a widget deep-link targets a today chore — snap back to today (the user
+        // may have paged away) so the targeted page is the one that scrolls to it.
+        .onChange(of: model.deepLinkChore) { _, target in
+            if target != nil, currentIndex != todayIndex {
+                withAnimation { currentIndex = todayIndex }
+            }
+        }
         .overlay(alignment: .center) {
             HStack {
                 if currentIndex > 0 {
@@ -131,11 +157,31 @@ struct DayPage: View {
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
     @State private var showLogSheet = false
+    /// The chore a widget deep-link (CG-05) is briefly highlighting on this page.
+    @State private var highlightedChore: UUID?
 
     private var grouping: WorkGrouping { WorkGrouping(rawValue: workGroupingRaw) ?? .none }
 
     private var isPast: Bool {
         Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: Date())
+    }
+
+    private var isToday: Bool { Calendar.current.isDateInToday(date) }
+
+    /// Honors a widget deep-link (CG-05) that points at a chore on today's page: scrolls
+    /// the row into view, flashes a highlight, and clears the request so it fires once.
+    /// Only today's page acts — the widget links to today's chores; other days ignore it.
+    @MainActor
+    private func consumeDeepLink(_ target: UUID?, proxy: ScrollViewProxy, in dayChores: [CDChore]) {
+        guard isToday, let target else { return }
+        if let match = dayChores.first(where: { $0.id == target }) {
+            withAnimation { proxy.scrollTo(match.objectID, anchor: .center) }
+            highlightedChore = target
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                withAnimation { if highlightedChore == target { highlightedChore = nil } }
+            }
+        }
+        model.deepLinkChore = nil   // consumed
     }
 
     var body: some View {
@@ -144,7 +190,12 @@ struct DayPage: View {
         let inScopeChores = Array(chores).inScope(active)
         let dayChores = Scheduling.chores(inScopeChores, for: date)
         let isLocked = DayLock.isLocked(date, in: scopedLocks)
+        // CG-08 — the currently-visible, not-yet-done chores for this day. "Mark all
+        // done" acts on exactly this set, so locked/past days (toggles disabled) and
+        // already-completed rows are untouched.
+        let incompleteChores = dayChores.filter { !$0.isCompleted(on: date) }
 
+        ScrollViewReader { proxy in
         List {
             let weekdayName = date.formatted(.dateTime.weekday(.wide))
             let dateText = date.formatted(date: .abbreviated, time: .omitted)
@@ -156,14 +207,14 @@ struct DayPage: View {
             if groups.isEmpty {
                 Section(header: Text(header)) {
                     ForEach(dayChores, id: \.objectID) { chore in
-                        ChoreRowView(chore: chore, locked: isLocked, date: date)
+                        ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore)
                     }
                 }
             } else {
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                     Section {
                         ForEach(group.chores, id: \.objectID) { chore in
-                            ChoreRowView(chore: chore, locked: isLocked, date: date)
+                            ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore)
                         }
                     } header: {
                         if index == 0 {
@@ -175,6 +226,23 @@ struct DayPage: View {
                             Text(group.title)
                         }
                     }
+                }
+            }
+
+            // CG-08 — one tap to complete every visible incomplete chore for the day.
+            // Only offered on an unlocked, non-empty day (locked days have disabled
+            // toggles), and only while something is still incomplete.
+            if !isLocked && !incompleteChores.isEmpty {
+                Section {
+                    Button {
+                        let ids = Set(incompleteChores.map(\.objectID))
+                        withAnimation {
+                            BulkChoreOps.markAllDone(ids, on: date, in: context)
+                        }
+                    } label: {
+                        Label("Mark all done", systemImage: "checklist.checked")
+                    }
+                    .accessibilityIdentifier("markAllDoneButton")
                 }
             }
 
@@ -198,6 +266,10 @@ struct DayPage: View {
         // must exceed it to actually add space — 32 clears the chevrons with a gap.
         // (Tunable: one number; the list background still spans full-width, no edge strip.)
         .contentMargins(.horizontal, 32, for: .scrollContent)
+        // Float-over-content (#65): the switcher + Done button float at the bottom, so give
+        // the list enough trailing room that its last rows can scroll clear of them rather
+        // than hiding underneath. Content still slides UNDER the translucent glass.
+        .contentMargins(.bottom, 132, for: .scrollContent)
         .scrollIndicators(.hidden)   // hide the scroll bar; scrolling still works
         .sheet(isPresented: $showLogSheet) {
             LogCompletionSheet(date: date, chores: inScopeChores)
@@ -226,13 +298,24 @@ struct DayPage: View {
             if isLocked && !isPast {
                 Button("Unlock") { DayLock.unlock(date, existing: scopedLocks, in: context) }
                     .buttonStyle(.bordered)
-                    .padding(.bottom, 40)
+                    .padding(.bottom, 84)
             } else if !isLocked {
                 Button("Done") { showDoneAlert = true }
                     .buttonStyle(.borderedProminent)
-                    .padding(.bottom, 40)
+                    .padding(.bottom, 84)
                     .onboardingAnchor(.doneButton)
             }
+        }
+        // CG-05: scroll to + flash the deep-linked chore. Both hooks matter — onChange
+        // for when the link arrives while this page is already live, onAppear for when
+        // the page mounts in response to the link (coming from Edit, or after WeekView
+        // snaps back to today).
+        .onChange(of: model.deepLinkChore) { _, target in
+            consumeDeepLink(target, proxy: proxy, in: dayChores)
+        }
+        .onAppear {
+            consumeDeepLink(model.deepLinkChore, proxy: proxy, in: dayChores)
+        }
         }
     }
 }

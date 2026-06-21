@@ -78,6 +78,62 @@ enum NotificationManager {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
+    // MARK: - Actionable notifications
+
+    /// Category + action identifiers for the "Mark done" reminder action. The
+    /// category must be registered with the notification center before any
+    /// reminder carrying it is delivered (see `registerCategories`).
+    enum Action {
+        static let category = "CHORE_REMINDER"
+        static let markDone = "MARK_DONE"
+        static let choreIDsKey = "choreIDs"   // userInfo: [String] of CDChore.id UUIDs
+    }
+
+    /// Registers the reminder category so delivered reminders show a "Mark done"
+    /// action. Called once at launch from the app delegate, before any reminder
+    /// fires. The action runs in the background (no foreground bring-up), so it
+    /// completes the chore without opening the app.
+    static func registerCategories() {
+        let markDone = UNNotificationAction(
+            identifier: Action.markDone,
+            title: "Mark done",
+            options: []
+        )
+        let category = UNNotificationCategory(
+            identifier: Action.category,
+            actions: [markDone],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([category])
+    }
+
+    /// Handles the "Mark done" action: re-resolves the chores carried in the
+    /// reminder's `userInfo` against the live store *now* (their state may have
+    /// changed since schedule time) and records a completion for any still open
+    /// today. Reuses the same id-based resolution + `recordCompletion` path as
+    /// `CompleteChoreIntent`, so completion logic isn't duplicated.
+    @discardableResult
+    static func completeChores(fromUserInfo userInfo: [AnyHashable: Any]) -> Int {
+        guard let raw = userInfo[Action.choreIDsKey] as? [String] else { return 0 }
+        let ids = raw.compactMap(UUID.init(uuidString:))
+        guard !ids.isEmpty else { return 0 }
+
+        let context = CoreDataStack.shared.viewContext
+        let request = NSFetchRequest<CDChore>(entityName: "CDChore")
+        request.predicate = NSPredicate(format: "id IN %@", ids)
+        let chores = (try? context.fetch(request)) ?? []
+
+        var completed = 0
+        let today = Date()
+        for chore in chores where !chore.isCompleted(on: today) {
+            chore.recordCompletion(on: today, in: context)
+            completed += 1
+        }
+        Log.info("Reminder 'Mark done' completed \(completed) chore(s)", category: .app)
+        return completed
+    }
+
     // MARK: - Scheduling
 
     private static let reminderPrefix = "chore-reminder-"
@@ -106,13 +162,27 @@ enum NotificationManager {
 
         let planned = plannedReminders(chores: chores, days: enabledDays,
                                        hour: hour, minute: minute, from: Date(), calendar: cal)
+        // Resolve names once for single-chore reminders so the body can name the
+        // chore the "Mark done" action will complete.
+        let nameByID = Dictionary(uniqueKeysWithValues: chores.compactMap { chore -> (UUID, String)? in
+            guard let id = chore.id else { return nil }
+            return (id, chore.name ?? "a chore")
+        })
+
         for reminder in planned {
             let content = UNMutableNotificationContent()
             content.title = "Chores to finish"
-            content.body = reminder.unresolvedCount == 1
-                ? "1 chore still needs attention."
-                : "\(reminder.unresolvedCount) chores still need attention."
+            if reminder.unresolvedCount == 1, let id = reminder.choreIDs.first, let name = nameByID[id] {
+                content.body = "“\(name)” still needs attention."
+            } else {
+                content.body = "\(reminder.unresolvedCount) chores still need attention."
+            }
             content.sound = .default
+            // Make the reminder actionable: "Mark done" resolves these ids live and
+            // completes any still open today (see `completeChores`). The category is
+            // registered at launch in the app delegate.
+            content.categoryIdentifier = Action.category
+            content.userInfo[Action.choreIDsKey] = reminder.choreIDs.map(\.uuidString)
 
             let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: reminder.fireDate)
             let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
@@ -180,11 +250,15 @@ enum NotificationManager {
 
     // MARK: - Planning (pure, testable)
 
-    /// One reminder we intend to schedule: when it fires and how many chores were
-    /// unresolved at planning time (drives the body text).
+    /// One reminder we intend to schedule: when it fires, how many chores were
+    /// unresolved at planning time (drives the body text), and the stable ids of
+    /// those chores (carried in `userInfo` so the "Mark done" action can resolve
+    /// and complete them at fire time). `unresolvedCount` stays redundant with
+    /// `choreIDs.count` so the existing planning tests/body logic are unchanged.
     struct PlannedReminder: Equatable {
         let fireDate: Date
         let unresolvedCount: Int
+        var choreIDs: [UUID] = []
     }
 
     /// The core scheduling decision — only on enabled weekdays, only when chores
@@ -208,9 +282,11 @@ enum NotificationManager {
             guard days.contains(weekday(for: day, cal: calendar)) else { continue }
             guard let fireDate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day),
                   fireDate > now else { continue }   // skip today's slot if already passed
-            let count = unresolvedCount(in: chores, on: day)
-            guard count > 0 else { continue }
-            result.append(PlannedReminder(fireDate: fireDate, unresolvedCount: count))
+            let unresolved = unresolvedChores(in: chores, on: day)
+            guard !unresolved.isEmpty else { continue }
+            result.append(PlannedReminder(fireDate: fireDate,
+                                          unresolvedCount: unresolved.count,
+                                          choreIDs: unresolved.compactMap(\.id)))
         }
         return result
     }
@@ -219,10 +295,13 @@ enum NotificationManager {
 
     /// Chores still needing attention on `date` (the live unfinished set today;
     /// a prediction for future dates, where no completions exist yet).
-    nonisolated static func unresolvedCount(in chores: [CDChore], on date: Date) -> Int {
+    nonisolated static func unresolvedChores(in chores: [CDChore], on date: Date) -> [CDChore] {
         Scheduling.chores(chores, for: date)
             .filter { $0.needsAttention(on: date) && !$0.isCompleted(on: date) }
-            .count
+    }
+
+    nonisolated static func unresolvedCount(in chores: [CDChore], on date: Date) -> Int {
+        unresolvedChores(in: chores, on: date).count
     }
 
     nonisolated static func weekday(for date: Date, cal: Calendar) -> Weekday {

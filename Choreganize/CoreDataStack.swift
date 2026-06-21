@@ -38,8 +38,16 @@ final class CoreDataStack {
 
     let container: NSPersistentCloudKitContainer
 
-    /// Whether CloudKit mirroring (and therefore sharing) is active.
-    let cloudKitEnabled: Bool
+    /// Whether CloudKit mirroring (and therefore sharing) is active. Starts from
+    /// the run configuration but can flip to `false` at load time if CloudKit
+    /// setup fails because there's no usable iCloud account (CG-07): we degrade to
+    /// local-only rather than trap, so the app still runs offline.
+    private(set) var cloudKitEnabled: Bool
+
+    /// True when CloudKit was *intended* this run but we fell back to local-only
+    /// because the iCloud account was missing/unavailable at launch. Lets the UI
+    /// distinguish "sync paused, not signed in" from a deliberately local run.
+    private(set) var degradedToLocalOnly: Bool = false
 
     /// The CloudKit private-database store (own data + owned households).
     private(set) var privateStore: NSPersistentStore?
@@ -62,6 +70,22 @@ final class CoreDataStack {
         isRunningTests
             || ProcessInfo.processInfo.environment["CHOREGANIZE_LOCAL_ONLY"] == "1"
             || ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+    }
+
+    /// True only for the *expected* "no usable iCloud account" failure when a
+    /// CloudKit-backed store can't load (CG-07). Used to decide whether to degrade
+    /// to local-only. Deliberately narrow so real misconfiguration still surfaces:
+    /// `CKError.notAuthenticated` is the account-not-signed-in case, and Core Data
+    /// surfaces the same condition as a `CKErrorDomain` error nested under
+    /// `NSUnderlyingError`. Anything else (entitlements, schema, quota) returns false.
+    static func isMissingAccountError(_ error: NSError) -> Bool {
+        for candidate in [error] + (error.underlyingErrors as [NSError]) {
+            if candidate.domain == CKErrorDomain,
+               candidate.code == CKError.notAuthenticated.rawValue {
+                return true
+            }
+        }
+        return false
     }
 
     init(inMemory: Bool = false) {
@@ -103,14 +127,42 @@ final class CoreDataStack {
             privateDescription.cloudKitContainerOptions = nil
         }
 
+        var loadError: NSError?
         container.loadPersistentStores { storeDescription, error in
             if let error = error as NSError? {
                 Log.error("Core Data store failed to load: \(error.code) \(error.localizedDescription)", category: .persistence)
+                loadError = error
             } else {
                 let scope = storeDescription.cloudKitContainerOptions?.databaseScope
                 let label = scope == .shared ? "shared/CloudKit"
                     : (scope == .private ? "private/CloudKit" : "local-only")
                 Log.info("Core Data store loaded (\(label)): \(storeDescription.url?.lastPathComponent ?? "?")", category: .persistence)
+            }
+        }
+
+        // CG-07: if a CloudKit-backed store failed to load *only because there's no
+        // usable iCloud account*, degrade to local-only and reload — the app should
+        // still run offline, not trap. A genuine misconfiguration (entitlements,
+        // schema, etc.) is NOT swallowed: it's logged above and left to surface.
+        if cloudKitEnabled, let loadError, Self.isMissingAccountError(loadError) {
+            Log.warning("CloudKit unavailable (no iCloud account); degrading to local-only.", category: .cloud)
+            cloudKitEnabled = false
+            degradedToLocalOnly = true
+            sharedStore = nil
+            for description in container.persistentStoreDescriptions {
+                description.cloudKitContainerOptions = nil
+            }
+            // Drop the second (shared) store description added for CloudKit; one
+            // local store is enough offline.
+            if let primary = container.persistentStoreDescriptions.first {
+                container.persistentStoreDescriptions = [primary]
+            }
+            container.loadPersistentStores { storeDescription, error in
+                if let error = error as NSError? {
+                    Log.error("Local-only store failed to load after degrade: \(error.code) \(error.localizedDescription)", category: .persistence)
+                } else {
+                    Log.info("Core Data store loaded (local-only fallback): \(storeDescription.url?.lastPathComponent ?? "?")", category: .persistence)
+                }
             }
         }
 

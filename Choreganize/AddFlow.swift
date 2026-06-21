@@ -156,6 +156,13 @@ final class AddFlowModel: ObservableObject {
 
     func remove(_ id: ChoreDraft.ID) { drafts.removeAll { $0.id == id } }
 
+    /// Replace a staged draft in place (same id), preserving its position. Used by the
+    /// Review step's inline editor; no-op if the id is no longer staged.
+    func update(_ draft: ChoreDraft) {
+        guard let index = drafts.firstIndex(where: { $0.id == draft.id }) else { return }
+        drafts[index] = draft
+    }
+
     // MARK: - Grouped building (P1 wizard)
 
     /// The group currently being filled; pins one field of every chore added to it.

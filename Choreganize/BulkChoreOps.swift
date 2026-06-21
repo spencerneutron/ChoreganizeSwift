@@ -19,6 +19,16 @@ enum BulkChoreOps {
         saveIfNeeded(context)
     }
 
+    /// Records a completion on `date` for every chore in `ids`, skipping any that
+    /// are already complete that day (CG-08 "Mark all done"). Mirrors
+    /// `CDChore.recordCompletion` semantics but saves once for the whole batch.
+    static func markAllDone(_ ids: Set<NSManagedObjectID>, on date: Date, in context: NSManagedObjectContext) {
+        for chore in chores(ids, in: context) where !chore.isCompleted(on: date) {
+            CDCompletion.make(in: context, date: date, chore: chore, household: chore.household)
+        }
+        saveIfNeeded(context)
+    }
+
     /// Applies `change` to one facet of every chore in `ids`, leaving the others
     /// untouched. Used to correct entry mistakes / handle a move en masse.
     static func change(_ ids: Set<NSManagedObjectID>, _ change: ChoreFacetChange, in context: NSManagedObjectContext) {

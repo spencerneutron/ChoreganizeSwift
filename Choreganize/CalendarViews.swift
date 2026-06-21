@@ -162,9 +162,14 @@ enum CalendarMarks {
     /// without the main actor. `future` days carry `completed == 0` (nothing done yet).
     nonisolated static func progress(_ chores: [CDChore], on date: Date,
                                      mode: CellMode, daysAgo: Int, locked: Bool) -> DayProgress {
-        DayProgress(
-            total: chores.count,
-            completed: chores.filter { $0.isCompleted(on: date) }.count,
+        // A chore can't count against a day that predates its own creation (#85): a
+        // task added after a past date shouldn't drag that earlier day's ratio down.
+        // (`choresByDate` already starts each schedule at creation, so this only ever
+        // tightens the count; a chore with no recorded creation date is left in.)
+        let countable = chores.filter { $0.existedOn(date) }
+        return DayProgress(
+            total: countable.count,
+            completed: countable.filter { $0.isCompleted(on: date) }.count,
             mode: mode,
             withinWindow: daysAgo <= CalendarPolicy.recentIncompleteWindow,
             locked: locked
@@ -178,6 +183,17 @@ enum CalendarMarks {
         let day = cal.startOfDay(for: date)
         if day < today { return .past }
         return day == today ? .currentWeek : .future
+    }
+}
+
+extension CDChore {
+    /// Whether the chore already existed on `date` (#85). A day strictly before the
+    /// chore's creation must not be counted against it. A chore with no recorded
+    /// creation date is treated as always-present (no constraint), so existing
+    /// history is never hidden.
+    nonisolated func existedOn(_ date: Date, calendar cal: Calendar = .current) -> Bool {
+        guard let created = createdDate else { return true }
+        return cal.startOfDay(for: date) >= cal.startOfDay(for: created)
     }
 }
 
@@ -203,6 +219,51 @@ enum CalendarStreaks {
             i = j + 1
         }
         return result
+    }
+
+    /// A current/longest streak readout derived from the perfect (glow-earning) days
+    /// (#93, basic). `current` is the run ending today — or yesterday, so the streak
+    /// survives an in-progress today that isn't perfect *yet* — and is 0 otherwise.
+    /// `longest` is the most consecutive perfect days ever. Pure + `nonisolated`, built
+    /// straight from `slots` so it can't disagree with the calendar's own run grouping.
+    struct Summary: Equatable { var current: Int; var longest: Int }
+
+    nonisolated static func summary(for perfectDays: Set<Date>,
+                                    calendar cal: Calendar = .current) -> Summary {
+        let runs = slots(for: perfectDays, calendar: cal)
+        let longest = runs.values.map(\.count).max() ?? 0
+
+        let today = cal.startOfDay(for: Date())
+        let yesterday = cal.date(byAdding: .day, value: -1, to: today)
+        // Anchor the live streak to today if it's perfect, else to yesterday — a streak
+        // shouldn't read as broken just because today's chores aren't all done yet.
+        let anchor = runs[today] != nil ? today : yesterday
+        let current = anchor.flatMap { runs[$0] }.map { $0.slot + 1 } ?? 0
+        return Summary(current: current, longest: longest)
+    }
+
+    /// The set of perfect (glow-earning) days across the `monthsBack` months ending
+    /// today — the calendar's `earnsGlow` rule applied beyond a single visible grid so
+    /// the Hub can summarize streaks (#93). Reuses `Scheduling.choresByDate` +
+    /// `CalendarMarks.progress` so it scores days exactly as the month grid does.
+    nonisolated static func perfectDays(scopedChores: [CDChore], scopedLocks: [CDLockedDay],
+                                        monthsBack: Int = 12, calendar cal: Calendar = .current) -> Set<Date> {
+        let today = cal.startOfDay(for: Date())
+        var perfect: Set<Date> = []
+        for back in 0...max(0, monthsBack) {
+            guard let monthAnchor = cal.date(byAdding: .month, value: -back, to: today) else { continue }
+            let byDate = Scheduling.choresByDate(inMonth: monthAnchor, chores: scopedChores)
+            for (day, chores) in byDate where day <= today {
+                let daysAgo = cal.dateComponents([.day], from: day, to: today).day ?? 0
+                let p = CalendarMarks.progress(
+                    chores, on: day,
+                    mode: CalendarMarks.mode(for: day, calendar: cal),
+                    daysAgo: daysAgo,
+                    locked: DayLock.isLocked(day, in: scopedLocks))
+                if p.earnsGlow { perfect.insert(day) }
+            }
+        }
+        return perfect
     }
 }
 
