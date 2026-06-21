@@ -112,6 +112,10 @@ struct WeekView: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        // A .page TabView otherwise stops its pages at the bottom safe area, leaving a
+        // home-indicator-height band the DayPage list can't fill — content gets clipped
+        // above the floating switcher instead of scrolling under it. Extend to the edge.
+        .ignoresSafeArea(.container, edges: .bottom)
         // CG-05: a widget deep-link targets a today chore — snap back to today (the user
         // may have paged away) so the targeted page is the one that scrolls to it.
         .onChange(of: model.deepLinkChore) { _, target in
@@ -262,6 +266,10 @@ struct DayPage: View {
         // must exceed it to actually add space — 32 clears the chevrons with a gap.
         // (Tunable: one number; the list background still spans full-width, no edge strip.)
         .contentMargins(.horizontal, 32, for: .scrollContent)
+        // Float-over-content (#65): the switcher + Done button float at the bottom, so give
+        // the list enough trailing room that its last rows can scroll clear of them rather
+        // than hiding underneath. Content still slides UNDER the translucent glass.
+        .contentMargins(.bottom, 132, for: .scrollContent)
         .scrollIndicators(.hidden)   // hide the scroll bar; scrolling still works
         .sheet(isPresented: $showLogSheet) {
             LogCompletionSheet(date: date, chores: inScopeChores)
@@ -290,11 +298,11 @@ struct DayPage: View {
             if isLocked && !isPast {
                 Button("Unlock") { DayLock.unlock(date, existing: scopedLocks, in: context) }
                     .buttonStyle(.bordered)
-                    .padding(.bottom, 40)
+                    .padding(.bottom, 84)
             } else if !isLocked {
                 Button("Done") { showDoneAlert = true }
                     .buttonStyle(.borderedProminent)
-                    .padding(.bottom, 40)
+                    .padding(.bottom, 84)
                     .onboardingAnchor(.doneButton)
             }
         }

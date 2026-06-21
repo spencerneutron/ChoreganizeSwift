@@ -158,7 +158,12 @@ struct ContentView: View {
             // full-screen overlay). Default style is the Menu-backed glass pill; the
             // system owns expansion + outside-tap dismissal. See
             // .claude-work/current/liquid-glass-switcher-spec.md.
-            .safeAreaInset(edge: .bottom) {
+            // #65: the switcher floats OVER the content (an overlay, not a safeAreaInset)
+            // so the scroll views run full-bleed underneath and content slides under the
+            // translucent glass. A safeAreaInset would instead reserve an opaque band the
+            // content stops above — the regression we're undoing. Each mode's scroll view
+            // adds bottom contentMargins so its last rows still clear the floating chrome.
+            .overlay(alignment: .bottom) {
                 ZStack {
                     ModeSwitcher(mode: $mode,
                                  style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
@@ -167,8 +172,8 @@ struct ContentView: View {
                     // CG-06: the sync status floats as its own glass chip BESIDE the
                     // switcher (trailing) — never under it, and never via a
                     // ToolbarItem(.status), which materializes an opaque bottom bar that
-                    // covers content and breaks the switcher's float-over-content design
-                    // (#65). Non-interactive, so it never steals the switcher's touches.
+                    // covers content and breaks the switcher's float-over-content design.
+                    // Non-interactive, so it never steals the switcher's touches.
                     HStack {
                         Spacer()
                         SyncStatusIndicator(state: model.syncState)

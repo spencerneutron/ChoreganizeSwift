@@ -38,6 +38,9 @@ struct EditHomeView: View {
                 NavigationLink("Areas") { AreaListView() }
             }
         }
+        // Float-over-content (#65): clear the floating mode switcher so the last row isn't
+        // hidden behind it.
+        .contentMargins(.bottom, 100, for: .scrollContent)
     }
 }
 
