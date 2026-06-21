@@ -413,7 +413,7 @@
 				CODE_SIGN_ENTITLEMENTS = ChoreganizeWidget/ChoreganizeWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				DEVELOPMENT_TEAM = YV4K38KS29;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ChoreganizeWidget/Info.plist;
@@ -448,7 +448,7 @@
 				CODE_SIGN_ENTITLEMENTS = ChoreganizeWidget/ChoreganizeWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				DEVELOPMENT_TEAM = YV4K38KS29;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ChoreganizeWidget/Info.plist;
@@ -599,7 +599,7 @@
 				CODE_SIGN_ENTITLEMENTS = Choreganize/Choreganize.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				DEVELOPMENT_TEAM = YV4K38KS29;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -641,7 +641,7 @@
 				CODE_SIGN_ENTITLEMENTS = Choreganize/Choreganize.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				DEVELOPMENT_TEAM = YV4K38KS29;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
