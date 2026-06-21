@@ -108,54 +108,57 @@ struct WeekView: View {
     }
 
     var body: some View {
-        // A horizontal paging ScrollView replaces the old .page TabView. The TabView is a
-        // UIPageViewController that builds its neighbour pages OFF-SCREEN (safe area == 0),
-        // so each recycled List baked a zero top inset — that was the "date header clips
-        // under the bar after one swipe" bug, and it left the bottom band unpainted. Here
-        // every day lives in ONE on-screen scroll container = one correct safe-area
-        // environment, so the inset is right (and identical) on every page. All iOS 17+.
-        ScrollView(.horizontal) {
-            LazyHStack(spacing: 0) {
-                ForEach(Array(dates.enumerated()), id: \.offset) { _, date in
-                    DayPage(date: date)
-                        // Each page is exactly one viewport — gives the nested List its
-                        // bounded width AND height (it scrolls vertically within).
-                        .containerRelativeFrame([.horizontal, .vertical])
+        // A horizontal paging ScrollView replaces the old .page TabView (a
+        // UIPageViewController that built neighbour pages off-screen and lost their inset).
+        // The GeometryReader sizes each page to the SAFE-AREA-bounded container, so the day
+        // list rests BELOW the top nav controls and ABOVE the home indicator — a full-window
+        // page (containerRelativeFrame) otherwise trapped the first rows under the top
+        // controls and collided the Done button with the switcher. One container = identical
+        // insets on every page (D2 stays fixed). All iOS 17+.
+        GeometryReader { geo in
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 0) {
+                    ForEach(Array(dates.enumerated()), id: \.offset) { _, date in
+                        DayPage(date: date)
+                            // Each page == the safe-area-bounded container: gives the nested
+                            // List its bounded width AND height (it scrolls vertically within).
+                            .frame(width: geo.size.width, height: geo.size.height)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.paging)       // container-width snap == the old paged feel
+            .scrollPosition(id: $currentIndex)    // track the centered day (chevrons + deep link)
+            .defaultScrollAnchor(.center)         // first layout centers today (the middle page)
+            .scrollIndicators(.hidden)
+            // Paint the grouped background to the physical edges so the home-indicator band
+            // and the device's rounded corners are never the window's black base.
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            // CG-05: a widget deep-link targets a today chore — snap back to today (the user
+            // may have paged away) so the targeted page is the one that scrolls to it.
+            .onChange(of: model.deepLinkChore) { _, target in
+                if target != nil, (currentIndex ?? todayIndex) != todayIndex {
+                    withAnimation { currentIndex = todayIndex }
                 }
             }
-            .scrollTargetLayout()
-        }
-        .scrollTargetBehavior(.paging)       // container-width snap == the old paged feel
-        .scrollPosition(id: $currentIndex)    // track the centered day (chevrons + deep link)
-        .defaultScrollAnchor(.center)         // first layout centers today (the middle page)
-        .scrollIndicators(.hidden)
-        // Paint the grouped background to the physical edges so the home-indicator band and
-        // the device's rounded corners are never the window's black base (fixes the strip).
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
-        // CG-05: a widget deep-link targets a today chore — snap back to today (the user
-        // may have paged away) so the targeted page is the one that scrolls to it.
-        .onChange(of: model.deepLinkChore) { _, target in
-            if target != nil, (currentIndex ?? todayIndex) != todayIndex {
-                withAnimation { currentIndex = todayIndex }
-            }
-        }
-        .overlay(alignment: .center) {
-            let idx = currentIndex ?? todayIndex
-            HStack {
-                if idx > 0 {
-                    Image(systemName: "chevron.left")
+            .overlay(alignment: .center) {
+                let idx = currentIndex ?? todayIndex
+                HStack {
+                    if idx > 0 {
+                        Image(systemName: "chevron.left")
+                    }
+                    Spacer()
+                    if idx < dates.count - 1 {
+                        Image(systemName: "chevron.right")
+                    }
                 }
-                Spacer()
-                if idx < dates.count - 1 {
-                    Image(systemName: "chevron.right")
-                }
+                .font(.title2)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 6)
+                .opacity(0.5)
+                .allowsHitTesting(false)
+                .animation(.easeInOut, value: idx)
             }
-            .font(.title2)
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 6)
-            .opacity(0.5)
-            .allowsHitTesting(false)
-            .animation(.easeInOut, value: idx)
         }
     }
 }
