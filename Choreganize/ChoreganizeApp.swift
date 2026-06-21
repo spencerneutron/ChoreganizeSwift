@@ -1,5 +1,14 @@
 import SwiftUI
 import Metal
+import CoreData
+
+extension Notification.Name {
+    /// Posted when a widget deep-link (CG-05) resolves to a chore. `object` is the
+    /// chore's `UUID` (or `nil` for a plain "open to today" link). A view that wants
+    /// to scroll/select the chore can observe this; the app already lands on today's
+    /// DayPage, which is the day the widget surfaces, so opening is correct without it.
+    static let choreganizeDeepLink = Notification.Name("choreganizeDeepLink")
+}
 
 @main
 struct ChoreganizeApp: App {
@@ -68,6 +77,39 @@ struct ChoreganizeApp: App {
                         }
                     }
                 }
+                // CG-05: widget rows deep-link via the `choreganize://` scheme. Route
+                // to the relevant chore's day. Self-contained here (no AppModel/
+                // ContentView changes): make the chore visible by switching to its
+                // scope, then broadcast the target for any observer. The Work tab
+                // already opens on today's DayPage — the day the widget shows — so the
+                // app lands on the chore's day.
+                .onOpenURL { url in
+                    handleDeepLink(url)
+                }
         }
+    }
+
+    /// Resolves a `choreganize://` URL and routes to the targeted chore. Switches the
+    /// active scope so a Household chore tapped from the widget is actually on screen,
+    /// then posts `.choreganizeDeepLink` with the chore UUID.
+    @MainActor
+    private func handleDeepLink(_ url: URL) {
+        // `nil` outer means "not our URL"; inner `nil` means "ours, but not chore-specific".
+        guard let resolved = WidgetDeepLink.choreID(from: url) else { return }
+        guard let choreID = resolved else {
+            NotificationCenter.default.post(name: .choreganizeDeepLink, object: nil)
+            return
+        }
+
+        // Align the active scope with the chore so it's visible on today's DayPage.
+        let context = CoreDataStack.shared.viewContext
+        let request = NSFetchRequest<CDChore>(entityName: "CDChore")
+        request.fetchLimit = 1
+        request.predicate = NSPredicate(format: "id == %@", choreID as CVarArg)
+        if let chore = try? context.fetch(request).first {
+            let targetScope: AppScope = chore.household == nil ? .solo : .household
+            if model.scope != targetScope { model.setScope(targetScope) }
+        }
+        NotificationCenter.default.post(name: .choreganizeDeepLink, object: choreID)
     }
 }
