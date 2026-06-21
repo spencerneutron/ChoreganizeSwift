@@ -49,6 +49,19 @@ struct ContentView: View {
             }
             .toolbar(.visible, for: .automatic)
             .animation(.easeInOut, value: mode)
+            // Transient app banners (sync paused / not signed in, errors, info) live
+            // in a top safe-area inset — symmetric with the bottom mode switcher, it
+            // reserves its own room and pushes content down rather than overlapping.
+            // The banner queue already existed on AppModel; this surfaces it (CG-06).
+            .safeAreaInset(edge: .top) {
+                if let banner = model.currentBanner {
+                    AppBannerView(banner: banner) { model.dismissBanner() }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: model.currentBanner)
             // Freeze the calendar's perfect-day glow (shader + TimelineView) while a full-cover
             // sheet is up — otherwise it keeps rendering behind the sheet and tanks its framerate
             // (the Hub opened over the Calendar). Sheets opened from Work/Edit don't mount the
@@ -88,9 +101,7 @@ struct ContentView: View {
                     .onboardingAnchor(.scopeSwitch)
                 }
                 ToolbarItem(placement: .status) {
-                    if model.isSyncing {
-                        ProgressView().controlSize(.small)
-                    }
+                    SyncStatusIndicator(state: model.syncState)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if model.scope == .household {
@@ -154,6 +165,91 @@ struct ContentView: View {
         }
         .overlayPreferenceValue(SpotlightAnchorsKey.self) { anchors in
             OnboardingSpotlightOverlay(coordinator: onboarding, anchors: anchors)
+        }
+    }
+}
+
+/// Toolbar status glyph for CloudKit sync (CG-06). A spinner while a mirroring
+/// event runs; a subtle "sync paused" cloud-slash when CloudKit is intended but
+/// no iCloud account is available. Idle / disabled / transient-error show nothing
+/// (errors already surface via the banner), so the bar stays quiet in the common case.
+struct SyncStatusIndicator: View {
+    let state: AppModel.SyncState
+
+    var body: some View {
+        switch state {
+        case .syncing:
+            ProgressView().controlSize(.small)
+        case .notSignedIn:
+            Image(systemName: "exclamationmark.icloud")
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Sync paused — not signed in to iCloud")
+        case .idle, .disabled, .error:
+            EmptyView()
+        }
+    }
+}
+
+/// Renders one queued `AppModel.BannerMessage`. Tapping the action (if any) runs it;
+/// the close button dismisses. Styling keys off the banner's style; the banner's own
+/// timer auto-dismisses it (see `AppModel.present`).
+struct AppBannerView: View {
+    let banner: AppModel.BannerMessage
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.headline)
+                .foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 2) {
+                if let title = banner.title {
+                    Text(title).font(.subheadline.weight(.semibold))
+                }
+                Text(banner.message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            if let actionTitle = banner.actionTitle {
+                Button(actionTitle) { onDismiss(); banner.action?() }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.borderless)
+            }
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(tint.opacity(0.35), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+    }
+
+    private var iconName: String {
+        switch banner.style {
+        case .info:    "info.circle.fill"
+        case .success: "checkmark.circle.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .error:   "xmark.octagon.fill"
+        }
+    }
+
+    private var tint: Color {
+        switch banner.style {
+        case .info:    .accentColor
+        case .success: .green
+        case .warning: .orange
+        case .error:   .red
         }
     }
 }
