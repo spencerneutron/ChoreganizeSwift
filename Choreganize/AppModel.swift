@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import CoreData
+import CloudKit
 import os
 
 /// App-level coordinator. Since the Core Data + CloudKit re-platform, the data
@@ -36,9 +37,35 @@ final class AppModel: ObservableObject {
         static func == (lhs: BannerMessage, rhs: BannerMessage) -> Bool { lhs.id == rhs.id }
     }
 
-    @Published var isSyncing: Bool = false
+    // MARK: - Sync status (CG-06)
+    /// High-level CloudKit sync state surfaced to the UI. Replaces the old, never-set
+    /// `isSyncing` Bool (GH #82): these values are driven by real
+    /// `NSPersistentCloudKitContainer` events and the stack's account state.
+    enum SyncState: Equatable {
+        /// CloudKit mirroring is off for this run (tests / local-only / no entitlement).
+        case disabled
+        /// CloudKit was intended but no iCloud account is available — sync is paused.
+        case notSignedIn
+        /// CloudKit is on and currently idle (caught up).
+        case idle
+        /// A CloudKit import/export/setup event is in progress.
+        case syncing
+        /// The most recent CloudKit event failed (transient or otherwise).
+        case error
+    }
+
+    @Published private(set) var syncState: SyncState = .disabled
+    /// Convenience for the status spinner. Real now (CG-06): true only while a
+    /// CloudKit event is actually running.
+    var isSyncing: Bool { syncState == .syncing }
+
     @Published var lastError: String?
     @Published var currentBanner: BannerMessage?
+
+    /// True once we've shown the "not signed in" cue this session, so the banner
+    /// isn't re-queued on every CloudKit event.
+    private var didAnnounceNotSignedIn = false
+    private var cloudKitEventObserver: NSObjectProtocol?
 
     // MARK: - Scope (Solo vs Household)
     @Published private(set) var scope: AppScope = .solo
@@ -54,6 +81,68 @@ final class AppModel: ObservableObject {
         scope = restored
         if restored == .household { ensureHousehold() }
         refreshHouseholdName()
+        startSyncMonitoring()
+    }
+
+    deinit {
+        if let cloudKitEventObserver {
+            NotificationCenter.default.removeObserver(cloudKitEventObserver)
+        }
+    }
+
+    // MARK: - Sync monitoring (CG-06)
+
+    /// Establishes the initial sync state from the stack and begins observing real
+    /// CloudKit mirroring events. When CloudKit is off (tests/local-only) or the
+    /// stack degraded for a missing account (CG-07), reflect that immediately and
+    /// surface a one-time "not signed in" cue so the user knows sync is paused.
+    private func startSyncMonitoring() {
+        let stack = CoreDataStack.shared
+        guard stack.cloudKitEnabled else {
+            syncState = stack.degradedToLocalOnly ? .notSignedIn : .disabled
+            if stack.degradedToLocalOnly { announceNotSignedInIfNeeded() }
+            return
+        }
+        syncState = .idle
+        cloudKitEventObserver = NotificationCenter.default.addObserver(
+            forName: NSPersistentCloudKitContainer.eventChangedNotification,
+            object: stack.container,
+            queue: .main
+        ) { [weak self] note in
+            guard let event = note.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
+                    as? NSPersistentCloudKitContainer.Event else { return }
+            // The observer hands us the event on the main queue; AppModel is @MainActor.
+            MainActor.assumeIsolated { self?.handleCloudKitEvent(event) }
+        }
+    }
+
+    /// Maps a CloudKit mirroring event to `syncState` and surfaces account/error cues.
+    private func handleCloudKitEvent(_ event: NSPersistentCloudKitContainer.Event) {
+        // endDate == nil means the event just started.
+        if event.endDate == nil {
+            syncState = .syncing
+            return
+        }
+        if let error = event.error as NSError? {
+            syncState = .error
+            Log.warning("CloudKit \(event.type) failed: \(error.code) \(error.localizedDescription)", category: .cloud)
+            if CoreDataStack.isMissingAccountError(error) {
+                syncState = .notSignedIn
+                announceNotSignedInIfNeeded()
+            }
+        } else {
+            syncState = .idle
+        }
+    }
+
+    /// Surfaces the "sync paused / not signed in" banner exactly once per session.
+    private func announceNotSignedInIfNeeded() {
+        guard !didAnnounceNotSignedIn else { return }
+        didAnnounceNotSignedIn = true
+        showBanner(title: "Sync paused",
+                   message: "You're not signed in to iCloud. Your chores stay on this device until you sign in.",
+                   style: .warning,
+                   duration: 6.0)
     }
 
     private var context: NSManagedObjectContext { CoreDataStack.shared.viewContext }
