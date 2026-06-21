@@ -144,6 +144,10 @@ struct DayPage: View {
         let inScopeChores = Array(chores).inScope(active)
         let dayChores = Scheduling.chores(inScopeChores, for: date)
         let isLocked = DayLock.isLocked(date, in: scopedLocks)
+        // CG-08 — the currently-visible, not-yet-done chores for this day. "Mark all
+        // done" acts on exactly this set, so locked/past days (toggles disabled) and
+        // already-completed rows are untouched.
+        let incompleteChores = dayChores.filter { !$0.isCompleted(on: date) }
 
         List {
             let weekdayName = date.formatted(.dateTime.weekday(.wide))
@@ -175,6 +179,23 @@ struct DayPage: View {
                             Text(group.title)
                         }
                     }
+                }
+            }
+
+            // CG-08 — one tap to complete every visible incomplete chore for the day.
+            // Only offered on an unlocked, non-empty day (locked days have disabled
+            // toggles), and only while something is still incomplete.
+            if !isLocked && !incompleteChores.isEmpty {
+                Section {
+                    Button {
+                        let ids = Set(incompleteChores.map(\.objectID))
+                        withAnimation {
+                            BulkChoreOps.markAllDone(ids, on: date, in: context)
+                        }
+                    } label: {
+                        Label("Mark all done", systemImage: "checklist.checked")
+                    }
+                    .accessibilityIdentifier("markAllDoneButton")
                 }
             }
 
