@@ -83,21 +83,24 @@ struct ChoreRowView: View {
 
 struct WorkHomeView: View {
     var body: some View {
+        // The bar (scope / share / Hub) is owned solely by ContentView's NavigationStack.
+        // We no longer also declare .toolbar(.hidden) here — the two conflicting
+        // declarations made the top inset ambiguous (header clipped, controls inconsistent).
         WeekView()
-            .toolbar(.hidden, for: .navigationBar)
     }
 }
 
 struct WeekView: View {
     @EnvironmentObject private var model: AppModel
-    // Expose a range before and after today so the user can page
-    // through recent days.
+    // Expose a range before and after today so the user can page through recent days.
+    // weekDates returns stable start-of-day dates, today centered (index == includePast).
     private var dates: [Date] {
         Scheduling.weekDates(startingFrom: Date(), includePast: 6, includeFuture: 6)
     }
 
-    // Today sits in the middle of the range
-    @State private var currentIndex: Int = 6
+    // Today sits in the middle of the symmetric range. Optional because scrollPosition(id:)
+    // drives it; starts on today.
+    @State private var currentIndex: Int? = 6
 
     /// Index of today within `dates` (today is the middle of the range).
     private var todayIndex: Int {
@@ -105,31 +108,45 @@ struct WeekView: View {
     }
 
     var body: some View {
-        TabView(selection: $currentIndex) {
-            ForEach(Array(dates.enumerated()), id: \.offset) { index, date in
-                DayPage(date: date)
-                    .tag(index)
+        // A horizontal paging ScrollView replaces the old .page TabView. The TabView is a
+        // UIPageViewController that builds its neighbour pages OFF-SCREEN (safe area == 0),
+        // so each recycled List baked a zero top inset — that was the "date header clips
+        // under the bar after one swipe" bug, and it left the bottom band unpainted. Here
+        // every day lives in ONE on-screen scroll container = one correct safe-area
+        // environment, so the inset is right (and identical) on every page. All iOS 17+.
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 0) {
+                ForEach(Array(dates.enumerated()), id: \.offset) { _, date in
+                    DayPage(date: date)
+                        // Each page is exactly one viewport — gives the nested List its
+                        // bounded width AND height (it scrolls vertically within).
+                        .containerRelativeFrame([.horizontal, .vertical])
+                }
             }
+            .scrollTargetLayout()
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        // A .page TabView otherwise stops its pages at the bottom safe area, leaving a
-        // home-indicator-height band the DayPage list can't fill — content gets clipped
-        // above the floating switcher instead of scrolling under it. Extend to the edge.
-        .ignoresSafeArea(.container, edges: .bottom)
+        .scrollTargetBehavior(.paging)       // container-width snap == the old paged feel
+        .scrollPosition(id: $currentIndex)    // track the centered day (chevrons + deep link)
+        .defaultScrollAnchor(.center)         // first layout centers today (the middle page)
+        .scrollIndicators(.hidden)
+        // Paint the grouped background to the physical edges so the home-indicator band and
+        // the device's rounded corners are never the window's black base (fixes the strip).
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
         // CG-05: a widget deep-link targets a today chore — snap back to today (the user
         // may have paged away) so the targeted page is the one that scrolls to it.
         .onChange(of: model.deepLinkChore) { _, target in
-            if target != nil, currentIndex != todayIndex {
+            if target != nil, (currentIndex ?? todayIndex) != todayIndex {
                 withAnimation { currentIndex = todayIndex }
             }
         }
         .overlay(alignment: .center) {
+            let idx = currentIndex ?? todayIndex
             HStack {
-                if currentIndex > 0 {
+                if idx > 0 {
                     Image(systemName: "chevron.left")
                 }
                 Spacer()
-                if currentIndex < dates.count - 1 {
+                if idx < dates.count - 1 {
                     Image(systemName: "chevron.right")
                 }
             }
@@ -138,7 +155,7 @@ struct WeekView: View {
             .padding(.horizontal, 6)
             .opacity(0.5)
             .allowsHitTesting(false)
-            .animation(.easeInOut, value: currentIndex)
+            .animation(.easeInOut, value: idx)
         }
     }
 }
@@ -159,6 +176,13 @@ struct DayPage: View {
     @State private var showLogSheet = false
     /// The chore a widget deep-link (CG-05) is briefly highlighting on this page.
     @State private var highlightedChore: UUID?
+
+    // Bottom clearances for the floating chrome, scaled with Dynamic Type so larger text
+    // still clears it — replaces the old raw 132 / 84 magic numbers. The list reserves more
+    // room on days that show a Done/Unlock button so the last row clears that too.
+    @ScaledMetric private var bottomClearanceWithButton: CGFloat = 110
+    @ScaledMetric private var bottomClearanceNoButton: CGFloat = 72
+    @ScaledMetric private var dayButtonClearance: CGFloat = 58
 
     private var grouping: WorkGrouping { WorkGrouping(rawValue: workGroupingRaw) ?? .none }
 
@@ -194,6 +218,9 @@ struct DayPage: View {
         // done" acts on exactly this set, so locked/past days (toggles disabled) and
         // already-completed rows are untouched.
         let incompleteChores = dayChores.filter { !$0.isCompleted(on: date) }
+        // A Done (unlocked) or Unlock (locked, not past) button floats on every day except a
+        // locked PAST day; reserve extra bottom room only when one is shown.
+        let hasDayButton = !(isLocked && isPast)
 
         ScrollViewReader { proxy in
         List {
@@ -267,9 +294,10 @@ struct DayPage: View {
         // (Tunable: one number; the list background still spans full-width, no edge strip.)
         .contentMargins(.horizontal, 32, for: .scrollContent)
         // Float-over-content (#65): the switcher + Done button float at the bottom, so give
-        // the list enough trailing room that its last rows can scroll clear of them rather
-        // than hiding underneath. Content still slides UNDER the translucent glass.
-        .contentMargins(.bottom, 132, for: .scrollContent)
+        // the list enough trailing room that its last row rests clear ABOVE them at the end
+        // of the scroll, while mid-scroll content still slides UNDER the translucent glass.
+        // No TOP margin — the single-container safe area positions the header below the bar.
+        .contentMargins(.bottom, hasDayButton ? bottomClearanceWithButton : bottomClearanceNoButton, for: .scrollContent)
         .scrollIndicators(.hidden)   // hide the scroll bar; scrolling still works
         .sheet(isPresented: $showLogSheet) {
             LogCompletionSheet(date: date, chores: inScopeChores)
@@ -298,11 +326,11 @@ struct DayPage: View {
             if isLocked && !isPast {
                 Button("Unlock") { DayLock.unlock(date, existing: scopedLocks, in: context) }
                     .buttonStyle(.bordered)
-                    .padding(.bottom, 84)
+                    .padding(.bottom, dayButtonClearance)
             } else if !isLocked {
                 Button("Done") { showDoneAlert = true }
                     .buttonStyle(.borderedProminent)
-                    .padding(.bottom, 84)
+                    .padding(.bottom, dayButtonClearance)
                     .onboardingAnchor(.doneButton)
             }
         }
