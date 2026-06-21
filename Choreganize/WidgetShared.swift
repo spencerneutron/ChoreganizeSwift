@@ -17,12 +17,44 @@ enum WidgetShared {
     static var defaults: UserDefaults? { UserDefaults(suiteName: appGroupIdentifier) }
 }
 
+/// Deep-link contract shared by the widget (which *builds* the URLs) and the app
+/// (which *parses* them in `onOpenURL`). Scheme: `choreganize://chore/<uuid>` to
+/// open a specific chore's day, or `choreganize://today` for today. Registered in
+/// the app's Info.plist `CFBundleURLTypes`.
+enum WidgetDeepLink {
+    static let scheme = "choreganize"
+
+    /// A URL that opens the app — to a specific chore's day when `choreID` is set,
+    /// otherwise to today.
+    static func url(choreID: UUID?) -> URL {
+        if let choreID {
+            return URL(string: "\(scheme)://chore/\(choreID.uuidString)")!
+        }
+        return URL(string: "\(scheme)://today")!
+    }
+
+    /// Parses an incoming URL into the chore UUID it targets (`nil` for "today" or
+    /// any URL of ours that isn't chore-specific). Returns `nil` for foreign URLs.
+    static func choreID(from url: URL) -> UUID?? {
+        guard url.scheme == scheme else { return .none }      // not ours
+        if url.host == "chore" {
+            // path is "/<uuid>"
+            let raw = url.pathComponents.first { $0 != "/" }
+            return .some(raw.flatMap(UUID.init(uuidString:)))
+        }
+        return .some(nil)                                     // ours, but "today"
+    }
+}
+
 /// A lightweight, Codable view of "today's chores" that the app writes and the
 /// widget reads — so the widget never has to touch Core Data, the model, or the
 /// scheduling code.
 struct ChoreWidgetSnapshot: Codable {
     struct Item: Codable, Identifiable {
-        var id: String
+        /// The chore's stable, synced `UUID` — what `CompleteChoreIntent` resolves
+        /// by. (Previously a Core Data objectID URI, which the intent couldn't
+        /// reliably resolve; see WidgetSnapshotWriter.)
+        var id: UUID
         var name: String
         var isDone: Bool
     }

@@ -17,5 +17,20 @@
 			<string>Chores</string>
 		</dict>
 	</array>
+	<!-- Widget deep-linking (CG-05): `choreganize://chore/<uuid>` / `choreganize://today`.
+	     Built by the widget (WidgetDeepLink) and handled in ChoreganizeApp.onOpenURL. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.svk.Choreganize.widget</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>choreganize</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

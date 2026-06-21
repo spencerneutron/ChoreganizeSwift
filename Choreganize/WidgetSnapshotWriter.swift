@@ -34,9 +34,13 @@ enum WidgetSnapshotWriter {
 enum WidgetSnapshotBuilder {
     static func snapshot(from chores: [CDChore], on date: Date, scopeLabel: String) -> ChoreWidgetSnapshot {
         let due = Scheduling.chores(chores, for: date)
-        let items: [ChoreWidgetSnapshot.Item] = due.map { chore in
-            ChoreWidgetSnapshot.Item(
-                id: chore.objectID.uriRepresentation().absoluteString,
+        let items: [ChoreWidgetSnapshot.Item] = due.compactMap { chore in
+            // Carry the chore's STABLE synced UUID (not the Core Data objectID URI,
+            // which isn't stable across store reloads and can't be resolved by
+            // CompleteChoreIntent's UUID predicate). A chore with no id is skipped.
+            guard let id = chore.id else { return nil }
+            return ChoreWidgetSnapshot.Item(
+                id: id,
                 name: chore.name ?? "Untitled",
                 isDone: chore.isCompleted(on: date))
         }
