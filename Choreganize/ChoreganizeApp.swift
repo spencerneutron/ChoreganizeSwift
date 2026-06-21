@@ -2,14 +2,6 @@ import SwiftUI
 import Metal
 import CoreData
 
-extension Notification.Name {
-    /// Posted when a widget deep-link (CG-05) resolves to a chore. `object` is the
-    /// chore's `UUID` (or `nil` for a plain "open to today" link). A view that wants
-    /// to scroll/select the chore can observe this; the app already lands on today's
-    /// DayPage, which is the day the widget surfaces, so opening is correct without it.
-    static let choreganizeDeepLink = Notification.Name("choreganizeDeepLink")
-}
-
 @main
 struct ChoreganizeApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -77,12 +69,11 @@ struct ChoreganizeApp: App {
                         }
                     }
                 }
-                // CG-05: widget rows deep-link via the `choreganize://` scheme. Route
-                // to the relevant chore's day. Self-contained here (no AppModel/
-                // ContentView changes): make the chore visible by switching to its
-                // scope, then broadcast the target for any observer. The Work tab
-                // already opens on today's DayPage — the day the widget shows — so the
-                // app lands on the chore's day.
+                // CG-05: widget rows deep-link via the `choreganize://` scheme. Route to
+                // the targeted chore: switch to its scope so it's in view, then hand the
+                // target to the UI via `model.deepLinkChore` — ContentView switches to
+                // Work, WeekView snaps to today, and the day's page scrolls to + flashes
+                // the row (see AppModel.deepLinkChore).
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
@@ -91,15 +82,13 @@ struct ChoreganizeApp: App {
 
     /// Resolves a `choreganize://` URL and routes to the targeted chore. Switches the
     /// active scope so a Household chore tapped from the widget is actually on screen,
-    /// then posts `.choreganizeDeepLink` with the chore UUID.
+    /// then sets `model.deepLinkChore` for the Work view to scroll to + highlight.
     @MainActor
     private func handleDeepLink(_ url: URL) {
-        // `nil` outer means "not our URL"; inner `nil` means "ours, but not chore-specific".
+        // `nil` outer means "not our URL"; inner `nil` means "ours, but not chore-specific"
+        // (a plain open — the app foregrounds wherever it was, nothing more to do).
         guard let resolved = WidgetDeepLink.choreID(from: url) else { return }
-        guard let choreID = resolved else {
-            NotificationCenter.default.post(name: .choreganizeDeepLink, object: nil)
-            return
-        }
+        guard let choreID = resolved else { return }
 
         // Align the active scope with the chore so it's visible on today's DayPage.
         let context = CoreDataStack.shared.viewContext
@@ -110,6 +99,6 @@ struct ChoreganizeApp: App {
             let targetScope: AppScope = chore.household == nil ? .solo : .household
             if model.scope != targetScope { model.setScope(targetScope) }
         }
-        NotificationCenter.default.post(name: .choreganizeDeepLink, object: choreID)
+        model.deepLinkChore = choreID
     }
 }

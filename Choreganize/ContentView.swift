@@ -124,6 +124,12 @@ struct ContentView: View {
             .onChange(of: model.lastError) { _, newValue in
                 showingError = newValue != nil
             }
+            // CG-05: a widget deep-link points at a chore on the Work surface, so bring
+            // Work forward if we're in Edit/Calendar. WeekView + DayPage then handle the
+            // day reset, scroll, and highlight (see AppModel.deepLinkChore).
+            .onChange(of: model.deepLinkChore) { _, target in
+                if target != nil { mode = .work }
+            }
             .sheet(isPresented: $showingHub, onDismiss: { onboarding.playPendingIfNeeded() }) {
                 HubView()
                     .environmentObject(model)

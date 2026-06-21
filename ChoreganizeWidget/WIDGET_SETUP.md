@@ -110,15 +110,13 @@ it on 18.0–18.5 devices that could still run the app; realigned to 18.0.
   ("N of M left"), reusing the snapshot's precomputed remaining/total.
 - **Deep-linking (CG-05, v1.6.0).** Widget rows carry `choreganize://chore/<uuid>`
   links; the `choreganize://` URL scheme is registered in `Info.plist`, and
-  `ChoreganizeApp.onOpenURL` routes the tap so the chore is visible on today's
-  DayPage (aligning the active scope if it's a Household chore). A richer
-  scroll-to/highlight of the exact chore is a deliberate follow-up — see below.
-- **Deep-link follow-up (not yet done).** `handleDeepLink` posts
-  `Notification.Name.choreganizeDeepLink` with the chore UUID; nothing consumes it
-  yet to scroll to / highlight the specific row (or jump to a non-today day). That
-  consumer belongs in `ContentView`/`WorkViews`/DayPage, which were owned by other
-  v1.6.0 tracks and kept conflict-free — so the hook is in place, the polish is
-  pending.
+  `ChoreganizeApp.onOpenURL` → `handleDeepLink` aligns the active scope to the chore
+  and sets `AppModel.deepLinkChore`. The Work view consumes that: `ContentView`
+  switches to Work mode, `WeekView` snaps back to today, and today's `DayPage` scrolls
+  the target row into view and briefly flashes it, then clears the request. Routed
+  through observed `AppModel` state (not a one-shot `Notification`) so it survives the
+  mode switch — the Work view can mount *in response* to the link and still see the
+  target.
 - The widget shows the **active scope's** chores (Solo or the current
   household), because that's what the app snapshots. Switching scope in the app
   republishes on next foreground/background.

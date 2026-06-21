@@ -62,6 +62,15 @@ final class AppModel: ObservableObject {
     @Published var lastError: String?
     @Published var currentBanner: BannerMessage?
 
+    // MARK: - Deep linking (CG-05)
+    /// Set by a widget deep-link to request the Work view scroll to + briefly highlight
+    /// a chore. `ContentView` switches to Work mode when this becomes non-nil, `WeekView`
+    /// snaps back to today, and today's `DayPage` consumes it (scrolls/flashes the row)
+    /// and resets it to `nil`. Driving this through observed state — rather than a
+    /// one-shot `Notification` — means it survives the mode switch: the Work view can be
+    /// mounted *in response* to the link and still see the pending target.
+    @Published var deepLinkChore: UUID?
+
     /// True once we've shown the "not signed in" cue this session, so the banner
     /// isn't re-queued on every CloudKit event.
     private var didAnnounceNotSignedIn = false
