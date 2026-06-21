@@ -91,6 +91,19 @@ final class AppModel: ObservableObject {
         if restored == .household { ensureHousehold() }
         refreshHouseholdName()
         startSyncMonitoring()
+        #if DEBUG
+        // Screenshot/test seam: force a sync state so the floating sync chip (CG-06) can
+        // be captured — CloudKit's syncing / not-signed-in states don't occur under the
+        // local-only simulator seed. Set AFTER startSyncMonitoring (which, local-only,
+        // sets .disabled and installs no observer, so this override sticks). Never ships.
+        if let fake = ProcessInfo.processInfo.environment["CHOREGANIZE_FAKE_SYNC"] {
+            switch fake {
+            case "syncing":     syncState = .syncing
+            case "notSignedIn": syncState = .notSignedIn
+            default:            break
+            }
+        }
+        #endif
     }
 
     deinit {

@@ -208,6 +208,27 @@ final class ChoreganizeScreenshotTests: XCTestCase {
         snap("backup-restore")
     }
 
+    /// CG-06 regression guard: forces a syncing state (via the DEBUG-only
+    /// `CHOREGANIZE_FAKE_SYNC` seam) and captures the Work surface so the sync chip is
+    /// visible floating BESIDE the mode switcher — confirming it no longer materializes
+    /// an opaque bottom bar (the stripe that covered the lower content) and no longer
+    /// sits below the floating switcher.
+    @MainActor
+    func testCaptureSyncChip() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["CHOREGANIZE_LOCAL_ONLY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_UITEST_INMEMORY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_FAKE_SYNC"] = "syncing"
+        app.launchEnvironment["CHOREGANIZE_SEED_JSON"] =
+            ProcessInfo.processInfo.environment["CHOREGANIZE_SEED_JSON"] ?? Self.defaultSeedPath
+        app.launchArguments += ["-hasSeenOnboarding", "YES", "-activeScope", "solo"]
+        app.launch()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30),
+                      "seeded Work rows should render")
+        settle()
+        snap("v160-sync-chip")
+    }
+
     /// v1.6.0 "Free Foundation" wave — focused captures of the new IN-APP surfaces:
     /// DayPage "Mark all done" (CG-08/#91), the Hub streak readout (CG-10/#93), and the
     /// editable add-flow Review step + its inline draft editor (CG-09/#92).

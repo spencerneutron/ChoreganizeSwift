@@ -100,9 +100,6 @@ struct ContentView: View {
                     }
                     .onboardingAnchor(.scopeSwitch)
                 }
-                ToolbarItem(placement: .status) {
-                    SyncStatusIndicator(state: model.syncState)
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     if model.scope == .household {
                         HouseholdShareControl()
@@ -162,11 +159,25 @@ struct ContentView: View {
             // system owns expansion + outside-tap dismissal. See
             // .claude-work/current/liquid-glass-switcher-spec.md.
             .safeAreaInset(edge: .bottom) {
-                ModeSwitcher(mode: $mode,
-                             style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
-                             onLongPress: { showingLogs = true })
-                    .onboardingAnchor(.modePicker)
-                    .padding(.bottom, 6)
+                ZStack {
+                    ModeSwitcher(mode: $mode,
+                                 style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
+                                 onLongPress: { showingLogs = true })
+                        .onboardingAnchor(.modePicker)
+                    // CG-06: the sync status floats as its own glass chip BESIDE the
+                    // switcher (trailing) — never under it, and never via a
+                    // ToolbarItem(.status), which materializes an opaque bottom bar that
+                    // covers content and breaks the switcher's float-over-content design
+                    // (#65). Non-interactive, so it never steals the switcher's touches.
+                    HStack {
+                        Spacer()
+                        SyncStatusIndicator(state: model.syncState)
+                            .allowsHitTesting(false)
+                            .padding(.trailing, 20)
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: model.syncState)
+                }
+                .padding(.bottom, 6)
             }
         }
         .overlayPreferenceValue(SpotlightAnchorsKey.self) { anchors in
@@ -175,24 +186,35 @@ struct ContentView: View {
     }
 }
 
-/// Toolbar status glyph for CloudKit sync (CG-06). A spinner while a mirroring
-/// event runs; a subtle "sync paused" cloud-slash when CloudKit is intended but
-/// no iCloud account is available. Idle / disabled / transient-error show nothing
-/// (errors already surface via the banner), so the bar stays quiet in the common case.
+/// Floating CloudKit sync status chip (CG-06), shown BESIDE the mode switcher in the
+/// bottom safe-area inset — deliberately NOT a `.status` toolbar item, which would
+/// materialize an opaque bottom bar that covers content and breaks the floating switcher
+/// (#65). A spinner while a mirroring event runs; a "sync paused" cloud-slash when
+/// CloudKit is intended but no iCloud account is available. Idle / disabled /
+/// transient-error render nothing (errors surface via the banner), so the corner stays
+/// empty in the common case.
 struct SyncStatusIndicator: View {
     let state: AppModel.SyncState
 
     var body: some View {
         switch state {
         case .syncing:
-            ProgressView().controlSize(.small)
+            badge { ProgressView().controlSize(.small) }
         case .notSignedIn:
-            Image(systemName: "exclamationmark.icloud")
-                .foregroundStyle(.secondary)
+            badge { Image(systemName: "exclamationmark.icloud").foregroundStyle(.secondary) }
                 .accessibilityLabel("Sync paused — not signed in to iCloud")
         case .idle, .disabled, .error:
             EmptyView()
         }
+    }
+
+    /// The shared floating-glass treatment — matches the switcher's material so the chip
+    /// reads as a sibling floating control rather than chrome.
+    private func badge(@ViewBuilder _ content: () -> some View) -> some View {
+        content()
+            .frame(width: 30, height: 30)
+            .switcherGlass(interactive: false)
+            .transition(.scale.combined(with: .opacity))
     }
 }
 
