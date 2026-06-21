@@ -342,6 +342,10 @@ private struct AddFlowReview: View {
     @EnvironmentObject private var model: AppModel
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDArea.name)]) private var areas: FetchedResults<CDArea>
 
+    // The staged draft being inline-edited; presents `AddFlowDraftEditor` as a sheet.
+    @State private var editing: ChoreDraft?
+
+    private var scopedAreas: [CDArea] { areas.inScope(model.activeHousehold) }
     private struct DraftGroup { let label: String; let drafts: [ChoreDraft] }
 
     var body: some View {
@@ -349,11 +353,21 @@ private struct AddFlowReview: View {
             ForEach(groups, id: \.label) { group in
                 Section(group.label) {
                     ForEach(group.drafts) { draft in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(draft.name)
-                            Text(scheduleText(draft)).font(.caption).foregroundStyle(.secondary)
+                        // Tap a row to edit, swipe to delete — both purely in-memory until
+                        // Save (#92). Edits go through `flow.update`, deletes `flow.remove`.
+                        Button { editing = draft } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(draft.name).foregroundStyle(.primary)
+                                    Text(scheduleText(draft)).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                            }
                         }
                     }
+                    .onDelete { offsets in delete(offsets, from: group.drafts) }
                 }
             }
         }
@@ -364,6 +378,16 @@ private struct AddFlowReview: View {
                 Button("Save") { onSave() }.disabled(flow.draftCount == 0).bold()
             }
         }
+        .sheet(item: $editing) { draft in
+            AddFlowDraftEditor(draft: draft, grouping: flow.grouping, areas: scopedAreas) {
+                flow.update($0)
+            }
+        }
+    }
+
+    /// Remove the swiped rows from a group by resolving their stable draft ids.
+    private func delete(_ offsets: IndexSet, from groupDrafts: [ChoreDraft]) {
+        for index in offsets { flow.remove(groupDrafts[index].id) }
     }
 
     private var groups: [DraftGroup] {
@@ -387,6 +411,95 @@ private struct AddFlowReview: View {
     }
     private func scheduleText(_ d: ChoreDraft) -> String {
         d.isDaily ? "Every day" : "\(d.frequency.rawValue.capitalized) · \(d.day?.displayName ?? "No day")"
+    }
+}
+
+// MARK: - Review inline editor
+
+/// In-memory editor for a single staged draft, presented from the Review step. Reuses
+/// the shared `ChoreFormRows` so the fields match New/Edit Chore and the rest of the
+/// wizard (#49). Edits are local until the user taps Save here, then handed back via
+/// `onSave`; nothing touches Core Data (the batch still commits only on Review → Save).
+private struct AddFlowDraftEditor: View {
+    let grouping: AddFlowGrouping
+    var areas: [CDArea]
+    var onSave: (ChoreDraft) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private let draftId: ChoreDraft.ID
+    // The draft's original area ref, kept so a name-only (`.new`) room survives an edit
+    // that never re-touches the Area picker (which can only select existing areas).
+    private let originalAreaRef: AreaRef
+    @State private var name: String
+    @State private var isDaily: Bool
+    @State private var frequency: Frequency
+    @State private var day: Weekday?
+    @State private var areaId: UUID?
+
+    init(draft: ChoreDraft, grouping: AddFlowGrouping, areas: [CDArea],
+         onSave: @escaping (ChoreDraft) -> Void) {
+        self.grouping = grouping
+        self.areas = areas
+        self.onSave = onSave
+        self.draftId = draft.id
+        self.originalAreaRef = draft.areaRef
+        _name = State(initialValue: draft.name)
+        _isDaily = State(initialValue: draft.isDaily)
+        _frequency = State(initialValue: draft.frequency)
+        _day = State(initialValue: draft.day)
+        _areaId = State(initialValue: {
+            if case .existing(let id) = draft.areaRef { return id }
+            return nil
+        }())
+    }
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Name") {
+                    TextField("Name", text: $name)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                }
+                Section("Details") {
+                    ChoreFormRows(name: $name, isDaily: $isDaily, frequency: $frequency,
+                                  day: $day, areaId: $areaId, areas: areas,
+                                  showsName: false)
+                }
+            }
+            .navigationTitle("Edit Chore")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { save() }.disabled(trimmedName.isEmpty).bold()
+                }
+            }
+        }
+    }
+
+    private func save() {
+        let edited = ChoreDraft(id: draftId,
+                                name: trimmedName,
+                                isDaily: isDaily,
+                                frequency: frequency,
+                                day: isDaily ? nil : day,
+                                areaRef: resolvedAreaRef)
+        onSave(edited)
+        dismiss()
+    }
+
+    /// Keep a name-only room when the Area picker was never used; otherwise honour the
+    /// current `areaId` selection (an existing area, or None).
+    private var resolvedAreaRef: AreaRef {
+        if let id = areaId { return .existing(id) }
+        if case .new = originalAreaRef { return originalAreaRef }
+        return .none
     }
 }
 
