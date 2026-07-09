@@ -4,6 +4,12 @@
 <dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Required to receive CloudKit share invitations: without this key, tapping
+	     a Household share link tells the recipient to update the app (the system
+	     assumes the installed version can't accept shares) and the acceptance is
+	     never delivered. -->
+	<key>CKSharingSupported</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

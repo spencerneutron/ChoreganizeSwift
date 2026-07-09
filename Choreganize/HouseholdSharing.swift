@@ -47,6 +47,16 @@ enum HouseholdSharing {
 
         if let existing = (try? container.fetchShares(matching: [household.objectID]))?[household.objectID] {
             Log.info("Presenting existing household share", category: .cloud)
+            // Heal shares created before the title was persisted (their invitation
+            // links read "cloudkit.zoneshare"); only the owner may edit the share.
+            if existing[CKShare.SystemFieldKey.title] == nil,
+               existing.currentUserParticipant?.role == .owner,
+               let store = stack.privateStore {
+                existing[CKShare.SystemFieldKey.title] = title as CKRecordValue
+                container.persistUpdatedShare(existing, in: store) { _, error in
+                    if let error { Log.error("Backfilling share title failed: \(error.localizedDescription)", category: .cloud) }
+                }
+            }
             present(UICloudSharingController(share: existing, container: ckContainer), from: presenter)
             return
         }
@@ -59,7 +69,19 @@ enum HouseholdSharing {
                     return
                 }
                 share[CKShare.SystemFieldKey.title] = title as CKRecordValue
-                present(UICloudSharingController(share: share, container: sharedContainer), from: presenter)
+                // Persist the title before the sheet can send a link: `share(_:to:)`
+                // already saved the share, so a title set only in memory never
+                // reaches the server and invitations read "cloudkit.zoneshare".
+                guard let store = stack.privateStore else {
+                    present(UICloudSharingController(share: share, container: sharedContainer), from: presenter)
+                    return
+                }
+                container.persistUpdatedShare(share, in: store) { persisted, error in
+                    if let error { Log.error("Persisting share title failed: \(error.localizedDescription)", category: .cloud) }
+                    Task { @MainActor in
+                        present(UICloudSharingController(share: persisted ?? share, container: sharedContainer), from: presenter)
+                    }
+                }
             }
         }
     }

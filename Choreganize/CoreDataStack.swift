@@ -219,6 +219,9 @@ final class CoreDataStack {
                 Log.error("acceptShareInvitations failed: \(error.localizedDescription)", category: .cloud)
             } else {
                 Log.info("Accepted CloudKit share into shared store", category: .cloud)
+                // Let the sharing UI re-query its state; the shared household's
+                // data itself arrives via the mirroring import that follows.
+                NotificationCenter.default.post(name: .householdShareDidChange, object: nil)
             }
         }
     }
