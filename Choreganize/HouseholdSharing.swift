@@ -44,26 +44,34 @@ enum HouseholdSharing {
         let container = stack.container
         let ckContainer = CKContainer(identifier: CoreDataStack.cloudContainerIdentifier)
         let title = household.name ?? "Household"
+        let householdID = household.objectID
 
-        if let existing = (try? container.fetchShares(matching: [household.objectID]))?[household.objectID] {
-            Log.info("Presenting existing household share", category: .cloud)
-            // Heal shares created before the title was persisted (their invitation
-            // links read "cloudkit.zoneshare"); only the owner may edit the share.
-            if existing[CKShare.SystemFieldKey.title] == nil,
-               existing.currentUserParticipant?.role == .owner,
-               let store = stack.privateStore {
-                existing[CKShare.SystemFieldKey.title] = title as CKRecordValue
-                container.persistUpdatedShare(existing, in: store) { _, error in
-                    if let error { Log.error("Backfilling share title failed: \(error.localizedDescription)", category: .cloud) }
+        // fetchShares/share(_:to:) block their calling thread on the container's
+        // request executor. On the main thread that beachballs the app — and
+        // deadlocks it outright if a mirroring event fires mid-request (the event
+        // post waits on main; main waits on the mirroring queue). Do the share
+        // lookup/creation off-main and hop back only to present.
+        Task.detached(priority: .userInitiated) {
+            if let existing = (try? container.fetchShares(matching: [householdID]))?[householdID] {
+                Log.info("Presenting existing household share", category: .cloud)
+                // Heal shares created before the title was persisted (their invitation
+                // links read "cloudkit.zoneshare"); only the owner may edit the share.
+                if existing[CKShare.SystemFieldKey.title] == nil,
+                   existing.currentUserParticipant?.role == .owner,
+                   let store = stack.privateStore {
+                    existing[CKShare.SystemFieldKey.title] = title as CKRecordValue
+                    container.persistUpdatedShare(existing, in: store) { _, error in
+                        if let error { Log.error("Backfilling share title failed: \(error.localizedDescription)", category: .cloud) }
+                    }
                 }
+                await MainActor.run {
+                    present(UICloudSharingController(share: existing, container: ckContainer), from: presenter)
+                }
+                return
             }
-            present(UICloudSharingController(share: existing, container: ckContainer), from: presenter)
-            return
-        }
 
-        Log.info("Creating new household share", category: .cloud)
-        container.share([household], to: nil) { _, share, sharedContainer, error in
-            Task { @MainActor in
+            Log.info("Creating new household share", category: .cloud)
+            container.share([household], to: nil) { _, share, sharedContainer, error in
                 guard let share, let sharedContainer, error == nil else {
                     Log.error("Failed to create household share: \(error?.localizedDescription ?? "unknown")", category: .cloud)
                     return
@@ -73,7 +81,9 @@ enum HouseholdSharing {
                 // already saved the share, so a title set only in memory never
                 // reaches the server and invitations read "cloudkit.zoneshare".
                 guard let store = stack.privateStore else {
-                    present(UICloudSharingController(share: share, container: sharedContainer), from: presenter)
+                    Task { @MainActor in
+                        present(UICloudSharingController(share: share, container: sharedContainer), from: presenter)
+                    }
                     return
                 }
                 container.persistUpdatedShare(share, in: store) { persisted, error in
@@ -119,7 +129,12 @@ enum HouseholdSharing {
     @MainActor
     private static func present(_ controller: UICloudSharingController, from presenter: UIViewController) {
         controller.delegate = SharingDelegate.shared
-        controller.availablePermissions = [.allowReadWrite, .allowPrivate]
+        // Read-write only (households are collaborative), but allow BOTH access
+        // modes. Without `.allowPublic` the share is locked to invite-only, and a
+        // copied link handed to a non-invitee dead-ends in "Item Unavailable" —
+        // the owner must be able to pick "Anyone with the link". New shares still
+        // default to invite-only; this only unlocks the choice.
+        controller.availablePermissions = [.allowReadWrite, .allowPrivate, .allowPublic]
         // Block swipe-to-dismiss so member edits (e.g. removing an invited person)
         // can't be silently discarded by pulling the sheet down — the user must
         // tap the system Save (checkmark) or Cancel. The controller's own buttons
