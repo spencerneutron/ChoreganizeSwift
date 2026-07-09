@@ -22,9 +22,13 @@ enum BulkChoreOps {
     /// Records a completion on `date` for every chore in `ids`, skipping any that
     /// are already complete that day (CG-08 "Mark all done"). Mirrors
     /// `CDChore.recordCompletion` semantics but saves once for the whole batch.
-    static func markAllDone(_ ids: Set<NSManagedObjectID>, on date: Date, in context: NSManagedObjectContext) {
+    static func markAllDone(_ ids: Set<NSManagedObjectID>, on date: Date,
+                            by completerID: String? = CompleterIdentity.cachedID,
+                            in context: NSManagedObjectContext) {
         for chore in chores(ids, in: context) where !chore.isCompleted(on: date) {
-            CDCompletion.make(in: context, date: date, chore: chore, household: chore.household)
+            CDCompletion.make(in: context, date: date,
+                              completedBy: chore.household == nil ? nil : completerID,
+                              chore: chore, household: chore.household)
         }
         saveIfNeeded(context)
     }

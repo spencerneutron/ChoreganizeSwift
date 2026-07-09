@@ -19,6 +19,7 @@
         <relationship name="household" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDHousehold" inverseName="chores" inverseEntity="CDHousehold"/>
     </entity>
     <entity name="CDCompletion" representedClassName="CDCompletion" syncable="YES" codeGenerationType="class">
+        <attribute name="completedBy" optional="YES" attributeType="String"/>
         <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="notes" optional="YES" attributeType="String"/>

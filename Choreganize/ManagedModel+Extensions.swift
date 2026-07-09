@@ -85,6 +85,7 @@ extension CDCompletion {
         id: UUID = UUID(),
         date: Date,
         notes: String? = nil,
+        completedBy: String? = nil,
         chore: CDChore? = nil,
         household: CDHousehold? = nil
     ) -> CDCompletion {
@@ -92,6 +93,7 @@ extension CDCompletion {
         completion.id = id
         completion.date = date
         completion.notes = notes
+        completion.completedBy = completedBy
         completion.chore = chore
         completion.household = household
         return completion

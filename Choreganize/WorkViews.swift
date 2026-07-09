@@ -12,12 +12,18 @@ struct ChoreRowView: View {
     var date: Date = Date()
     /// Briefly tinted when a widget deep-link (CG-05) targets this chore.
     var highlighted: Bool = false
+    /// #59: resolves a Household completion's `completedBy` to a member name
+    /// ("by Sydney"); returns nil for Solo, legacy, and the user's own completions.
+    @ObservedObject private var completers = CompleterDirectory.shared
 
     private var lastLine: some View {
         Group {
             if let last = chore.lastCompletion, let lastDate = last.date {
                 HStack(spacing: 4) {
                     Text(lastDate.formatted(date: .abbreviated, time: .omitted))
+                    if let byName = completers.name(for: last.completedBy) {
+                        Text("· by \(byName)")
+                    }
                     if let notes = last.notes, !notes.isEmpty {
                         Text("\u{2013} \(notes)")
                     }

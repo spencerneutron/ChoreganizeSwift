@@ -105,10 +105,16 @@ extension CDChore {
     }
 
     /// Records a completion for the given day (no-op if already completed).
+    /// Household completions are stamped with the completer's stable CloudKit
+    /// user id (#59); Solo chores get no attribution.
     @discardableResult
-    func recordCompletion(on date: Date = Date(), notes: String? = nil, in context: NSManagedObjectContext) -> CDCompletion? {
+    func recordCompletion(on date: Date = Date(), notes: String? = nil,
+                          by completerID: String? = CompleterIdentity.cachedID,
+                          in context: NSManagedObjectContext) -> CDCompletion? {
         guard !isCompleted(on: date) else { return nil }
-        let completion = CDCompletion.make(in: context, date: date, notes: notes, chore: self, household: household)
+        let completion = CDCompletion.make(in: context, date: date, notes: notes,
+                                           completedBy: household == nil ? nil : completerID,
+                                           chore: self, household: household)
         save(context)
         return completion
     }

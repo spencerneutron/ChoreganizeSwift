@@ -12,6 +12,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         Log.info("App did finish launching; registering for remote notifications", category: .app)
         application.registerForRemoteNotifications()
+        // #59: cache the stable CloudKit user id so Household completions can be
+        // stamped with who completed them (no-op when CloudKit is off).
+        CompleterIdentity.refresh()
         // Become the notification delegate and register the actionable reminder
         // category up front, so a delivered reminder shows "Mark done" and routes
         // the tap back here even on a cold launch from the notification.
