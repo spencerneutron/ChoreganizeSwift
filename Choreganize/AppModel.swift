@@ -113,15 +113,20 @@ final class AppModel: ObservableObject {
             return
         }
         syncState = .idle
+        // queue: nil, NOT .main — queue-based delivery makes the *posting* thread
+        // wait for the block (NSOperation waitUntilFinished inside the post), so the
+        // CloudKit mirroring queue stalls whenever the main thread is busy, and
+        // deadlocks outright if main is blocked on the mirroring machinery (e.g.
+        // inside container.share()). Take the event on the posting thread and hop
+        // to the main actor asynchronously ourselves.
         cloudKitEventObserver = NotificationCenter.default.addObserver(
             forName: NSPersistentCloudKitContainer.eventChangedNotification,
             object: stack.container,
-            queue: .main
+            queue: nil
         ) { [weak self] note in
             guard let event = note.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
                     as? NSPersistentCloudKitContainer.Event else { return }
-            // The observer hands us the event on the main queue; AppModel is @MainActor.
-            MainActor.assumeIsolated { self?.handleCloudKitEvent(event) }
+            Task { @MainActor in self?.handleCloudKitEvent(event) }
         }
     }
 

@@ -209,16 +209,25 @@ final class CoreDataStack {
     }
 
     /// Accepts an incoming CloudKit share into the shared store. Phase 3.
+    /// Runs off the caller's thread: the container's share APIs block their
+    /// calling thread on the request executor, and this is invoked from the
+    /// scene delegate on main.
     func acceptShare(_ metadata: CKShare.Metadata) {
         guard let sharedStore else {
             Log.error("Cannot accept share: no shared store (CloudKit disabled?)", category: .cloud)
             return
         }
-        container.acceptShareInvitations(from: [metadata], into: sharedStore) { _, error in
-            if let error {
-                Log.error("acceptShareInvitations failed: \(error.localizedDescription)", category: .cloud)
-            } else {
-                Log.info("Accepted CloudKit share into shared store", category: .cloud)
+        let container = container
+        Task.detached(priority: .userInitiated) {
+            container.acceptShareInvitations(from: [metadata], into: sharedStore) { _, error in
+                if let error {
+                    Log.error("acceptShareInvitations failed: \(error.localizedDescription)", category: .cloud)
+                } else {
+                    Log.info("Accepted CloudKit share into shared store", category: .cloud)
+                    // Let the sharing UI re-query its state; the shared household's
+                    // data itself arrives via the mirroring import that follows.
+                    NotificationCenter.default.post(name: .householdShareDidChange, object: nil)
+                }
             }
         }
     }

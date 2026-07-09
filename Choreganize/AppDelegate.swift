@@ -20,12 +20,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
-    /// Fired when the user taps a Household share invitation link. The system has
-    /// already accepted at the CloudKit level; we pull the share into the shared
-    /// Core Data store so it appears under the Household scope.
-    func application(_ application: UIApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
-        Log.info("User accepted CloudKit share: \(metadata.share.recordID.recordName)", category: .cloud)
-        CoreDataStack.shared.acceptShare(metadata)
+    /// Routes scene connections through our own scene delegate. Scene-lifecycle
+    /// apps deliver CloudKit share acceptances to the *window scene* delegate —
+    /// `application(_:userDidAcceptCloudKitShareWith:)` never fires once a scene
+    /// manifest is generated, which silently broke accepting Household invites.
+    func application(_ application: UIApplication,
+                     configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let config = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        config.delegateClass = SceneDelegate.self
+        return config
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -34,6 +38,31 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         Log.error("Remote notification registration failed: \(error.localizedDescription)", category: .push)
+    }
+}
+
+// MARK: - Share acceptance (scene delegate)
+
+/// Exists solely to catch CloudKit share acceptances, which scene-lifecycle apps
+/// deliver here instead of the app delegate. SwiftUI keeps managing the window;
+/// deliberately implements no URL/user-activity methods so `onOpenURL` (widget
+/// deep links) keeps flowing through SwiftUI untouched.
+final class SceneDelegate: NSObject, UIWindowSceneDelegate {
+    /// Warm accept: the app was running when the user tapped the invitation link.
+    /// The system has already accepted at the CloudKit level; we pull the share
+    /// into the shared Core Data store so it appears under the Household scope.
+    func windowScene(_ windowScene: UIWindowScene, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        Log.info("User accepted CloudKit share: \(metadata.share.recordID.recordName)", category: .cloud)
+        CoreDataStack.shared.acceptShare(metadata)
+    }
+
+    /// Cold accept: the invitation tap launched the app, so the metadata arrives
+    /// with the scene's connection options instead of the callback above.
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        if let metadata = connectionOptions.cloudKitShareMetadata {
+            Log.info("Launched from CloudKit share acceptance: \(metadata.share.recordID.recordName)", category: .cloud)
+            CoreDataStack.shared.acceptShare(metadata)
+        }
     }
 }
 
