@@ -81,6 +81,7 @@ final class AppModel: ObservableObject {
     private var didAnnounceNotSignedIn = false
     private var cloudKitEventObserver: NSObjectProtocol?
     private var shareChangeObserver: NSObjectProtocol?
+    private var plusChangeObserver: NSObjectProtocol?
 
     // MARK: - Scope (Solo vs Household)
     @Published private(set) var scope: AppScope = .solo
@@ -106,6 +107,9 @@ final class AppModel: ObservableObject {
         }
         if let shareChangeObserver {
             NotificationCenter.default.removeObserver(shareChangeObserver)
+        }
+        if let plusChangeObserver {
+            NotificationCenter.default.removeObserver(plusChangeObserver)
         }
     }
 
@@ -176,9 +180,26 @@ final class AppModel: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
+                // CG-15 / #97: joining/creating a share is a stamp point —
+                // an entitled member lights the household flag for everyone.
+                self?.syncHouseholdPlusStamp()
                 self?.offerMigrationIfWorthwhile()
             }
         }
+        plusChangeObserver = NotificationCenter.default.addObserver(
+            forName: .plusEntitlementDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in self?.syncHouseholdPlusStamp() }
+        }
+    }
+
+    /// CG-15 / #97: reconcile the household's propagated Plus flag with this
+    /// device's own entitlement.
+    func syncHouseholdPlusStamp() {
+        HouseholdEntitlement.syncStamp(household: resolvedHousehold,
+                                       isPlus: EntitlementStore.shared.isPlus)
     }
 
     private func offerMigrationIfWorthwhile() {

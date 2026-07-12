@@ -43,6 +43,10 @@ struct ChoreganizeApp: App {
                         // CG-13 / #96: catch entitlement changes made outside the
                         // app (renewals, refunds, Ask to Buy, Family Sharing).
                         EntitlementStore.shared.syncOnForeground()
+                        // CG-15 / #97: reconcile the household's propagated Plus
+                        // flag (any async refresh above re-stamps via its own
+                        // change notification).
+                        model.syncHouseholdPlusStamp()
                     default:
                         break
                     }

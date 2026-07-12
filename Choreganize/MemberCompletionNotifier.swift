@@ -126,7 +126,9 @@ final class MemberCompletionNotifier {
             guard MemberCompletionPolicy.shouldNotify(
                 event: event,
                 currentUserID: CompleterIdentity.cachedID,
-                isPlus: Entitlements.isPlus,
+                // CG-15 / #97: household-scoped — one member's Plus lights up
+                // member notifications for everyone in the household.
+                isPlus: Entitlements.isPlus(for: completion.household),
                 isEnabled: Self.isEnabled
             ) else { continue }
 

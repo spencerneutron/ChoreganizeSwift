@@ -24,6 +24,11 @@ struct NotificationSettingsView: View {
 
     private var deniedInSystem: Bool { status == .denied }
 
+    /// CG-15 / #97: own Plus OR the household's propagated flag.
+    private var effectivePlus: Bool {
+        entitlements.isPlus || model.resolvedHousehold?.plusEnabled == true
+    }
+
     var body: some View {
         Form {
             Section {
@@ -72,10 +77,11 @@ struct NotificationSettingsView: View {
 
             // CG-14 / #62: household activity alerts (Plus). Independent of the
             // daily-reminder toggle — these fire on sync when ANOTHER member
-            // completes a chore, not on a schedule.
+            // completes a chore, not on a schedule. The gate is household-
+            // scoped (CG-15 / #97): any member's Plus lights it up for all.
             if !deniedInSystem {
                 Section {
-                    if entitlements.isPlus {
+                    if effectivePlus {
                         Toggle("Member completions", isOn: $memberAlerts)
                     } else {
                         Label("Member completions", systemImage: "lock")
@@ -84,7 +90,7 @@ struct NotificationSettingsView: View {
                 } header: {
                     Text("Household Activity")
                 } footer: {
-                    Text(entitlements.isPlus
+                    Text(effectivePlus
                          ? "Get notified when another household member completes a chore."
                          : "Get notified when another household member completes a chore. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus).")
                 }

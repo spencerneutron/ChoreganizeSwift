@@ -30,6 +30,7 @@
         <attribute name="createdDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="plusEnabled" optional="YES" attributeType="Boolean" usesScalarValueType="YES" defaultValueString="NO"/>
         <relationship name="areas" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDArea" inverseName="household" inverseEntity="CDArea"/>
         <relationship name="chores" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDChore" inverseName="household" inverseEntity="CDChore"/>
         <relationship name="completions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDCompletion" inverseName="household" inverseEntity="CDCompletion"/>

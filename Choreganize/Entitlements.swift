@@ -1,3 +1,4 @@
+import CoreData
 import Foundation
 import StoreKit
 
@@ -152,7 +153,12 @@ final class EntitlementStore: ObservableObject {
     }
 
     private func setPlus(_ newValue: Bool) {
-        if isPlus != newValue { isPlus = newValue }
+        if isPlus != newValue {
+            isPlus = newValue
+            // CG-15 / #97: let the household-flag stamping (and any non-SwiftUI
+            // gate) react to the flip.
+            NotificationCenter.default.post(name: .plusEntitlementDidChange, object: nil)
+        }
         Self.cacheDefaults.set(newValue, forKey: Self.cacheKey)
     }
 
@@ -169,6 +175,12 @@ final class EntitlementStore: ObservableObject {
 /// when it needs re-render on change).
 @MainActor
 enum Entitlements {
-    /// Whether the user has unlocked Plus features.
+    /// Whether the user has unlocked Plus features themselves.
     static var isPlus: Bool { EntitlementStore.shared.isPlus }
+
+    /// CG-15 / #97: the scope-aware gate — own entitlement OR the household's
+    /// propagated Plus flag. Use this for features acting on household data.
+    static func isPlus(for household: CDHousehold?) -> Bool {
+        HouseholdEntitlement.effectiveIsPlus(ownPlus: isPlus, household: household)
+    }
 }
