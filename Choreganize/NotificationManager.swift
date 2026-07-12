@@ -160,8 +160,18 @@ enum NotificationManager {
         let request = NSFetchRequest<CDChore>(entityName: "CDChore")
         let chores = ((try? context.fetch(request)) ?? []).inScope(activeHousehold)
 
-        let planned = plannedReminders(chores: chores, days: enabledDays,
-                                       hour: hour, minute: minute, from: Date(), calendar: cal)
+        // CG-19 / #101: per-chore/per-area custom times are Plus-gated. The gate
+        // mirrors the settings UI's `effectivePlus` — own entitlement OR the
+        // household-propagated flag (CG-15 / #97) — checking every household
+        // rather than just `activeHousehold` (nil while viewing Solo), so a
+        // household member's Plus keeps custom times working from either scope.
+        let households = ((try? context.fetch(NSFetchRequest<CDHousehold>(entityName: "CDHousehold"))) ?? [])
+        let overridesEnabled = Entitlements.isPlus || households.contains { $0.plusEnabled }
+
+        let planned = plannedGroupedReminders(chores: chores, days: enabledDays,
+                                              globalHour: hour, globalMinute: minute,
+                                              overridesEnabled: overridesEnabled,
+                                              from: Date(), calendar: cal)
         // Resolve names once for single-chore reminders so the body can name the
         // chore the "Mark done" action will complete.
         let nameByID = Dictionary(uniqueKeysWithValues: chores.compactMap { chore -> (UUID, String)? in
@@ -186,7 +196,9 @@ enum NotificationManager {
 
             let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: reminder.fireDate)
             let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
-            let id = "\(reminderPrefix)\(comps.year ?? 0)-\(comps.month ?? 0)-\(comps.day ?? 0)"
+            // CG-19 / #101: the id carries the time so grouped reminders can share
+            // a day without colliding; prefix-based clearing above still matches.
+            let id = "\(reminderPrefix)\(comps.year ?? 0)-\(comps.month ?? 0)-\(comps.day ?? 0)-\(comps.hour ?? 0):\(comps.minute ?? 0)"
             do {
                 try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
             } catch {
@@ -289,6 +301,52 @@ enum NotificationManager {
                                           choreIDs: unresolved.compactMap(\.id)))
         }
         return result
+    }
+
+    /// CG-19 / #101: planning with per-chore/per-area time overrides (Plus).
+    ///
+    /// Chores are partitioned by their *effective* reminder time — the chore's
+    /// own override, else its area's, else the global hour/minute (see
+    /// `ReminderTimeOverride`) — and each partition runs through the same pure
+    /// core above, so every group keeps the enabled-weekday, "only when chores
+    /// are predicted unresolved", and skip-passed-slot rules. A chore whose
+    /// override equals the global time merges back into the global group: one
+    /// notification, not two. `maxOccurrences` caps each group independently
+    /// (iOS itself keeps only the ~64 soonest pending requests, which a
+    /// handful of distinct times can't realistically exceed).
+    ///
+    /// `overridesEnabled` is the Plus gate: when false, overrides are ignored
+    /// and this is exactly the single-time `plannedReminders` plan — so a
+    /// lapsed entitlement quietly folds everything back into the global
+    /// reminder without touching the stored override strings.
+    nonisolated static func plannedGroupedReminders(
+        chores: [CDChore],
+        days: Set<Weekday>,
+        globalHour: Int,
+        globalMinute: Int,
+        overridesEnabled: Bool,
+        from now: Date,
+        calendar: Calendar = .current,
+        maxOccurrences: Int = 7,
+        lookaheadDays: Int = 21
+    ) -> [PlannedReminder] {
+        guard overridesEnabled else {
+            return plannedReminders(chores: chores, days: days, hour: globalHour, minute: globalMinute,
+                                    from: now, calendar: calendar,
+                                    maxOccurrences: maxOccurrences, lookaheadDays: lookaheadDays)
+        }
+        // Key by minutes-since-midnight so identical times collapse to one group.
+        let groups = Dictionary(grouping: chores) { chore -> Int in
+            let time = ReminderTimeOverride.effectiveOverride(chore: chore)
+            return (time?.hour ?? globalHour) * 60 + (time?.minute ?? globalMinute)
+        }
+        return groups
+            .flatMap { minutes, group in
+                plannedReminders(chores: group, days: days, hour: minutes / 60, minute: minutes % 60,
+                                 from: now, calendar: calendar,
+                                 maxOccurrences: maxOccurrences, lookaheadDays: lookaheadDays)
+            }
+            .sorted { $0.fireDate < $1.fireDate }
     }
 
     // MARK: - Helpers

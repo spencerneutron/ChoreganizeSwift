@@ -73,6 +73,23 @@ struct NotificationSettingsView: View {
                 } footer: {
                     Text("You're only reminded on days that still have chores to do.")
                 }
+
+                // CG-19 / #101: per-room/per-chore custom times (Plus). Locked-row
+                // presentation mirrors "Member completions" below, behind the same
+                // household-scoped gate (CG-15 / #97). Lives inside the `enabled`
+                // block because overrides only shape the daily-reminder plan.
+                Section {
+                    if effectivePlus {
+                        NavigationLink("Custom Times") { CustomRemindersView() }
+                    } else {
+                        Label("Custom Times", systemImage: "lock")
+                            .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text(effectivePlus
+                         ? "Remind specific rooms or chores at their own times."
+                         : "Remind specific rooms or chores at their own times. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus).")
+                }
             }
 
             // CG-14 / #62: household activity alerts (Plus). Independent of the
