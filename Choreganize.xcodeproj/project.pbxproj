@@ -77,9 +77,9 @@
 		200C4C902FDE3576008F211D /* Exceptions for "Choreganize" folder in "ChoreganizeWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				WidgetShared.swift,
-				CompleteChoreIntent.swift,
 				ChoreEntity.swift,
+				CompleteChoreIntent.swift,
+				WidgetShared.swift,
 			);
 			target = 200C4C702FDE31A4008F211D /* ChoreganizeWidgetExtension */;
 		};
