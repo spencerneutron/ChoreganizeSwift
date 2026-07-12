@@ -5,6 +5,9 @@ enum AppMode: String, CaseIterable, Identifiable {
     case work = "Work"
     case edit = "Edit"
     case calendar = "Calendar"
+    /// CG-21 / #103: the Insights dashboard, the 4th primary surface (Plus).
+    /// Every switcher variant iterates `allCases`, so the case is all they need.
+    case insights = "Insights"
     var id: String { rawValue }
 
     var systemImage: String {
@@ -12,6 +15,7 @@ enum AppMode: String, CaseIterable, Identifiable {
         case .work: "checklist"
         case .edit: "slider.horizontal.3"
         case .calendar: "calendar"
+        case .insights: "chart.bar.xaxis"
         }
     }
 }
@@ -45,6 +49,8 @@ struct ContentView: View {
                     EditHomeView()
                 case .calendar:
                     CalendarHomeView()
+                case .insights:
+                    InsightsHomeView()
                 }
             }
             .toolbar(.visible, for: .automatic)
