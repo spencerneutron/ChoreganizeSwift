@@ -30,6 +30,10 @@ struct ContentView: View {
     @State private var showingError: Bool = false
     @State private var showingLogs: Bool = false
     @StateObject private var onboarding = OnboardingCoordinator()
+    /// CG-16 / #98: multiple households — creation is the Plus affordance.
+    @ObservedObject private var entitlements = EntitlementStore.shared
+    @State private var showNewHousehold = false
+    @State private var newHouseholdName = ""
 
     /// Card steps present as a sheet; spotlight steps use the overlay instead.
     private var cardStep: Binding<OnboardingStep?> {
@@ -87,6 +91,34 @@ struct ContentView: View {
                                 Label(scope.title, systemImage: scope.systemImage).tag(scope)
                             }
                         }
+                        // CG-16 / #98: pick among several households. Switching is
+                        // never gated (a member of two shares must be able to reach
+                        // both); CREATING an extra household is the Plus affordance.
+                        let households = model.allHouseholds
+                        if households.count > 1 {
+                            Section("Households") {
+                                ForEach(households, id: \.objectID) { household in
+                                    Button {
+                                        model.setActiveHousehold(household)
+                                        model.setScope(.household)
+                                    } label: {
+                                        if household == model.resolvedHousehold {
+                                            Label(household.name ?? "Household", systemImage: "checkmark")
+                                        } else {
+                                            Text(household.name ?? "Household")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if entitlements.isPlus {
+                            Button {
+                                newHouseholdName = ""
+                                showNewHousehold = true
+                            } label: {
+                                Label("New Household…", systemImage: "plus")
+                            }
+                        }
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: model.scope.systemImage)
@@ -124,6 +156,14 @@ struct ContentView: View {
             }, message: {
                 Text(model.lastError ?? "Unknown error")
             })
+            // CG-16 / #98: name-and-create for an additional household (Plus).
+            .alert("New Household", isPresented: $showNewHousehold) {
+                TextField("Name", text: $newHouseholdName)
+                Button("Create") { model.createHousehold(named: newHouseholdName) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Creates a separate household you can share independently.")
+            }
             .onChange(of: model.lastError) { _, newValue in
                 showingError = newValue != nil
             }
