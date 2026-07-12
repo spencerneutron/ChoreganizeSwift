@@ -13,6 +13,9 @@ struct NotificationSettingsView: View {
     @AppStorage(NotificationManager.Keys.enabled) private var enabled = false
     @AppStorage(NotificationManager.Keys.hour) private var hour = 18
     @AppStorage(NotificationManager.Keys.minute) private var minute = 0
+    /// CG-14 / #62: member-completion alerts (Plus). Default on; Plus gates delivery.
+    @AppStorage(MemberCompletionNotifier.Keys.enabled) private var memberAlerts = true
+    @ObservedObject private var entitlements = EntitlementStore.shared
 
     @State private var selectedDays: Set<Weekday> = Set(Weekday.standardCases)
     @State private var badgeScopes: Set<AppScope> = Set(AppScope.allCases)
@@ -64,6 +67,26 @@ struct NotificationSettingsView: View {
                     Text("Days")
                 } footer: {
                     Text("You're only reminded on days that still have chores to do.")
+                }
+            }
+
+            // CG-14 / #62: household activity alerts (Plus). Independent of the
+            // daily-reminder toggle — these fire on sync when ANOTHER member
+            // completes a chore, not on a schedule.
+            if !deniedInSystem {
+                Section {
+                    if entitlements.isPlus {
+                        Toggle("Member completions", isOn: $memberAlerts)
+                    } else {
+                        Label("Member completions", systemImage: "lock")
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Household Activity")
+                } footer: {
+                    Text(entitlements.isPlus
+                         ? "Get notified when another household member completes a chore."
+                         : "Get notified when another household member completes a chore. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus).")
                 }
             }
 

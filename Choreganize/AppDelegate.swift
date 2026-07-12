@@ -20,6 +20,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         HouseholdMigration.resumePendingMoveIfNeeded()
         // CG-12 / #95: start the StoreKit 2 transaction listener + entitlement load.
         EntitlementStore.shared.start()
+        // CG-14 / #62: watch mirroring imports for other members' completions
+        // and surface them as local notifications (Plus).
+        MemberCompletionNotifier.shared.start()
         // Become the notification delegate and register the actionable reminder
         // category up front, so a delivered reminder shows "Mark done" and routes
         // the tap back here even on a cold launch from the notification.
