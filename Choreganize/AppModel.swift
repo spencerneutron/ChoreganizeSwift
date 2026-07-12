@@ -71,10 +71,16 @@ final class AppModel: ObservableObject {
     /// mounted *in response* to the link and still see the pending target.
     @Published var deepLinkChore: UUID?
 
+    // MARK: - Personal→Household migration (CG-11 / #64)
+    /// Presents the migration picker sheet (set from the household menu, or by
+    /// the one-time offer banner after a share is created/accepted).
+    @Published var showMigrationPicker = false
+
     /// True once we've shown the "not signed in" cue this session, so the banner
     /// isn't re-queued on every CloudKit event.
     private var didAnnounceNotSignedIn = false
     private var cloudKitEventObserver: NSObjectProtocol?
+    private var shareChangeObserver: NSObjectProtocol?
 
     // MARK: - Scope (Solo vs Household)
     @Published private(set) var scope: AppScope = .solo
@@ -91,11 +97,15 @@ final class AppModel: ObservableObject {
         if restored == .household { ensureHousehold() }
         refreshHouseholdName()
         startSyncMonitoring()
+        startMigrationOfferMonitoring()
     }
 
     deinit {
         if let cloudKitEventObserver {
             NotificationCenter.default.removeObserver(cloudKitEventObserver)
+        }
+        if let shareChangeObserver {
+            NotificationCenter.default.removeObserver(shareChangeObserver)
         }
     }
 
@@ -147,6 +157,53 @@ final class AppModel: ObservableObject {
         } else {
             syncState = .idle
         }
+    }
+
+    // MARK: - Migration offer (CG-11 / #64)
+
+    /// After a share is created (owner) or accepted (participant), offer — once
+    /// per household — to bring Personal items in. The share change posts from
+    /// sharing callbacks on arbitrary threads (queue: nil for the same
+    /// no-blocking-the-poster reason as the sync observer); the accept path
+    /// fires before the household record has imported, so evaluation is
+    /// delayed a beat and simply skips (without burning the one-time flag)
+    /// when the household or Personal items aren't visible yet.
+    private func startMigrationOfferMonitoring() {
+        shareChangeObserver = NotificationCenter.default.addObserver(
+            forName: .householdShareDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                self?.offerMigrationIfWorthwhile()
+            }
+        }
+    }
+
+    private func offerMigrationIfWorthwhile() {
+        guard let household = resolvedHousehold, let householdID = household.id else { return }
+        let offeredKey = "migration.offered.\(householdID.uuidString)"
+        guard !UserDefaults.standard.bool(forKey: offeredKey) else { return }
+
+        let request = NSFetchRequest<CDChore>(entityName: "CDChore")
+        let personalChores = ((try? context.fetch(request)) ?? []).inScope(nil)
+        let areaRequest = NSFetchRequest<CDArea>(entityName: "CDArea")
+        let personalAreas = ((try? context.fetch(areaRequest)) ?? []).inScope(nil)
+        guard !personalChores.isEmpty || !personalAreas.isEmpty else { return }
+
+        UserDefaults.standard.set(true, forKey: offeredKey)
+        let isParticipant = HouseholdMigration.mode(for: household) == .participantCopy
+        showBanner(
+            title: isParticipant ? "You're in \(household.name ?? "the household")" : "Household shared",
+            message: isParticipant
+                ? "Want to add your Personal chores so everyone can see them? Your originals stay untouched."
+                : "Want to move your Personal chores into the household?",
+            style: .info,
+            actionTitle: "Choose Items…",
+            action: { [weak self] in self?.showMigrationPicker = true },
+            duration: 10.0
+        )
     }
 
     /// Surfaces the "sync paused / not signed in" banner exactly once per session.

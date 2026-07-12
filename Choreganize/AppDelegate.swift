@@ -15,6 +15,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // #59: cache the stable CloudKit user id so Household completions can be
         // stamped with who completed them (no-op when CloudKit is off).
         CompleterIdentity.refresh()
+        // CG-11 / #64: finish an owner-side migration interrupted between its
+        // local save and the share-zone re-home (no-op when the journal is clear).
+        HouseholdMigration.resumePendingMoveIfNeeded()
         // Become the notification delegate and register the actionable reminder
         // category up front, so a delivered reminder shows "Mark done" and routes
         // the tap back here even on a cold launch from the notification.

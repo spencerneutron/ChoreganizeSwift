@@ -135,6 +135,13 @@ struct ContentView: View {
             .sheet(isPresented: $showingLogs) {
                 LogViewerView()
             }
+            // CG-11 / #64: Personal→Household migration picker. Mounted here
+            // (not in the toolbar control) so the offer banner's action can
+            // present it from any tab.
+            .sheet(isPresented: $model.showMigrationPicker) {
+                MigrationPickerView()
+                    .environmentObject(model)
+            }
             .sheet(item: cardStep) { step in
                 OnboardingCardView(
                     step: step,
