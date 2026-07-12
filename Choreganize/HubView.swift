@@ -23,10 +23,16 @@ struct HubView: View {
     /// How the Work view's day list is grouped (default none). Stored as the raw value.
     @AppStorage(SettingsKeys.workGrouping) private var workGrouping: String = WorkGrouping.none.rawValue
 
+    /// CG-12 / #95: live Plus entitlement for the Support section.
+    @ObservedObject private var entitlements = EntitlementStore.shared
+    @State private var showPaywall = false
+
     #if DEBUG
     /// #65 A/B: which floating mode-switcher style to use (toggled in the Developer
     /// section below). Shares the key `ContentView` reads, so the switch is live.
     @AppStorage(SettingsKeys.switcherStyle) private var switcherStyleRaw = SwitcherStyle.morph.rawValue
+    /// CG-12 / #95: force the Plus gate on/off to exercise gated UI in the sim.
+    @AppStorage(EntitlementStore.debugOverrideKey) private var plusOverride = "default"
     #endif
 
     var body: some View {
@@ -131,15 +137,21 @@ struct HubView: View {
                     Text("Hands-free with Siri — try “What Chores do I have today?” or “Complete a Chores task.” Tap a tip to add it, or open Shortcuts to see them all.")
                 }
 
+                // MARK: Plus (CG-12 / #95)
                 Section {
                     Button {
-                        // TODO: Integrate StoreKit 2 tips / Pro unlock (deferred paywall).
+                        showPaywall = true
                     } label: {
-                        Label("Support the app — coming soon", systemImage: "sparkles")
+                        if entitlements.isPlus {
+                            Label("Choreganize Plus — active", systemImage: "sparkles")
+                        } else {
+                            Label("Get Choreganize Plus…", systemImage: "sparkles")
+                        }
                     }
-                    .disabled(true)
                 } footer: {
-                    Text("Thanks for using Choreganize! Ways to support development are coming soon. In the meantime, your feedback is invaluable.")
+                    Text(entitlements.isPlus
+                         ? "Thanks for supporting Choreganize! Manage your plan from the Plus screen."
+                         : "Member notifications, chore assignment, insights, and more — and it keeps development going.")
                 }
 
                 #if DEBUG
@@ -147,10 +159,18 @@ struct HubView: View {
                     Picker("View switcher", selection: $switcherStyleRaw) {
                         ForEach(SwitcherStyle.allCases) { Text($0.title).tag($0.rawValue) }
                     }
+                    Picker("Plus override", selection: $plusOverride) {
+                        Text("StoreKit").tag("default")
+                        Text("Force on").tag("on")
+                        Text("Force off").tag("off")
+                    }
+                    .onChange(of: plusOverride) { _, _ in
+                        entitlements.applyDebugOverride()
+                    }
                 } header: {
                     Text("Developer")
                 } footer: {
-                    Text("A/B the floating Work/Edit/Calendar switcher. “Menu” is the production default; “Glass morph” is the experimental custom morph.")
+                    Text("A/B the floating Work/Edit/Calendar switcher, and force the Plus entitlement to exercise gated UI without a purchase.")
                 }
                 #endif
 
@@ -163,6 +183,9 @@ struct HubView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
             }
         }
     }

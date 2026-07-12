@@ -39,6 +39,10 @@ struct ChoreganizeApp: App {
                     switch phase {
                     case .background, .inactive:
                         CoreDataStack.shared.saveViewContext()
+                    case .active:
+                        // CG-13 / #96: catch entitlement changes made outside the
+                        // app (renewals, refunds, Ask to Buy, Family Sharing).
+                        EntitlementStore.shared.syncOnForeground()
                     default:
                         break
                     }

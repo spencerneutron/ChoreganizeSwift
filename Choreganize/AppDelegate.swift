@@ -18,6 +18,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // CG-11 / #64: finish an owner-side migration interrupted between its
         // local save and the share-zone re-home (no-op when the journal is clear).
         HouseholdMigration.resumePendingMoveIfNeeded()
+        // CG-12 / #95: start the StoreKit 2 transaction listener + entitlement load.
+        EntitlementStore.shared.start()
         // Become the notification delegate and register the actionable reminder
         // category up front, so a delivered reminder shows "Mark done" and routes
         // the tap back here even on a cold launch from the notification.
