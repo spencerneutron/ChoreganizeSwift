@@ -13,7 +13,21 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<!-- CG-20 / #102: automatic scheduled backups run as a BGProcessingTask. -->
+		<string>processing</string>
 	</array>
+	<!-- CG-20 / #102: identifiers BGTaskScheduler will accept for this app —
+	     must match AutoBackup.taskIdentifier or registration throws at launch. -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.svk.Choreganize.autobackup</string>
+	</array>
+	<!-- CG-20 / #102: expose Documents (where Backups/ lives) in the Files app so
+	     users can see and retrieve automatic backups without the app's UI. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<!-- Spoken alias so Siri App Shortcut phrases like "my Chores today" resolve
 	     to the app (in addition to the primary name "Choreganize"). -->
 	<key>INAlternativeAppNames</key>

@@ -23,6 +23,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // CG-14 / #62: watch mirroring imports for other members' completions
         // and surface them as local notifications (Plus).
         MemberCompletionNotifier.shared.start()
+        // CG-20 / #102: register the auto-backup BGTask (must happen before
+        // launch finishes) and take an overdue backup now — the scheduler is
+        // best-effort, so the launch catch-up is the reliability backstop.
+        AutoBackup.register()
+        AutoBackup.runCatchUpIfDue()
         // Become the notification delegate and register the actionable reminder
         // category up front, so a delivered reminder shows "Mark done" and routes
         // the tap back here even on a cold launch from the notification.

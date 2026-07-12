@@ -32,6 +32,13 @@ struct BackupRestoreView: View {
     @State private var confirmRestore = false
     @State private var result: ResultInfo?
 
+    // CG-20 / #102: automatic scheduled backups (Plus).
+    @ObservedObject private var entitlements = EntitlementStore.shared
+    @AppStorage(AutoBackup.Keys.enabled) private var autoEnabled = false
+    @AppStorage(AutoBackup.Keys.cadence) private var autoCadenceRaw = AutoBackupPolicy.Cadence.weekly.rawValue
+    @State private var autoBackupFiles: [URL] = []
+    @State private var lastAutoBackup: Date?
+
     private struct ResultInfo: Identifiable {
         let id = UUID()
         let title: String
@@ -63,9 +70,76 @@ struct BackupRestoreView: View {
             } footer: {
                 Text("Merges chores and history from a backup into your Personal data. Items with the same ID are updated, never duplicated — and nothing is deleted.")
             }
+
+            // CG-20 / #102: automatic scheduled backups (Plus). Personal-scope
+            // like the manual export, and gated on the user's OWN entitlement
+            // (not the household flag) — it backs up their Personal data.
+            Section {
+                if entitlements.isPlus {
+                    Toggle("Automatic backups", isOn: $autoEnabled)
+                    if autoEnabled {
+                        Picker("Frequency", selection: $autoCadenceRaw) {
+                            ForEach(AutoBackupPolicy.Cadence.allCases) { cadence in
+                                Text(cadence.displayName).tag(cadence.rawValue)
+                            }
+                        }
+                        LabeledContent("Last backup",
+                                       value: lastAutoBackup?.formatted(date: .abbreviated, time: .shortened) ?? "Never")
+                    }
+                } else {
+                    Label("Automatic backups", systemImage: "lock")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Automatic Backups")
+            } footer: {
+                Text(entitlements.isPlus
+                     ? "Backs up your Personal data on a schedule. Files are kept in Files ▸ On My iPhone ▸ Choreganize ▸ Backups; only the \(AutoBackupPolicy.keepCount) most recent are kept."
+                     : "Back up your Personal data automatically on a schedule. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus).")
+            }
+
+            if entitlements.isPlus && !autoBackupFiles.isEmpty {
+                Section {
+                    ForEach(autoBackupFiles, id: \.self) { url in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(Self.backupDayLabel(for: url))
+                                Text(url.lastPathComponent)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            // Same confirm-then-merge flow as a picked file:
+                            // restore is a UUID upsert, never a wipe.
+                            Button("Restore…") {
+                                pendingURL = url
+                                confirmRestore = true
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                    .onDelete(perform: deleteAutoBackups)
+                } header: {
+                    Text("Automatic Backup Files")
+                } footer: {
+                    Text("Swipe left to delete a backup file.")
+                }
+            }
         }
         .navigationTitle("Backup & Restore")
         .navigationBarTitleDisplayMode(.inline)
+        .task { refreshAutoBackups() }
+        .onChange(of: autoEnabled) { _, isOn in
+            AutoBackup.scheduleNextIfEnabled()   // cancels the pending request when off
+            if isOn {
+                // First enable has no lastBackupDate, so this takes the initial
+                // backup right away — instant feedback in the list below.
+                AutoBackup.runCatchUpIfDue { _ in refreshAutoBackups() }
+            }
+        }
+        .onChange(of: autoCadenceRaw) { _, _ in
+            AutoBackup.scheduleNextIfEnabled()
+        }
         .fileExporter(isPresented: $showExporter, document: document, contentType: .json,
                       defaultFilename: Self.defaultFilename) { outcome in
             switch outcome {
@@ -97,6 +171,26 @@ struct BackupRestoreView: View {
 
     private static var defaultFilename: String {
         "Choreganize-Backup-\(Date().formatted(.iso8601.year().month().day()))"
+    }
+
+    // MARK: Automatic backups (CG-20 / #102)
+
+    /// Row title for an auto-backup file: its backup day, from the filename.
+    private static func backupDayLabel(for url: URL) -> String {
+        AutoBackupPolicy.date(fromFilename: url.lastPathComponent)?
+            .formatted(date: .abbreviated, time: .omitted) ?? url.lastPathComponent
+    }
+
+    private func refreshAutoBackups() {
+        autoBackupFiles = AutoBackup.listBackupFiles()
+        lastAutoBackup = AutoBackup.lastBackupDate
+    }
+
+    private func deleteAutoBackups(at offsets: IndexSet) {
+        for index in offsets {
+            AutoBackup.deleteBackupFile(at: autoBackupFiles[index])
+        }
+        refreshAutoBackups()
     }
 
     private func exportNow() {
