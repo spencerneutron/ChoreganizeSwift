@@ -44,10 +44,31 @@ struct ChoreRowView: View {
         }
     }
 
+    /// CG-17 / #99 — the assignment chip's text: "You" for the current user,
+    /// otherwise the member's directory name. `namesByID` is read directly
+    /// (not `name(for:)`, which hides the current user by design for the
+    /// "· by X" attribution line — here self must show as "You").
+    private var assigneeTag: String? {
+        guard let assignee = chore.assignee else { return nil }
+        if chore.isAssignedToCurrentUser { return "You" }
+        return completers.namesByID[assignee] ?? "Member"
+    }
+
     private var content: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(chore.name ?? "Untitled")
-                .fontWeight(.medium)
+            HStack(spacing: 6) {
+                Text(chore.name ?? "Untitled")
+                    .fontWeight(.medium)
+                if let tag = assigneeTag {
+                    Text(tag)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color(.tertiarySystemFill)))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
             lastLine
         }
         .opacity(chore.needsAttention(on: date) ? 1 : 0.5)

@@ -43,6 +43,37 @@ extension CDChore {
         set { assignedDay = newValue?.rawValue }
     }
 
+    /// CG-18 / #100 — bridge over the comma-joined `assignedDays` attribute
+    /// (multi-day recurrence). Serialized in Sunday→Saturday order so the
+    /// stored string is deterministic; a non-empty set supersedes the legacy
+    /// single `assignedDay` in scheduling.
+    var assignedDaysValue: Set<Weekday> {
+        get {
+            guard let assignedDays, !assignedDays.isEmpty else { return [] }
+            return Set(assignedDays.split(separator: ",").compactMap { Weekday(rawValue: String($0)) })
+        }
+        set {
+            let ordered = Weekday.standardCases.filter { newValue.contains($0) }
+            assignedDays = ordered.isEmpty ? nil : ordered.map(\.rawValue).joined(separator: ",")
+        }
+    }
+
+    /// CG-18 / #100 — bridge over the Int16 `recurrenceInterval` scalar. Legacy
+    /// records synced in before the attribute existed read 0; both 0 and 1 mean
+    /// "every period".
+    var recurrenceIntervalValue: Int {
+        get { max(1, Int(recurrenceInterval)) }
+        set { recurrenceInterval = Int16(max(1, min(newValue, Int(Int16.max)))) }
+    }
+
+    /// CG-17 / #99 — whether the chore is assigned to the signed-in member
+    /// (`assignee` and `CompleterIdentity` share the CloudKit user-record-name
+    /// identity domain).
+    var isAssignedToCurrentUser: Bool {
+        guard let assignee else { return false }
+        return assignee == CompleterIdentity.cachedID
+    }
+
     /// Completions for this chore, newest first.
     var completionsArray: [CDCompletion] {
         (completions as? Set<CDCompletion> ?? [])
