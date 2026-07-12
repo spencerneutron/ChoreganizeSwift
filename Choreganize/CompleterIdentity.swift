@@ -109,14 +109,22 @@ final class CompleterDirectory: ObservableObject {
         guard stack.cloudKitEnabled else { return }
         Task.detached(priority: .utility) {
             // Find the household the app resolves for the Household scope
-            // (shared-store first, then owned) and read its share's participants.
+            // (CG-16 / #98: the explicit selection first, then shared-store,
+            // then owned) and read its share's participants.
             let ctx = stack.newBackgroundContext()
             var householdID: NSManagedObjectID?
             ctx.performAndWait {
+                if let raw = UserDefaults.standard.string(forKey: AppModel.activeHouseholdKey),
+                   let id = UUID(uuidString: raw) {
+                    let selected = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
+                    selected.fetchLimit = 1
+                    selected.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+                    if let h = try? ctx.fetch(selected).first { householdID = h.objectID }
+                }
                 let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
                 request.fetchLimit = 1
                 request.sortDescriptors = [NSSortDescriptor(key: "createdDate", ascending: true)]
-                if let shared = stack.sharedStore {
+                if householdID == nil, let shared = stack.sharedStore {
                     request.affectedStores = [shared]
                     if let h = try? ctx.fetch(request).first { householdID = h.objectID }
                 }

@@ -88,6 +88,10 @@ final class AppModel: ObservableObject {
     /// Display name of the active household (mirrors `activeHousehold?.name`).
     @Published private(set) var householdName: String = "Household"
     private let scopeKey = "activeScope"
+    /// CG-16 / #98: which of several households backs the Household scope.
+    /// Persisted so widgets/intents (`ChoreScopeResolver`) resolve the same one.
+    @Published private(set) var activeHouseholdID: UUID?
+    static let activeHouseholdKey = "activeHouseholdID"
 
     private var bannerQueue: [BannerMessage] = []
     private var bannerTask: Task<Void, Never>?
@@ -95,6 +99,8 @@ final class AppModel: ObservableObject {
     init() {
         let restored = AppScope(rawValue: UserDefaults.standard.string(forKey: scopeKey) ?? "") ?? .solo
         scope = restored
+        activeHouseholdID = UserDefaults.standard.string(forKey: Self.activeHouseholdKey)
+            .flatMap(UUID.init(uuidString:))
         if restored == .household { ensureHousehold() }
         refreshHouseholdName()
         startSyncMonitoring()
@@ -251,8 +257,50 @@ final class AppModel: ObservableObject {
     /// The household backing Household-scoped data, *regardless* of the active scope.
     /// `activeHousehold` is nil while in Solo, but the badge counts Household chores
     /// even from Solo, so it resolves the household through this instead.
+    /// CG-16 / #98: an explicit selection wins; the shared-store-first default is
+    /// the fallback (and the pre-multi-household behavior).
     var resolvedHousehold: CDHousehold? {
-        household(in: CoreDataStack.shared.sharedStore) ?? household(in: nil)
+        if let activeHouseholdID, let selected = household(withID: activeHouseholdID) {
+            return selected
+        }
+        return household(in: CoreDataStack.shared.sharedStore) ?? household(in: nil)
+    }
+
+    /// CG-16 / #98: every household the user owns or participates in,
+    /// shared-with-me first (same precedence as the single-household default).
+    var allHouseholds: [CDHousehold] {
+        let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
+        request.sortDescriptors = [NSSortDescriptor(key: "createdDate", ascending: true)]
+        let all = (try? context.fetch(request)) ?? []
+        let shared = CoreDataStack.shared.sharedStore
+        return all.sorted { a, b in
+            let aShared = shared != nil && a.objectID.persistentStore === shared
+            let bShared = shared != nil && b.objectID.persistentStore === shared
+            if aShared != bShared { return aShared }
+            return (a.createdDate ?? .distantPast) < (b.createdDate ?? .distantPast)
+        }
+    }
+
+    /// CG-16 / #98: switches the Household scope to a specific household.
+    func setActiveHousehold(_ household: CDHousehold) {
+        activeHouseholdID = household.id
+        UserDefaults.standard.set(household.id?.uuidString, forKey: Self.activeHouseholdKey)
+        refreshHouseholdName()
+        syncHouseholdPlusStamp()
+    }
+
+    /// CG-16 / #98: creates an additional household and makes it active (Plus).
+    @discardableResult
+    func createHousehold(named name: String) -> CDHousehold {
+        let created = CDHousehold(context: context)
+        created.id = UUID()
+        created.name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Household" : name.trimmingCharacters(in: .whitespacesAndNewlines)
+        created.createdDate = Date()
+        try? context.save()
+        setActiveHousehold(created)
+        Log.info("Created additional household", category: .model)
+        return created
     }
 
     /// The first household in the given store (or across all stores when `nil`).
@@ -264,11 +312,20 @@ final class AppModel: ObservableObject {
         return try? context.fetch(request).first
     }
 
+    /// A household by UUID, across both stores.
+    private func household(withID id: UUID) -> CDHousehold? {
+        let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
+        request.fetchLimit = 1
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        return try? context.fetch(request).first
+    }
+
     /// Returns the household (one we own or one shared with us), creating a local
-    /// one only when none exists anywhere.
+    /// one only when none exists anywhere. CG-16 / #98: honors the explicit
+    /// active-household selection when one is set.
     @discardableResult
     func ensureHousehold() -> CDHousehold {
-        if let existing = household(in: nil) { return existing }
+        if let existing = resolvedHousehold ?? household(in: nil) { return existing }
         let created = CDHousehold(context: context)
         created.id = UUID()
         created.name = "Household"
