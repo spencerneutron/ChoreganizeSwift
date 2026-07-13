@@ -141,12 +141,18 @@ struct MacRootView: View {
     }
 
     /// Sidebar selection drives the detail surface; deselection is ignored so
-    /// a surface is always showing.
+    /// a surface is always showing. macOS Lists re-assert their selection
+    /// DURING view updates — writing the @Published surface synchronously (or
+    /// redundantly) from here triggers "Publishing changes from within view
+    /// updates", so only real changes go through, deferred past the update pass.
     private var surfaceSelection: Binding<AppMode?> {
         Binding(
             get: { ui.surface },
             set: { newValue in
-                if let newValue { withAnimation(.snappy) { ui.surface = newValue } }
+                guard let newValue, newValue != ui.surface else { return }
+                Task { @MainActor in
+                    withAnimation(.snappy) { ui.surface = newValue }
+                }
             }
         )
     }
@@ -235,7 +241,10 @@ struct MacRootView: View {
             Group {
                 switch ui.surface {
                 case .work:
-                    WorkHomeView()
+                    // Mac-specific: one day + explicit navigation (MacWorkHomeView);
+                    // the iOS WeekView's paged scrolling can't be made to snap on
+                    // macOS trackpads without fighting the scroll system.
+                    MacWorkHomeView()
                 case .edit:
                     EditHomeView()
                 case .calendar:

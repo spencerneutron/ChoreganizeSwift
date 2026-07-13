@@ -127,11 +127,9 @@ struct WeekView: View {
 
     // Today sits in the middle of the symmetric range. Optional because scrollPosition(id:)
     // drives it; starts on today.
-    // KNOWN GAP (macOS): trackpad momentum ignores `.scrollTargetBehavior(.paging)`,
-    // so free scrolling can settle between days. Two guided approaches (idle-snap,
-    // NSEvent interception) both fought the scroll system and were backed out —
-    // a structural solution (e.g. a non-scrolling single-day layout on macOS) is
-    // deferred rather than fighting SwiftUI defaults.
+    // macOS NOTE: the Mac shell doesn't mount this view — trackpad momentum ignores
+    // `.scrollTargetBehavior(.paging)` and two guided fixes fought the scroll system
+    // (both backed out). MacWorkHomeView shows one day with explicit navigation instead.
     @State private var currentIndex: Int? = 6
 
     /// Index of today within `dates` (today is the middle of the range).
