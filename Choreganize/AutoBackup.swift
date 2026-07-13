@@ -1,4 +1,6 @@
+#if os(iOS)
 import BackgroundTasks
+#endif
 import CoreData
 import Foundation
 
@@ -126,6 +128,7 @@ enum AutoBackup {
 
     // MARK: BGTask lifecycle
 
+    #if os(iOS)
     /// Registers the processing-task handler. Must run before the app
     /// finishes launching (BGTaskScheduler requirement) — called from
     /// `AppDelegate.application(_:didFinishLaunchingWithOptions:)`.
@@ -189,6 +192,37 @@ enum AutoBackup {
             completion.finish(success: ok)
         }
     }
+    #else
+    /// macOS has no BGTaskScheduler; a repeating `NSBackgroundActivityScheduler`
+    /// covers the cadence while the app runs (Mac apps stay open), and the
+    /// launch catch-up below remains the reliability backstop. Same funnel
+    /// through `AutoBackupPolicy.isDue`, so whichever fires first takes the
+    /// backup and the other no-ops until the next interval.
+    private static var activityScheduler: NSBackgroundActivityScheduler?
+
+    /// Launch hook, kept name-compatible with the iOS BGTask path.
+    static func register() {
+        scheduleNextIfEnabled()
+    }
+
+    /// (Re)arms the repeating background activity to match the current
+    /// preferences; safe to call on every preference change.
+    static func scheduleNextIfEnabled() {
+        guard !CoreDataStack.isRunningTests else { return }
+        activityScheduler?.invalidate()
+        activityScheduler = nil
+        guard isEnabled else { return }
+        let scheduler = NSBackgroundActivityScheduler(identifier: taskIdentifier)
+        scheduler.repeats = true
+        scheduler.interval = cadence.minimumInterval
+        scheduler.tolerance = cadence.minimumInterval / 8
+        scheduler.qualityOfService = .background
+        scheduler.schedule { activityCompletion in
+            runCatchUpIfDue { _ in activityCompletion(.finished) }
+        }
+        activityScheduler = scheduler
+    }
+    #endif
 
     // MARK: Catch-up (launch backstop)
 

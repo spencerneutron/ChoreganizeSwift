@@ -371,7 +371,7 @@ private struct YearHeatmapView: View {
 private struct ShareCardSection: View {
     let summary: InsightsMath.MonthSummary
     let scopeName: String
-    @State private var cardImage: UIImage?
+    @State private var cardImage: PlatformImage?
 
     private var monthTitle: String {
         summary.monthStart.formatted(.dateTime.month(.wide).year())
@@ -393,7 +393,7 @@ private struct ShareCardSection: View {
             .accessibilityLabel("Monthly summary card for \(monthTitle).")
 
             if let cardImage {
-                let shareImage = Image(uiImage: cardImage)
+                let shareImage = Image(platformImage: cardImage)
                 ShareLink(item: shareImage,
                           preview: SharePreview("Choreganize — \(monthTitle)", image: shareImage)) {
                     Label("Share summary card", systemImage: "square.and.arrow.up")
@@ -414,7 +414,7 @@ private struct ShareCardSection: View {
                 .frame(width: MonthlySummaryCard.size.width,
                        height: MonthlySummaryCard.size.height))
         renderer.scale = 2
-        cardImage = renderer.uiImage
+        cardImage = renderer.platformImage
     }
 }
 

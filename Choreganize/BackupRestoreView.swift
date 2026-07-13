@@ -127,7 +127,7 @@ struct BackupRestoreView: View {
             }
         }
         .navigationTitle("Backup & Restore")
-        .navigationBarTitleDisplayMode(.inline)
+        .compatInlineNavigationTitle()
         .task { refreshAutoBackups() }
         .onChange(of: autoEnabled) { _, isOn in
             AutoBackup.scheduleNextIfEnabled()   // cancels the pending request when off

@@ -36,7 +36,7 @@ struct PaywallView: View {
                 .padding()
             }
             .navigationTitle("Choreganize Plus")
-            .navigationBarTitleDisplayMode(.inline)
+            .compatInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

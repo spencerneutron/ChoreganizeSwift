@@ -1,24 +1,4 @@
 import SwiftUI
-import UIKit
-
-enum AppMode: String, CaseIterable, Identifiable {
-    case work = "Work"
-    case edit = "Edit"
-    case calendar = "Calendar"
-    /// CG-21 / #103: the Insights dashboard, the 4th primary surface (Plus).
-    /// Every switcher variant iterates `allCases`, so the case is all they need.
-    case insights = "Insights"
-    var id: String { rawValue }
-
-    var systemImage: String {
-        switch self {
-        case .work: "checklist"
-        case .edit: "slider.horizontal.3"
-        case .calendar: "calendar"
-        case .insights: "chart.bar.xaxis"
-        }
-    }
-}
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
@@ -273,70 +253,6 @@ struct SyncStatusIndicator: View {
             .frame(width: 30, height: 30)
             .switcherGlass(interactive: false)
             .transition(.scale.combined(with: .opacity))
-    }
-}
-
-/// Renders one queued `AppModel.BannerMessage`. Tapping the action (if any) runs it;
-/// the close button dismisses. Styling keys off the banner's style; the banner's own
-/// timer auto-dismisses it (see `AppModel.present`).
-struct AppBannerView: View {
-    let banner: AppModel.BannerMessage
-    let onDismiss: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: iconName)
-                .font(.headline)
-                .foregroundStyle(tint)
-            VStack(alignment: .leading, spacing: 2) {
-                if let title = banner.title {
-                    Text(title).font(.subheadline.weight(.semibold))
-                }
-                Text(banner.message)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 4)
-            if let actionTitle = banner.actionTitle {
-                Button(actionTitle) { onDismiss(); banner.action?() }
-                    .font(.footnote.weight(.semibold))
-                    .buttonStyle(.borderless)
-            }
-            Button {
-                onDismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.tertiary)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Dismiss")
-        }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(tint.opacity(0.35), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
-    }
-
-    private var iconName: String {
-        switch banner.style {
-        case .info:    "info.circle.fill"
-        case .success: "checkmark.circle.fill"
-        case .warning: "exclamationmark.triangle.fill"
-        case .error:   "xmark.octagon.fill"
-        }
-    }
-
-    private var tint: Color {
-        switch banner.style {
-        case .info:    .accentColor
-        case .success: .green
-        case .warning: .orange
-        case .error:   .red
-        }
     }
 }
 

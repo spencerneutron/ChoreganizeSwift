@@ -46,7 +46,9 @@ struct EditHomeView: View {
 
 struct ChoreListView: View {
     @Environment(\.managedObjectContext) private var context
+    #if os(iOS)
     @Environment(\.editMode) private var editMode
+    #endif
     @EnvironmentObject private var model: AppModel
     // Prefetches area/completions/household so rows don't fault them one-by-one on
     // the main thread (Edit-open hang, cz_device10).
@@ -58,7 +60,13 @@ struct ChoreListView: View {
     @State private var selection = Set<NSManagedObjectID>()
     @State private var showDeleteConfirm = false
 
-    private var isEditing: Bool { editMode?.wrappedValue.isEditing ?? false }
+    private var isEditing: Bool {
+        #if os(iOS)
+        editMode?.wrappedValue.isEditing ?? false
+        #else
+        false   // macOS Lists multi-select natively; bulk ops stay an iOS affordance
+        #endif
+    }
 
     var body: some View {
         let scoped = chores.inScope(model.activeHousehold)
@@ -92,11 +100,13 @@ struct ChoreListView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
+            #if os(iOS)
+            ToolbarItem(placement: .compatLeading) {
                 if !scoped.isEmpty { EditButton() }
             }
+            #endif
             if isEditing {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .compatTrailing) {
                     // Bulk-change one facet across the whole selection (#55) — fix entry
                     // mistakes, recover from a bug, or handle a move, without editing each.
                     Menu {
@@ -125,12 +135,12 @@ struct ChoreListView: View {
                     }
                     .disabled(selection.isEmpty)
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .compatTrailing) {
                     Button("Delete", role: .destructive) { showDeleteConfirm = true }
                         .disabled(selection.isEmpty)
                 }
             } else {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .compatTrailing) {
                     Button("Add") { showingNew = true }
                 }
             }
@@ -192,7 +202,9 @@ struct ChoreListView: View {
 
     private func endEditing() {
         selection.removeAll()
+        #if os(iOS)
         editMode?.wrappedValue = .inactive
+        #endif
     }
 }
 
@@ -398,7 +410,7 @@ struct AreaListView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .compatTrailing) {
                 Button("Add") { showingNew = true }
             }
         }

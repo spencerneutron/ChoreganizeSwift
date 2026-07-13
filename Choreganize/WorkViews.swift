@@ -160,7 +160,7 @@ struct WeekView: View {
             .scrollIndicators(.hidden)
             // Paint the grouped background to the physical edges so the home-indicator band
             // and the device's rounded corners are never the window's black base.
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color.compatGroupedBackground.ignoresSafeArea())
             // CG-05: a widget deep-link targets a today chore — snap back to today (the user
             // may have paged away) so the targeted page is the one that scrolls to it.
             .onChange(of: model.deepLinkChore) { _, target in
@@ -317,7 +317,7 @@ struct DayPage: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .compatInsetGroupedList()
         // Inset the rows past the left/right paging chevrons WeekView overlays near the
         // edges. contentMargins REPLACES the default insetGrouped margin (~20pt), so this
         // must exceed it to actually add space — 32 clears the chevrons with a gap.
@@ -453,14 +453,14 @@ private struct LogCompletionSheet: View {
                 }
             }
             .navigationTitle(date.formatted(.dateTime.weekday(.abbreviated).month().day()))
-            .navigationBarTitleDisplayMode(.inline)
+            .compatInlineNavigationTitle()
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .compatTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .compatMediumLargeDetents()
         .onAppear {
             completedIDs = Set(chores.filter { $0.isCompleted(on: date) }.map(\.objectID))
         }

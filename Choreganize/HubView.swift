@@ -249,13 +249,6 @@ private struct StreakSummaryView: View {
     }
 }
 
-/// Stable UserDefaults keys shared across the app (display name, future prefs).
-enum SettingsKeys {
-    static let displayName = "displayName"
-    static let workGrouping = "workGrouping"
-    static let switcherStyle = "switcherStyle"
-}
-
 #if DEBUG
 #Preview {
     HubView()

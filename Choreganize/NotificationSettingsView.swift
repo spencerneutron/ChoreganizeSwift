@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import UserNotifications
 
 /// Reminder preferences (Phase B). Toggling on requests notification
@@ -40,10 +39,10 @@ struct NotificationSettingsView: View {
 
             if deniedInSystem {
                 Section {
-                    Label("Notifications are off for Choreganize in iOS Settings.",
+                    Label("Notifications are off for Choreganize in \(Self.settingsAppName).",
                           systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.secondary)
-                    Button("Open iOS Settings") { openSystemSettings() }
+                    Button("Open \(Self.settingsAppName)") { openSystemSettings() }
                 }
             }
 
@@ -209,9 +208,16 @@ struct NotificationSettingsView: View {
         Task { await NotificationManager.reschedule(using: context, activeHousehold: model.activeHousehold) }
     }
 
+    private static var settingsAppName: String {
+        #if os(iOS)
+        "iOS Settings"
+        #else
+        "System Settings"
+        #endif
+    }
+
     private func openSystemSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-        UIApplication.shared.open(url)
+        SystemSettingsOpener.openNotificationSettings()
     }
 }
 
