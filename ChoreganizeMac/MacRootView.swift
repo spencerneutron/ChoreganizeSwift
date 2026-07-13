@@ -14,6 +14,7 @@ struct MacRootView: View {
     @State private var showNewHousehold = false
     @State private var newHouseholdName = ""
     @State private var showingError = false
+    @State private var householdPendingDelete: CDHousehold?
 
     var body: some View {
         NavigationSplitView {
@@ -44,6 +45,19 @@ struct MacRootView: View {
         // A deep link targets a chore on the Work surface.
         .onChange(of: model.deepLinkChore) { _, target in
             if target != nil { ui.surface = .work }
+        }
+        .alert("Delete \u{201C}\(householdPendingDelete?.name ?? "Household")\u{201D}?",
+               isPresented: Binding(
+                   get: { householdPendingDelete != nil },
+                   set: { if !$0 { householdPendingDelete = nil } }
+               )) {
+            Button("Delete", role: .destructive) {
+                if let household = householdPendingDelete { deleteHousehold(household) }
+                householdPendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { householdPendingDelete = nil }
+        } message: {
+            Text("This household is empty. Deleting removes it everywhere it syncs.")
         }
         .alert("New Household", isPresented: $showNewHousehold) {
             TextField("Name", text: $newHouseholdName)
@@ -99,6 +113,18 @@ struct MacRootView: View {
                         model.setActiveHousehold(household)
                         model.setScope(.household)
                     }
+                    // Cleanup affordance for stray EMPTY households (they
+                    // accumulate in the CloudKit dev environment from
+                    // fresh-install test runs, and became visible once #98's
+                    // picker listed every household). Never offered for a
+                    // household with content or one shared *with* us.
+                    .contextMenu {
+                        if isDeletableStray(household) {
+                            Button("Delete Household…", role: .destructive) {
+                                householdPendingDelete = household
+                            }
+                        }
+                    }
                 }
                 if entitlements.isPlus {
                     Button {
@@ -123,6 +149,32 @@ struct MacRootView: View {
                 if let newValue { withAnimation(.snappy) { ui.surface = newValue } }
             }
         )
+    }
+
+    /// True only for a household the user OWNS (private store) with no chores
+    /// and no areas — a stray. Shared-with-us households are never deletable
+    /// here (leaving a share is a different flow), nor is anything with content.
+    private func isDeletableStray(_ household: CDHousehold) -> Bool {
+        let stack = CoreDataStack.shared
+        if let shared = stack.sharedStore, household.objectID.persistentStore === shared {
+            return false
+        }
+        let context = stack.viewContext
+        let chores = NSFetchRequest<CDChore>(entityName: "CDChore")
+        chores.predicate = NSPredicate(format: "household == %@", household)
+        let areas = NSFetchRequest<CDArea>(entityName: "CDArea")
+        areas.predicate = NSPredicate(format: "household == %@", household)
+        return ((try? context.count(for: chores)) ?? 1) == 0
+            && ((try? context.count(for: areas)) ?? 1) == 0
+    }
+
+    private func deleteHousehold(_ household: CDHousehold) {
+        let context = CoreDataStack.shared.viewContext
+        let wasActive = model.resolvedHousehold == household
+        context.delete(household)
+        try? context.save()
+        if wasActive { model.setScope(.solo) }
+        Log.info("Deleted empty household", category: .model)
     }
 
     private func scopeRow(title: String, systemImage: String, checked: Bool,

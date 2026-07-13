@@ -61,7 +61,7 @@
 		205385C82E0376CD00886352 /* ChoreganizeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChoreganizeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		205385D22E0376CD00886352 /* ChoreganizeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChoreganizeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		20849C243004937A00C5BD5C /* CGZ2.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = CGZ2.icon; sourceTree = "<group>"; };
-		20AC00022FDE400000000002 /* ChoreganizeMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Choreganize.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		20AC00022FDE400000000002 /* Choreganize.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Choreganize.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -88,13 +88,6 @@
 			);
 			target = 200C4C702FDE31A4008F211D /* ChoreganizeWidgetExtension */;
 		};
-		20AC000B2FDE40000000000B /* Exceptions for "ChoreganizeMac" folder in "ChoreganizeMac" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = 20AC00012FDE400000000001 /* ChoreganizeMac */;
-		};
 		20AC00072FDE400000000007 /* Exceptions for "Choreganize" folder in "ChoreganizeMac" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -103,6 +96,13 @@
 				ContentView.swift,
 				HouseholdSharing.swift,
 				HubView.swift,
+				Info.plist,
+			);
+			target = 20AC00012FDE400000000001 /* ChoreganizeMac */;
+		};
+		20AC000B2FDE40000000000B /* Exceptions for "ChoreganizeMac" folder in "ChoreganizeMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
 				Info.plist,
 			);
 			target = 20AC00012FDE400000000001 /* ChoreganizeMac */;
@@ -216,7 +216,7 @@
 			isa = PBXGroup;
 			children = (
 				205385B82E0376CC00886352 /* Choreganize.app */,
-				20AC00022FDE400000000002 /* ChoreganizeMac.app */,
+				20AC00022FDE400000000002 /* Choreganize.app */,
 				205385C82E0376CD00886352 /* ChoreganizeTests.xctest */,
 				205385D22E0376CD00886352 /* ChoreganizeUITests.xctest */,
 				200C4C712FDE31A4008F211D /* ChoreganizeWidgetExtension.appex */,
@@ -339,7 +339,7 @@
 			packageProductDependencies = (
 			);
 			productName = ChoreganizeMac;
-			productReference = 20AC00022FDE400000000002 /* ChoreganizeMac.app */;
+			productReference = 20AC00022FDE400000000002 /* Choreganize.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */

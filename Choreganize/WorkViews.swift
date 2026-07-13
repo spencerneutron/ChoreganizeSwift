@@ -130,11 +130,11 @@ struct WeekView: View {
     @State private var currentIndex: Int? = 6
 
     #if os(macOS)
-    /// Live horizontal offset. Trackpad scrolling on macOS is free-running —
-    /// `.scrollTargetBehavior(.paging)` only snaps legacy wheel scrolls — so the
-    /// view tracks the offset and guides itself to the nearest day page when the
-    /// scroll phase settles (see `.onScrollPhaseChange` below).
-    @State private var scrollOffsetX: CGFloat = 0
+    /// Trackpad/wheel scrolls ignore `.scrollTargetBehavior(.paging)` on macOS
+    /// (momentum settles between days). The pager claims horizontal scrolls at
+    /// the event level and turns each gesture into one discrete, animated day
+    /// flip — see MacHorizontalPager (ChoreganizeMac/MacDayPager.swift).
+    @State private var pager = MacHorizontalPager()
     #endif
 
     /// Index of today within `dates` (today is the middle of the range).
@@ -196,22 +196,21 @@ struct WeekView: View {
                 .animation(.easeInOut, value: idx)
             }
             #if os(macOS)
-            // Guide free-running trackpad scrolls onto a day boundary: track the
-            // offset, and when the scroll settles off-boundary, animate to the
-            // nearest page. iOS never hits this — `.paging` snaps there natively.
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentOffset.x
-            } action: { _, newValue in
-                scrollOffsetX = newValue
-            }
-            .onScrollPhaseChange { _, newPhase in
-                guard newPhase == .idle, geo.size.width > 0 else { return }
-                let nearest = max(0, min(dates.count - 1,
-                                         Int((scrollOffsetX / geo.size.width).rounded())))
-                if abs(scrollOffsetX - CGFloat(nearest) * geo.size.width) > 1 {
-                    withAnimation(.snappy) { proxy.scrollTo(nearest, anchor: .leading) }
+            // Guided paging: the pager consumes horizontal-dominant scroll events
+            // in this window (vertical ones still reach the day list) and each
+            // gesture flips exactly one day, animated via the proxy. iOS never
+            // mounts this — `.paging` snaps there natively.
+            .background(MacPagerHost(pager: pager))
+            .onAppear {
+                pager.onFlip = { direction in
+                    let current = currentIndex ?? todayIndex
+                    let target = max(0, min(dates.count - 1, current + direction))
+                    guard target != current else { return }
+                    withAnimation(.snappy) { proxy.scrollTo(target, anchor: .leading) }
                 }
+                pager.start()
             }
+            .onDisappear { pager.stop() }
             #endif
             }
         }
