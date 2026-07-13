@@ -127,15 +127,12 @@ struct WeekView: View {
 
     // Today sits in the middle of the symmetric range. Optional because scrollPosition(id:)
     // drives it; starts on today.
+    // KNOWN GAP (macOS): trackpad momentum ignores `.scrollTargetBehavior(.paging)`,
+    // so free scrolling can settle between days. Two guided approaches (idle-snap,
+    // NSEvent interception) both fought the scroll system and were backed out —
+    // a structural solution (e.g. a non-scrolling single-day layout on macOS) is
+    // deferred rather than fighting SwiftUI defaults.
     @State private var currentIndex: Int? = 6
-
-    #if os(macOS)
-    /// Trackpad/wheel scrolls ignore `.scrollTargetBehavior(.paging)` on macOS
-    /// (momentum settles between days). The pager claims horizontal scrolls at
-    /// the event level and turns each gesture into one discrete, animated day
-    /// flip — see MacHorizontalPager (ChoreganizeMac/MacDayPager.swift).
-    @State private var pager = MacHorizontalPager()
-    #endif
 
     /// Index of today within `dates` (today is the middle of the range).
     private var todayIndex: Int {
@@ -151,7 +148,6 @@ struct WeekView: View {
         // controls and collided the Done button with the switcher. One container = identical
         // insets on every page (D2 stays fixed). All iOS 17+.
         GeometryReader { geo in
-            ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
                     ForEach(Array(dates.enumerated()), id: \.offset) { _, date in
@@ -194,24 +190,6 @@ struct WeekView: View {
                 .opacity(0.5)
                 .allowsHitTesting(false)
                 .animation(.easeInOut, value: idx)
-            }
-            #if os(macOS)
-            // Guided paging: the pager consumes horizontal-dominant scroll events
-            // in this window (vertical ones still reach the day list) and each
-            // gesture flips exactly one day, animated via the proxy. iOS never
-            // mounts this — `.paging` snaps there natively.
-            .background(MacPagerHost(pager: pager))
-            .onAppear {
-                pager.onFlip = { direction in
-                    let current = currentIndex ?? todayIndex
-                    let target = max(0, min(dates.count - 1, current + direction))
-                    guard target != current else { return }
-                    withAnimation(.snappy) { proxy.scrollTo(target, anchor: .leading) }
-                }
-                pager.start()
-            }
-            .onDisappear { pager.stop() }
-            #endif
             }
         }
     }
