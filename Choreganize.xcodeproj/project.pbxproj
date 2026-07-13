@@ -61,7 +61,7 @@
 		205385C82E0376CD00886352 /* ChoreganizeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChoreganizeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		205385D22E0376CD00886352 /* ChoreganizeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChoreganizeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		20849C243004937A00C5BD5C /* CGZ2.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = CGZ2.icon; sourceTree = "<group>"; };
-		20AC00022FDE400000000002 /* ChoreganizeMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChoreganizeMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		20AC00022FDE400000000002 /* ChoreganizeMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Choreganize.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -87,6 +87,13 @@
 				WidgetShared.swift,
 			);
 			target = 200C4C702FDE31A4008F211D /* ChoreganizeWidgetExtension */;
+		};
+		20AC000B2FDE40000000000B /* Exceptions for "ChoreganizeMac" folder in "ChoreganizeMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 20AC00012FDE400000000001 /* ChoreganizeMac */;
 		};
 		20AC00072FDE400000000007 /* Exceptions for "Choreganize" folder in "ChoreganizeMac" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -133,6 +140,9 @@
 		};
 		20AC00062FDE400000000006 /* ChoreganizeMac */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				20AC000B2FDE40000000000B /* Exceptions for "ChoreganizeMac" folder in "ChoreganizeMac" target */,
+			);
 			path = ChoreganizeMac;
 			sourceTree = "<group>";
 		};
@@ -671,7 +681,7 @@
 		205385DD2E0376CD00886352 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = CGZ2;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Choreganize/Choreganize.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -713,7 +723,7 @@
 		205385DE2E0376CD00886352 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = CGZ2;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Choreganize/Choreganize.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -841,6 +851,7 @@
 		20AC00082FDE400000000008 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = CGZ2;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ChoreganizeMac/ChoreganizeMac.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -862,7 +873,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.svk.Choreganize;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Choreganize;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -875,6 +886,7 @@
 		20AC00092FDE400000000009 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = CGZ2;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ChoreganizeMac/ChoreganizeMac.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -896,7 +908,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.svk.Choreganize;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Choreganize;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;

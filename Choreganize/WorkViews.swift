@@ -129,6 +129,14 @@ struct WeekView: View {
     // drives it; starts on today.
     @State private var currentIndex: Int? = 6
 
+    #if os(macOS)
+    /// Live horizontal offset. Trackpad scrolling on macOS is free-running —
+    /// `.scrollTargetBehavior(.paging)` only snaps legacy wheel scrolls — so the
+    /// view tracks the offset and guides itself to the nearest day page when the
+    /// scroll phase settles (see `.onScrollPhaseChange` below).
+    @State private var scrollOffsetX: CGFloat = 0
+    #endif
+
     /// Index of today within `dates` (today is the middle of the range).
     private var todayIndex: Int {
         dates.firstIndex { Calendar.current.isDateInToday($0) } ?? 6
@@ -143,6 +151,7 @@ struct WeekView: View {
         // controls and collided the Done button with the switcher. One container = identical
         // insets on every page (D2 stays fixed). All iOS 17+.
         GeometryReader { geo in
+            ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
                     ForEach(Array(dates.enumerated()), id: \.offset) { _, date in
@@ -185,6 +194,25 @@ struct WeekView: View {
                 .opacity(0.5)
                 .allowsHitTesting(false)
                 .animation(.easeInOut, value: idx)
+            }
+            #if os(macOS)
+            // Guide free-running trackpad scrolls onto a day boundary: track the
+            // offset, and when the scroll settles off-boundary, animate to the
+            // nearest page. iOS never hits this — `.paging` snaps there natively.
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.x
+            } action: { _, newValue in
+                scrollOffsetX = newValue
+            }
+            .onScrollPhaseChange { _, newPhase in
+                guard newPhase == .idle, geo.size.width > 0 else { return }
+                let nearest = max(0, min(dates.count - 1,
+                                         Int((scrollOffsetX / geo.size.width).rounded())))
+                if abs(scrollOffsetX - CGFloat(nearest) * geo.size.width) > 1 {
+                    withAnimation(.snappy) { proxy.scrollTo(nearest, anchor: .leading) }
+                }
+            }
+            #endif
             }
         }
     }
