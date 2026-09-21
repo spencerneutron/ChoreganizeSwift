@@ -106,7 +106,15 @@ final class MemberCompletionNotifier {
             }
             transactions = list
         } catch {
-            Log.error("Member-completion history fetch failed: \(error.localizedDescription)", category: .push)
+            // A token the store no longer recognises (expired, or minted against
+            // a store set that has since been recreated — seen on the Mac at the
+            // sim gate) would fail on every remote change forever, because the
+            // token only advances on success. Re-baseline to now: the backlog
+            // is dropped, but the feature works again from the next import.
+            Log.error("Member-completion history fetch failed (\(error.localizedDescription)); re-baselining", category: .push)
+            if let current = coordinator.currentPersistentHistoryToken(fromStores: nil) {
+                storeToken(current)
+            }
             return []
         }
         if let newest = transactions.last?.token { storeToken(newest) }
