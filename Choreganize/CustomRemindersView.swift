@@ -83,15 +83,21 @@ struct CustomRemindersView: View {
 }
 
 /// One room/chore row: name on the left; on the right either a compact time
-/// picker (override set) or the fallback shown as a tappable placeholder that
-/// seeds an override at the row's current effective time — so the picker
-/// opens on a sensible value instead of midnight.
+/// picker (override set) or the fallback shown as a tappable placeholder.
+/// Tapping the placeholder opens a sheet seeded with the row's current
+/// effective time; nothing is written until the user taps Set. (The earlier
+/// design wrote the seed on the tap itself, which read as accidental data
+/// entry at the 2-sim gate — every curious tap saved an override and
+/// rescheduled reminders.)
 private struct OverrideRow: View {
     let title: String
     /// What this row falls back to without an override: the room's time for
     /// chores (rendered as a dimmed time), or nil to label it "Default".
     let inherited: (hour: Int, minute: Int)?
     @Binding var timeString: String?
+
+    @State private var editing = false
+    @State private var draft = Date()
 
     private var override: (hour: Int, minute: Int)? { ReminderTimeOverride.parse(timeString) }
 
@@ -105,7 +111,8 @@ private struct OverrideRow: View {
             } else {
                 Button {
                     let seed = inherited ?? (hour: NotificationManager.hour, minute: NotificationManager.minute)
-                    timeString = ReminderTimeOverride.format(hour: seed.hour, minute: seed.minute)
+                    draft = Calendar.current.date(bySettingHour: seed.hour, minute: seed.minute, second: 0, of: Date()) ?? Date()
+                    editing = true
                 } label: {
                     Text(placeholder)
                         .foregroundStyle(.secondary)
@@ -117,6 +124,42 @@ private struct OverrideRow: View {
             if timeString != nil {
                 Button("Default") { timeString = nil }
             }
+        }
+        .sheet(isPresented: $editing) {
+            NavigationStack {
+                VStack(spacing: 12) {
+                    DatePicker("Reminder time", selection: $draft, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                        #if os(iOS)
+                        .datePickerStyle(.wheel)
+                        #endif
+                    Text("Only \(title) will use this time. Swipe the row later to go back to the default.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                .padding()
+                .navigationTitle(title)
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { editing = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Set") {
+                            let comps = Calendar.current.dateComponents([.hour, .minute], from: draft)
+                            timeString = ReminderTimeOverride.format(hour: comps.hour ?? 18, minute: comps.minute ?? 0)
+                            editing = false
+                        }
+                    }
+                }
+            }
+            #if os(iOS)
+            .presentationDetents([.medium])
+            #endif
         }
     }
 
