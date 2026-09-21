@@ -42,10 +42,34 @@ struct MemberCompletionPolicyTests {
     }
 
     @Test func staleCompletionDoesNotNotify() {
-        // Just past the recency window: an overnight sync shouldn't bulldoze.
+        // Past the recency window AND not today (26h is yesterday in every
+        // time zone): an overnight sync shouldn't bulldoze.
         #expect(!MemberCompletionPolicy.shouldNotify(
-            event: event(age: MemberCompletionPolicy.recencyWindow + 1),
+            event: event(age: 26 * 60 * 60),
             currentUserID: "_me", isPlus: true, isEnabled: true, now: now))
+    }
+
+    @Test func dayNormalizedCompletionNotifiesAllDay() {
+        // Completion dates are stored as local midnight. Late in the day the
+        // wall-clock gap is far past the window, but it is still today's
+        // completion — this is the 2-sim gate regression (20:55 never notified).
+        let cal = Calendar.current
+        let midnight = cal.startOfDay(for: now)
+        let lateToday = cal.date(byAdding: .hour, value: 21, to: midnight)!
+        #expect(MemberCompletionPolicy.shouldNotify(
+            event: .init(completedBy: "_other", date: midnight, isHousehold: true),
+            currentUserID: "_me", isPlus: true, isEnabled: true, now: lateToday, calendar: cal))
+    }
+
+    @Test func yesterdaysDayNormalizedCompletionDoesNotNotify() {
+        // Yesterday's checkmark syncing in just after midnight stays quiet.
+        let cal = Calendar.current
+        let midnight = cal.startOfDay(for: now)
+        let yesterday = cal.date(byAdding: .day, value: -1, to: midnight)!
+        let earlyToday = cal.date(byAdding: .minute, value: 30, to: midnight)!
+        #expect(!MemberCompletionPolicy.shouldNotify(
+            event: .init(completedBy: "_other", date: yesterday, isHousehold: true),
+            currentUserID: "_me", isPlus: true, isEnabled: true, now: earlyToday, calendar: cal))
     }
 
     @Test func farFutureDateDoesNotNotify() {

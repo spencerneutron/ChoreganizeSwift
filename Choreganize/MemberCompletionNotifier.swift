@@ -183,7 +183,8 @@ enum MemberCompletionPolicy {
                              currentUserID: String?,
                              isPlus: Bool,
                              isEnabled: Bool,
-                             now: Date = Date()) -> Bool {
+                             now: Date = Date(),
+                             calendar: Calendar = .current) -> Bool {
         guard isPlus, isEnabled else { return false }
         guard event.isHousehold, let completedBy = event.completedBy else { return false }
         // Our own completions never notify. (An unknown local identity can't
@@ -191,8 +192,16 @@ enum MemberCompletionPolicy {
         // so a stamped import while we're id-less is someone else's.)
         if let currentUserID, completedBy == currentUserID { return false }
         guard let date = event.date else { return false }
-        guard now.timeIntervalSince(date) <= recencyWindow,
-              date.timeIntervalSince(now) <= futureTolerance else { return false }
+        // Completion dates are day-granular: the Work view records against the
+        // day being viewed, so they land on local midnight. A wall-clock window
+        // measured from midnight calls anything done after 8 AM "stale" —
+        // found at the 2-sim gate, where a 20:55 completion never notified. A
+        // completion is recent when it belongs to today, or when a real
+        // timestamp (backups and imports can carry one) falls inside the window.
+        let isToday = calendar.isDate(date, inSameDayAs: now)
+        let withinWindow = now.timeIntervalSince(date) <= recencyWindow
+        guard isToday || withinWindow else { return false }
+        guard date.timeIntervalSince(now) <= futureTolerance else { return false }
         return true
     }
 
