@@ -50,20 +50,28 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// is exercised. Fetches the share metadata for our container and funnels
     /// it into the same accept path as the system callback.
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls {
-            guard url.host?.hasSuffix("icloud.com") == true, url.path.hasPrefix("/share/") else { continue }
-            Log.info("Resolving CloudKit share link", category: .cloud)
-            let container = CKContainer(identifier: CoreDataStack.cloudContainerIdentifier)
-            container.fetchShareMetadata(with: url) { metadata, error in
-                if let metadata {
-                    DispatchQueue.main.async {
-                        self.application(application, userDidAcceptCloudKitShareWith: metadata)
-                    }
-                } else {
-                    Log.error("Share link could not be resolved: \(error?.localizedDescription ?? "no metadata")", category: .cloud)
+        for url in urls { _ = acceptShareLink(url) }
+    }
+
+    /// Resolves an iCloud share link and accepts it. Returns false (and does
+    /// nothing) for any other URL so callers can fall through to their own
+    /// handling. Under the SwiftUI lifecycle, URLs arrive via the scene's
+    /// `onOpenURL`, which calls this directly.
+    @discardableResult
+    func acceptShareLink(_ url: URL) -> Bool {
+        guard url.host?.hasSuffix("icloud.com") == true, url.path.hasPrefix("/share/") else { return false }
+        Log.info("Resolving CloudKit share link", category: .cloud)
+        let container = CKContainer(identifier: CoreDataStack.cloudContainerIdentifier)
+        container.fetchShareMetadata(with: url) { metadata, error in
+            if let metadata {
+                DispatchQueue.main.async {
+                    self.application(NSApplication.shared, userDidAcceptCloudKitShareWith: metadata)
                 }
+            } else {
+                Log.error("Share link could not be resolved: \(error?.localizedDescription ?? "no metadata")", category: .cloud)
             }
         }
+        return true
     }
 
     func application(_ application: NSApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {

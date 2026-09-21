@@ -60,8 +60,10 @@ struct ChoreganizeMacApp: App {
                         }
                     }
                 }
+                // iCloud share links (accept into the shared store) and
                 // `choreganize://` deep links (Continuity widgets, notifications).
                 .onOpenURL { url in
+                    if appDelegate.acceptShareLink(url) { return }
                     handleDeepLink(url)
                 }
         }
