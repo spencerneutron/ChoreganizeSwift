@@ -85,28 +85,46 @@ final class MemberCompletionNotifier {
                                      in ctx: NSManagedObjectContext) -> [NSManagedObjectID] {
         let coordinator = container.persistentStoreCoordinator
         guard let stored = storedToken() else {
+            if tokenDefaults.data(forKey: Keys.historyToken) != nil {
+                Log.warning("Member-completion history token failed to decode; re-baselining", category: .push)
+            }
             if let current = coordinator.currentPersistentHistoryToken(fromStores: nil) {
                 storeToken(current)
+                Log.info("Member-completion history baselined", category: .push)
             }
             return []
         }
 
         let request = NSPersistentHistoryChangeRequest.fetchHistory(after: stored)
-        guard let result = try? ctx.execute(request) as? NSPersistentHistoryResult,
-              let transactions = result.result as? [NSPersistentHistoryTransaction] else {
+        request.resultType = .transactionsAndChanges
+        let transactions: [NSPersistentHistoryTransaction]
+        do {
+            guard let result = try ctx.execute(request) as? NSPersistentHistoryResult,
+                  let list = result.result as? [NSPersistentHistoryTransaction] else {
+                Log.warning("Member-completion history fetch returned no result", category: .push)
+                return []
+            }
+            transactions = list
+        } catch {
+            Log.error("Member-completion history fetch failed: \(error.localizedDescription)", category: .push)
             return []
         }
         if let newest = transactions.last?.token { storeToken(newest) }
 
         var inserted: [NSManagedObjectID] = []
+        var mirrored = 0
         for transaction in transactions {
             // Only CloudKit mirroring imports — a completion that arrived from
             // another device. Everything this process writes is authored "app".
             guard transaction.author?.contains("Mirroring") == true else { continue }
+            mirrored += 1
             for change in transaction.changes ?? [] where change.changeType == .insert
                 && change.changedObjectID.entity.name == "CDCompletion" {
                 inserted.append(change.changedObjectID)
             }
+        }
+        if !transactions.isEmpty {
+            Log.info("Member-completion history drain: \(transactions.count) transaction(s), \(mirrored) mirrored, \(inserted.count) completion insert(s)", category: .push)
         }
         return inserted
     }
@@ -123,17 +141,24 @@ final class MemberCompletionNotifier {
                 date: completion.date,
                 isHousehold: completion.household != nil
             )
-            guard MemberCompletionPolicy.shouldNotify(
+            let verdict = MemberCompletionPolicy.evaluate(
                 event: event,
                 currentUserID: CompleterIdentity.cachedID,
                 // CG-15 / #97: household-scoped — one member's Plus lights up
                 // member notifications for everyone in the household.
                 isPlus: Entitlements.isPlus(for: completion.household),
                 isEnabled: Self.isEnabled
-            ) else { continue }
+            )
+            guard verdict == .notify else {
+                Log.info("Member-completion skipped (\(verdict)): \(completion.chore?.name ?? "chore")", category: .push)
+                continue
+            }
 
             // Directory hides self and falls back to "A household member".
-            guard let completerName = CompleterDirectory.shared.name(for: completion.completedBy) else { continue }
+            guard let completerName = CompleterDirectory.shared.name(for: completion.completedBy) else {
+                Log.info("Member-completion skipped (no completer name): \(completion.chore?.name ?? "chore")", category: .push)
+                continue
+            }
             let content = UNMutableNotificationContent()
             content.title = completion.household?.name ?? "Household"
             content.body = MemberCompletionPolicy.body(choreName: completion.chore?.name,
@@ -179,19 +204,36 @@ enum MemberCompletionPolicy {
     /// Small allowance for cross-device clock skew on "future" dates.
     static let futureTolerance: TimeInterval = 5 * 60
 
+    /// Why a completion did or didn't notify — logged at the release gate so a
+    /// silent skip is diagnosable from the device log.
+    enum Verdict: Equatable {
+        case notify, gated, notHousehold, unattributed, ownCompletion, undated, stale, future
+    }
+
     static func shouldNotify(event: Event,
                              currentUserID: String?,
                              isPlus: Bool,
                              isEnabled: Bool,
                              now: Date = Date(),
                              calendar: Calendar = .current) -> Bool {
-        guard isPlus, isEnabled else { return false }
-        guard event.isHousehold, let completedBy = event.completedBy else { return false }
+        evaluate(event: event, currentUserID: currentUserID, isPlus: isPlus,
+                 isEnabled: isEnabled, now: now, calendar: calendar) == .notify
+    }
+
+    static func evaluate(event: Event,
+                         currentUserID: String?,
+                         isPlus: Bool,
+                         isEnabled: Bool,
+                         now: Date = Date(),
+                         calendar: Calendar = .current) -> Verdict {
+        guard isPlus, isEnabled else { return .gated }
+        guard event.isHousehold else { return .notHousehold }
+        guard let completedBy = event.completedBy else { return .unattributed }
         // Our own completions never notify. (An unknown local identity can't
         // match, which is correct: everything *we* stamp carries our cached id,
         // so a stamped import while we're id-less is someone else's.)
-        if let currentUserID, completedBy == currentUserID { return false }
-        guard let date = event.date else { return false }
+        if let currentUserID, completedBy == currentUserID { return .ownCompletion }
+        guard let date = event.date else { return .undated }
         // Completion dates are day-granular: the Work view records against the
         // day being viewed, so they land on local midnight. A wall-clock window
         // measured from midnight calls anything done after 8 AM "stale" —
@@ -200,9 +242,9 @@ enum MemberCompletionPolicy {
         // timestamp (backups and imports can carry one) falls inside the window.
         let isToday = calendar.isDate(date, inSameDayAs: now)
         let withinWindow = now.timeIntervalSince(date) <= recencyWindow
-        guard isToday || withinWindow else { return false }
-        guard date.timeIntervalSince(now) <= futureTolerance else { return false }
-        return true
+        guard isToday || withinWindow else { return .stale }
+        guard date.timeIntervalSince(now) <= futureTolerance else { return .future }
+        return .notify
     }
 
     static func body(choreName: String?, completerName: String) -> String {
