@@ -44,10 +44,31 @@ struct ChoreRowView: View {
         }
     }
 
+    /// CG-17 / #99 — the assignment chip's text: "You" for the current user,
+    /// otherwise the member's directory name. `namesByID` is read directly
+    /// (not `name(for:)`, which hides the current user by design for the
+    /// "· by X" attribution line — here self must show as "You").
+    private var assigneeTag: String? {
+        guard let assignee = chore.assignee else { return nil }
+        if chore.isAssignedToCurrentUser { return "You" }
+        return completers.namesByID[assignee] ?? "Member"
+    }
+
     private var content: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(chore.name ?? "Untitled")
-                .fontWeight(.medium)
+            HStack(spacing: 6) {
+                Text(chore.name ?? "Untitled")
+                    .fontWeight(.medium)
+                if let tag = assigneeTag {
+                    Text(tag)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color(.tertiarySystemFill)))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
             lastLine
         }
         .opacity(chore.needsAttention(on: date) ? 1 : 0.5)
@@ -106,6 +127,9 @@ struct WeekView: View {
 
     // Today sits in the middle of the symmetric range. Optional because scrollPosition(id:)
     // drives it; starts on today.
+    // macOS NOTE: the Mac shell doesn't mount this view — trackpad momentum ignores
+    // `.scrollTargetBehavior(.paging)` and two guided fixes fought the scroll system
+    // (both backed out). MacWorkHomeView shows one day with explicit navigation instead.
     @State private var currentIndex: Int? = 6
 
     /// Index of today within `dates` (today is the middle of the range).
@@ -139,7 +163,7 @@ struct WeekView: View {
             .scrollIndicators(.hidden)
             // Paint the grouped background to the physical edges so the home-indicator band
             // and the device's rounded corners are never the window's black base.
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color.compatGroupedBackground.ignoresSafeArea())
             // CG-05: a widget deep-link targets a today chore — snap back to today (the user
             // may have paged away) so the targeted page is the one that scrolls to it.
             .onChange(of: model.deepLinkChore) { _, target in
@@ -296,7 +320,7 @@ struct DayPage: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .compatInsetGroupedList()
         // Inset the rows past the left/right paging chevrons WeekView overlays near the
         // edges. contentMargins REPLACES the default insetGrouped margin (~20pt), so this
         // must exceed it to actually add space — 32 clears the chevrons with a gap.
@@ -432,14 +456,14 @@ private struct LogCompletionSheet: View {
                 }
             }
             .navigationTitle(date.formatted(.dateTime.weekday(.abbreviated).month().day()))
-            .navigationBarTitleDisplayMode(.inline)
+            .compatInlineNavigationTitle()
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .compatTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .compatMediumLargeDetents()
         .onAppear {
             completedIDs = Set(chores.filter { $0.isCompleted(on: date) }.map(\.objectID))
         }

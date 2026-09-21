@@ -10,6 +10,9 @@
 		200C4C742FDE31A4008F211D /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 200C4C732FDE31A4008F211D /* WidgetKit.framework */; };
 		200C4C762FDE31A4008F211D /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 200C4C752FDE31A4008F211D /* SwiftUI.framework */; };
 		200C4C832FDE31A5008F211D /* ChoreganizeWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 200C4C712FDE31A4008F211D /* ChoreganizeWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		20849C253004937A00C5BD5C /* CGZ2.icon in Resources */ = {isa = PBXBuildFile; fileRef = 20849C243004937A00C5BD5C /* CGZ2.icon */; };
+		20849C263004937A00C5BD5C /* CGZ2.icon in Resources */ = {isa = PBXBuildFile; fileRef = 20849C243004937A00C5BD5C /* CGZ2.icon */; };
+		20849C273004937A00C5BD5C /* CGZ2.icon in Resources */ = {isa = PBXBuildFile; fileRef = 20849C243004937A00C5BD5C /* CGZ2.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +60,8 @@
 		205385B82E0376CC00886352 /* Choreganize.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Choreganize.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		205385C82E0376CD00886352 /* ChoreganizeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChoreganizeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		205385D22E0376CD00886352 /* ChoreganizeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChoreganizeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		20849C243004937A00C5BD5C /* CGZ2.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = CGZ2.icon; sourceTree = "<group>"; };
+		20AC00022FDE400000000002 /* Choreganize.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Choreganize.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -83,6 +88,25 @@
 			);
 			target = 200C4C702FDE31A4008F211D /* ChoreganizeWidgetExtension */;
 		};
+		20AC00072FDE400000000007 /* Exceptions for "Choreganize" folder in "ChoreganizeMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AppDelegate.swift,
+				ChoreganizeApp.swift,
+				ContentView.swift,
+				HouseholdSharing.swift,
+				HubView.swift,
+				Info.plist,
+			);
+			target = 20AC00012FDE400000000001 /* ChoreganizeMac */;
+		};
+		20AC000B2FDE40000000000B /* Exceptions for "ChoreganizeMac" folder in "ChoreganizeMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 20AC00012FDE400000000001 /* ChoreganizeMac */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -98,6 +122,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				2008A5682E1392AD005C6E4E /* Exceptions for "Choreganize" folder in "Choreganize" target */,
+				20AC00072FDE400000000007 /* Exceptions for "Choreganize" folder in "ChoreganizeMac" target */,
 				200C4C902FDE3576008F211D /* Exceptions for "Choreganize" folder in "ChoreganizeWidgetExtension" target */,
 			);
 			path = Choreganize;
@@ -111,6 +136,14 @@
 		205385D52E0376CD00886352 /* ChoreganizeUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ChoreganizeUITests;
+			sourceTree = "<group>";
+		};
+		20AC00062FDE400000000006 /* ChoreganizeMac */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				20AC000B2FDE40000000000B /* Exceptions for "ChoreganizeMac" folder in "ChoreganizeMac" target */,
+			);
+			path = ChoreganizeMac;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -146,12 +179,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		20AC00042FDE400000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		200C4C722FDE31A4008F211D /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				20849C243004937A00C5BD5C /* CGZ2.icon */,
 				200C4C732FDE31A4008F211D /* WidgetKit.framework */,
 				200C4C752FDE31A4008F211D /* SwiftUI.framework */,
 			);
@@ -162,6 +203,7 @@
 			isa = PBXGroup;
 			children = (
 				205385BA2E0376CC00886352 /* Choreganize */,
+				20AC00062FDE400000000006 /* ChoreganizeMac */,
 				205385CB2E0376CD00886352 /* ChoreganizeTests */,
 				205385D52E0376CD00886352 /* ChoreganizeUITests */,
 				200C4C772FDE31A4008F211D /* ChoreganizeWidget */,
@@ -174,6 +216,7 @@
 			isa = PBXGroup;
 			children = (
 				205385B82E0376CC00886352 /* Choreganize.app */,
+				20AC00022FDE400000000002 /* Choreganize.app */,
 				205385C82E0376CD00886352 /* ChoreganizeTests.xctest */,
 				205385D22E0376CD00886352 /* ChoreganizeUITests.xctest */,
 				200C4C712FDE31A4008F211D /* ChoreganizeWidgetExtension.appex */,
@@ -276,6 +319,29 @@
 			productReference = 205385D22E0376CD00886352 /* ChoreganizeUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		20AC00012FDE400000000001 /* ChoreganizeMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 20AC000A2FDE40000000000A /* Build configuration list for PBXNativeTarget "ChoreganizeMac" */;
+			buildPhases = (
+				20AC00032FDE400000000003 /* Sources */,
+				20AC00042FDE400000000004 /* Frameworks */,
+				20AC00052FDE400000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				205385BA2E0376CC00886352 /* Choreganize */,
+				20AC00062FDE400000000006 /* ChoreganizeMac */,
+			);
+			name = ChoreganizeMac;
+			packageProductDependencies = (
+			);
+			productName = ChoreganizeMac;
+			productReference = 20AC00022FDE400000000002 /* Choreganize.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -300,6 +366,9 @@
 						CreatedOnToolsVersion = 16.4;
 						TestTargetID = 205385B72E0376CC00886352;
 					};
+					20AC00012FDE400000000001 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
 				};
 			};
 			buildConfigurationList = 205385B32E0376CC00886352 /* Build configuration list for PBXProject "Choreganize" */;
@@ -317,6 +386,7 @@
 			projectRoot = "";
 			targets = (
 				205385B72E0376CC00886352 /* Choreganize */,
+				20AC00012FDE400000000001 /* ChoreganizeMac */,
 				205385C72E0376CD00886352 /* ChoreganizeTests */,
 				205385D12E0376CD00886352 /* ChoreganizeUITests */,
 				200C4C702FDE31A4008F211D /* ChoreganizeWidgetExtension */,
@@ -329,6 +399,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				20849C273004937A00C5BD5C /* CGZ2.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -336,6 +407,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				20849C253004937A00C5BD5C /* CGZ2.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -350,6 +422,14 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		20AC00052FDE400000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				20849C263004937A00C5BD5C /* CGZ2.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -378,6 +458,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		205385CE2E0376CD00886352 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		20AC00032FDE400000000003 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -594,7 +681,7 @@
 		205385DD2E0376CD00886352 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = CGZ2;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Choreganize/Choreganize.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -636,7 +723,7 @@
 		205385DE2E0376CD00886352 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = CGZ2;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Choreganize/Choreganize.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -761,6 +848,76 @@
 			};
 			name = Release;
 		};
+		20AC00082FDE400000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = CGZ2;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ChoreganizeMac/ChoreganizeMac.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 17;
+				DEVELOPMENT_TEAM = YV4K38KS29;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ChoreganizeMac/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Choreganize;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.6.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.svk.Choreganize;
+				PRODUCT_NAME = Choreganize;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		20AC00092FDE400000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = CGZ2;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ChoreganizeMac/ChoreganizeMac.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 17;
+				DEVELOPMENT_TEAM = YV4K38KS29;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ChoreganizeMac/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Choreganize;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.6.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.svk.Choreganize;
+				PRODUCT_NAME = Choreganize;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -805,6 +962,15 @@
 			buildConfigurations = (
 				205385E32E0376CD00886352 /* Debug */,
 				205385E42E0376CD00886352 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		20AC000A2FDE40000000000A /* Build configuration list for PBXNativeTarget "ChoreganizeMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				20AC00082FDE400000000008 /* Debug */,
+				20AC00092FDE400000000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

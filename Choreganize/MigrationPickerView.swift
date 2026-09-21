@@ -48,7 +48,7 @@ struct MigrationPickerView: View {
                 }
             }
             .navigationTitle(mode == .participantCopy ? "Add to Household" : "Move to Household")
-            .navigationBarTitleDisplayMode(.inline)
+            .compatInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

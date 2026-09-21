@@ -84,7 +84,7 @@ struct CalendarHomeView: View {
                     if let date {
                         NavigationLink(destination:
                             DayPage(date: date)
-                                .toolbar(.visible, for: .navigationBar)
+                                .compatNavigationBarVisibility(.visible)
                         ) {
                             DayCell(date: date,
                                     chores: choresByDate[calendar.startOfDay(for: date)] ?? [],
@@ -100,7 +100,7 @@ struct CalendarHomeView: View {
             }.frame(maxHeight: .infinity, alignment: .top)
                 .padding(.horizontal)
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .compatNavigationBarVisibility(.hidden)
         // Drive device-motion at the calendar level (one source for all glow bars). Stop it when
         // the calendar isn't visible OR is covered by a sheet (no point sampling behind the Hub).
         // No-op where motion is unavailable (Simulator).

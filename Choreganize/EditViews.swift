@@ -46,7 +46,9 @@ struct EditHomeView: View {
 
 struct ChoreListView: View {
     @Environment(\.managedObjectContext) private var context
+    #if os(iOS)
     @Environment(\.editMode) private var editMode
+    #endif
     @EnvironmentObject private var model: AppModel
     // Prefetches area/completions/household so rows don't fault them one-by-one on
     // the main thread (Edit-open hang, cz_device10).
@@ -58,7 +60,13 @@ struct ChoreListView: View {
     @State private var selection = Set<NSManagedObjectID>()
     @State private var showDeleteConfirm = false
 
-    private var isEditing: Bool { editMode?.wrappedValue.isEditing ?? false }
+    private var isEditing: Bool {
+        #if os(iOS)
+        editMode?.wrappedValue.isEditing ?? false
+        #else
+        false   // macOS Lists multi-select natively; bulk ops stay an iOS affordance
+        #endif
+    }
 
     var body: some View {
         let scoped = chores.inScope(model.activeHousehold)
@@ -92,11 +100,13 @@ struct ChoreListView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
+            #if os(iOS)
+            ToolbarItem(placement: .compatLeading) {
                 if !scoped.isEmpty { EditButton() }
             }
+            #endif
             if isEditing {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .compatTrailing) {
                     // Bulk-change one facet across the whole selection (#55) — fix entry
                     // mistakes, recover from a bug, or handle a move, without editing each.
                     Menu {
@@ -125,12 +135,12 @@ struct ChoreListView: View {
                     }
                     .disabled(selection.isEmpty)
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .compatTrailing) {
                     Button("Delete", role: .destructive) { showDeleteConfirm = true }
                         .disabled(selection.isEmpty)
                 }
             } else {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .compatTrailing) {
                     Button("Add") { showingNew = true }
                 }
             }
@@ -192,7 +202,32 @@ struct ChoreListView: View {
 
     private func endEditing() {
         selection.removeAll()
+        #if os(iOS)
         editMode?.wrappedValue = .inactive
+        #endif
+    }
+}
+
+/// CG-17 / #99 + CG-18 / #100 — writes the Plus-gated form fields onto a chore.
+/// Unentitled saves leave the stored values untouched (their controls were
+/// read-only) with one exception: leaving `weekly` always clears the multi-day
+/// set, because it has no meaning under any other frequency and would silently
+/// keep superseding the single day the user can still edit.
+@MainActor
+private func applyPlusChoreFields(to chore: CDChore,
+                                  isDaily: Bool, frequency: Frequency,
+                                  multiDays: Set<Weekday>, interval: Int,
+                                  assignee: String?) {
+    if isDaily || frequency != .weekly {
+        chore.assignedDaysValue = []
+    }
+    guard Entitlements.isPlus(for: chore.household) else { return }
+    if !isDaily && frequency == .weekly {
+        chore.assignedDaysValue = multiDays.count >= 2 ? multiDays : []
+    }
+    chore.recurrenceIntervalValue = isDaily ? 1 : interval
+    if chore.household != nil {
+        chore.assignee = assignee
     }
 }
 
@@ -206,6 +241,9 @@ struct NewChoreView: View {
     @State private var isDaily = false
     @State private var frequency: Frequency = .weekly
     @State private var day: Weekday? = .monday
+    @State private var multiDays: Set<Weekday> = [.monday]
+    @State private var interval = 1
+    @State private var assignee: String?
     @State private var areaId: UUID?
 
     var body: some View {
@@ -215,8 +253,12 @@ struct NewChoreView: View {
                                 isDaily: $isDaily,
                                 frequency: $frequency,
                                 day: $day,
+                                multiDays: $multiDays,
+                                interval: $interval,
+                                assignee: $assignee,
                                 areaId: $areaId,
-                                areas: Array(areas).inScope(model.activeHousehold))
+                                areas: Array(areas).inScope(model.activeHousehold),
+                                household: model.activeHousehold)
             }
             .navigationTitle("New Chore")
             .toolbar {
@@ -231,6 +273,8 @@ struct NewChoreView: View {
                                                  createdDate: Date(),
                                                  household: model.activeHousehold)
                         chore.area = areaId.flatMap { id in areas.first { $0.id == id } }
+                        applyPlusChoreFields(to: chore, isDaily: isDaily, frequency: frequency,
+                                             multiDays: multiDays, interval: interval, assignee: assignee)
                         try? context.save()
                         dismiss()
                     }
@@ -254,6 +298,9 @@ struct EditChoreView: View {
     @State private var isDaily: Bool = false
     @State private var frequency: Frequency = .weekly
     @State private var day: Weekday?
+    @State private var multiDays: Set<Weekday> = []
+    @State private var interval = 1
+    @State private var assignee: String?
     @State private var areaId: UUID?
     @State private var showLogSheet = false
     @State private var loaded = false
@@ -265,8 +312,12 @@ struct EditChoreView: View {
                                 isDaily: $isDaily,
                                 frequency: $frequency,
                                 day: $day,
+                                multiDays: $multiDays,
+                                interval: $interval,
+                                assignee: $assignee,
                                 areaId: $areaId,
-                                areas: Array(areas).inScope(chore.household))
+                                areas: Array(areas).inScope(chore.household),
+                                household: chore.household)
 
                 Section("History") {
                     let completions = chore.completionsArray
@@ -296,6 +347,16 @@ struct EditChoreView: View {
                 isDaily = chore.isDaily
                 frequency = chore.frequencyValue ?? .weekly
                 day = chore.assignedDayValue
+                // CG-18 / #100 — seed the multi-select from the stored set, or
+                // the legacy single day so a first multi-day edit starts there.
+                let storedDays = chore.assignedDaysValue
+                if !storedDays.isEmpty {
+                    multiDays = storedDays
+                } else if let single = chore.assignedDayValue, single != .all {
+                    multiDays = [single]
+                }
+                interval = chore.recurrenceIntervalValue
+                assignee = chore.assignee
                 areaId = chore.area?.id
                 loaded = true
             }
@@ -307,6 +368,8 @@ struct EditChoreView: View {
                         chore.frequencyValue = isDaily ? nil : frequency
                         chore.assignedDayValue = isDaily ? .all : day
                         chore.area = areaId.flatMap { id in areas.first { $0.id == id } }
+                        applyPlusChoreFields(to: chore, isDaily: isDaily, frequency: frequency,
+                                             multiDays: multiDays, interval: interval, assignee: assignee)
                         try? context.save()
                         dismiss()
                     }
@@ -347,7 +410,7 @@ struct AreaListView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .compatTrailing) {
                 Button("Add") { showingNew = true }
             }
         }

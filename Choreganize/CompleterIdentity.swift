@@ -48,6 +48,18 @@ enum CompleterNameResolver {
         let nameComponents: PersonNameComponents?
     }
 
+    /// CloudKit reports the *current user's own* share participant under the
+    /// placeholder `CKCurrentUserDefaultName` ("__defaultOwner__") rather than
+    /// the real user-record name. Everything else in the app (completion
+    /// stamps, the assignment picker's self-filter) keys on the real name, so
+    /// canonicalise the placeholder to it. Found at the 2-sim gate: the owner
+    /// appeared twice in "Assigned to", and picking the placeholder wrote an id
+    /// no other device can resolve.
+    static func canonicalRecordName(_ recordName: String, currentUserID: String?) -> String {
+        if recordName == CKCurrentUserDefaultName, let currentUserID { return currentUserID }
+        return recordName
+    }
+
     /// Resolves a completion's `completedBy` for display.
     /// - Returns: `nil` when the row should show no attribution (no id recorded,
     ///   or it's the current user's own completion — seeing "by You" on every row
@@ -97,14 +109,22 @@ final class CompleterDirectory: ObservableObject {
         guard stack.cloudKitEnabled else { return }
         Task.detached(priority: .utility) {
             // Find the household the app resolves for the Household scope
-            // (shared-store first, then owned) and read its share's participants.
+            // (CG-16 / #98: the explicit selection first, then shared-store,
+            // then owned) and read its share's participants.
             let ctx = stack.newBackgroundContext()
             var householdID: NSManagedObjectID?
             ctx.performAndWait {
+                if let raw = UserDefaults.standard.string(forKey: AppModel.activeHouseholdKey),
+                   let id = UUID(uuidString: raw) {
+                    let selected = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
+                    selected.fetchLimit = 1
+                    selected.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+                    if let h = try? ctx.fetch(selected).first { householdID = h.objectID }
+                }
                 let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
                 request.fetchLimit = 1
                 request.sortDescriptors = [NSSortDescriptor(key: "createdDate", ascending: true)]
-                if let shared = stack.sharedStore {
+                if householdID == nil, let shared = stack.sharedStore {
                     request.affectedStores = [shared]
                     if let h = try? ctx.fetch(request).first { householdID = h.objectID }
                 }
@@ -116,8 +136,10 @@ final class CompleterDirectory: ObservableObject {
             guard let householdID,
                   let share = (try? stack.container.fetchShares(matching: [householdID]))?[householdID] else { return }
             var names: [String: String] = [:]
+            let me = CompleterIdentity.cachedID
             for participant in share.participants {
-                guard let id = participant.userIdentity.userRecordID?.recordName else { continue }
+                guard let raw = participant.userIdentity.userRecordID?.recordName else { continue }
+                let id = CompleterNameResolver.canonicalRecordName(raw, currentUserID: me)
                 let resolved = CompleterNameResolver.displayName(
                     for: id,
                     currentUserID: nil,   // keep the raw name; self-hiding happens in name(for:)
