@@ -41,6 +41,10 @@ final class EntitlementStore: ObservableObject {
     /// Live Plus products, cheapest first, for the paywall. Empty until loaded
     /// (or when the store is unreachable / products aren't configured yet).
     @Published private(set) var products: [Product] = []
+    /// True after a product load threw or returned nothing, so the paywall can
+    /// offer a retry instead of spinning forever (seen at the sim gate: no
+    /// StoreKit configuration + no sandbox sign-in = endless "Loading plans…").
+    @Published private(set) var productsLoadFailed = false
 
     #if DEBUG
     /// Developer override for exercising gated UI in the simulator without a
@@ -148,8 +152,23 @@ final class EntitlementStore: ObservableObject {
     }
 
     private func loadProducts() async {
-        guard let loaded = try? await Product.products(for: PlusProduct.all) else { return }
-        products = loaded.sorted { $0.price < $1.price }
+        do {
+            let loaded = try await Product.products(for: PlusProduct.all)
+            products = loaded.sorted { $0.price < $1.price }
+            productsLoadFailed = loaded.isEmpty
+            if loaded.isEmpty {
+                Log.warning("Plus products: the store returned none of \(PlusProduct.all.count) ids", category: .app)
+            }
+        } catch {
+            productsLoadFailed = true
+            Log.warning("Plus products failed to load: \(error.localizedDescription)", category: .app)
+        }
+    }
+
+    /// Paywall "Retry" after a failed or timed-out load.
+    func reloadProducts() {
+        productsLoadFailed = false
+        Task { [weak self] in await self?.loadProducts() }
     }
 
     private func setPlus(_ newValue: Bool) {

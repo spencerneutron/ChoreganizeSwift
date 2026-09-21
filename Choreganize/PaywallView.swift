@@ -13,6 +13,9 @@ struct PaywallView: View {
     @ObservedObject private var store = EntitlementStore.shared
     @State private var purchasing = false
     @State private var errorMessage: String?
+    /// Products still empty after the grace period — offer a retry rather
+    /// than an endless spinner.
+    @State private var loadTimedOut = false
 
     private static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
     private static let privacyURL = URL(string: "https://github.com/spencerneutron/ChoreganizeSwift/blob/main/PRIVACY.md")!
@@ -116,13 +119,33 @@ struct PaywallView: View {
     @ViewBuilder
     private var productButtons: some View {
         if store.products.isEmpty {
-            VStack(spacing: 6) {
-                ProgressView()
-                Text("Loading plans…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            if store.productsLoadFailed || loadTimedOut {
+                VStack(spacing: 8) {
+                    Text("Couldn't load plans.")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Check your connection and try again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Retry") {
+                        loadTimedOut = false
+                        store.reloadProducts()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.vertical, 8)
+            } else {
+                VStack(spacing: 6) {
+                    ProgressView()
+                    Text("Loading plans…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 8)
+                .task {
+                    try? await Task.sleep(for: .seconds(12))
+                    if store.products.isEmpty { loadTimedOut = true }
+                }
             }
-            .padding(.vertical, 8)
         } else {
             VStack(spacing: 10) {
                 ForEach(store.products, id: \.id) { product in
