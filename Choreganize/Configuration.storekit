@@ -5,7 +5,7 @@
   ],
   "products" : [
     {
-      "displayPrice" : "19.99",
+      "displayPrice" : "20.00",
       "familyShareable" : true,
       "internalID" : "CG12-LIFETIME-0001",
       "localizations" : [
@@ -43,39 +43,14 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "0.99",
-          "familyShareable" : true,
-          "groupNumber" : 1,
-          "internalID" : "CG12-MONTHLY-0001",
-          "introductoryOffer" : null,
-          "localizations" : [
-            {
-              "description" : "Every Plus feature, billed monthly.",
-              "displayName" : "Plus Monthly",
-              "locale" : "en_US"
-            }
-          ],
-          "productID" : "com.svk.Choreganize.plus.monthly",
-          "recurringSubscriptionPeriod" : "P1M",
-          "referenceName" : "Plus Monthly",
-          "subscriptionGroupID" : "CG12-GROUP-0001",
-          "type" : "RecurringSubscription"
-        },
-        {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "7.99",
+          "displayPrice" : "5.00",
           "familyShareable" : true,
           "groupNumber" : 1,
           "internalID" : "CG12-YEARLY-0001",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Every Plus feature, billed yearly (save 33%).",
+              "description" : "Every Plus feature, billed yearly.",
               "displayName" : "Plus Yearly",
               "locale" : "en_US"
             }

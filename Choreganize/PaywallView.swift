@@ -184,7 +184,6 @@ struct PaywallView: View {
 
     private func fallbackName(for product: Product) -> String {
         switch product.id {
-        case PlusProduct.monthly: "Plus Monthly"
         case PlusProduct.yearly: "Plus Yearly"
         case PlusProduct.lifetime: "Plus Lifetime"
         default: "Choreganize Plus"

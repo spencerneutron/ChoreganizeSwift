@@ -16,9 +16,15 @@ import Foundation
 struct EntitlementTests {
 
     @Test func anyPlusProductUnlocks() {
-        #expect(PlusProduct.isEntitled(activeProductIDs: [PlusProduct.monthly]))
         #expect(PlusProduct.isEntitled(activeProductIDs: [PlusProduct.yearly]))
         #expect(PlusProduct.isEntitled(activeProductIDs: [PlusProduct.lifetime]))
+    }
+
+    @Test func retiredMonthlyProductDoesNotUnlock() {
+        // Pricing decision 2026-09-20: yearly + lifetime only. The monthly ID was
+        // never created in ASC; keep it out of the catalog so a stray transaction
+        // for it (sandbox leftovers) can't unlock Plus.
+        #expect(!PlusProduct.isEntitled(activeProductIDs: ["com.svk.Choreganize.plus.monthly"]))
     }
 
     @Test func plusUnlocksAlongsideUnrelatedProducts() {
@@ -35,7 +41,6 @@ struct EntitlementTests {
         // These literals must match the products configured in ASC (and
         // Configuration.storekit). Changing one is a release decision.
         #expect(PlusProduct.all == [
-            "com.svk.Choreganize.plus.monthly",
             "com.svk.Choreganize.plus.yearly",
             "com.svk.Choreganize.plus.lifetime",
         ])

@@ -4,16 +4,16 @@ import StoreKit
 
 /// CG-12 / #95 — the Plus product catalog.
 ///
-/// BOTH models are defined — auto-renewable subscriptions and a one-time
-/// lifetime unlock — so the subscription-vs-one-time decision stays an App
-/// Store Connect configuration choice, not a code change: the paywall sells
-/// whatever subset of these IDs actually exists in ASC, and entitlement checks
-/// accept any of them.
+/// Pricing decision (2026-09-20): Plus is sold two ways — a yearly
+/// auto-renewable subscription and a one-time lifetime unlock. No monthly
+/// tier. The paywall sells whatever subset of these IDs exists in App Store
+/// Connect, and entitlement checks accept either. A retired ID must never be
+/// re-added here without re-creating the product in ASC (see
+/// `EntitlementTests.catalogMatchesAppStoreConnectIDs`).
 enum PlusProduct {
-    static let monthly = "com.svk.Choreganize.plus.monthly"
     static let yearly = "com.svk.Choreganize.plus.yearly"
     static let lifetime = "com.svk.Choreganize.plus.lifetime"
-    static let all: Set<String> = [monthly, yearly, lifetime]
+    static let all: Set<String> = [yearly, lifetime]
 
     /// The one entitlement decision, pure for testing: any current transaction
     /// on any Plus product unlocks Plus.
