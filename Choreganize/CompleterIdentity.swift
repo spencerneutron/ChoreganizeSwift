@@ -48,6 +48,18 @@ enum CompleterNameResolver {
         let nameComponents: PersonNameComponents?
     }
 
+    /// CloudKit reports the *current user's own* share participant under the
+    /// placeholder `CKCurrentUserDefaultName` ("__defaultOwner__") rather than
+    /// the real user-record name. Everything else in the app (completion
+    /// stamps, the assignment picker's self-filter) keys on the real name, so
+    /// canonicalise the placeholder to it. Found at the 2-sim gate: the owner
+    /// appeared twice in "Assigned to", and picking the placeholder wrote an id
+    /// no other device can resolve.
+    static func canonicalRecordName(_ recordName: String, currentUserID: String?) -> String {
+        if recordName == CKCurrentUserDefaultName, let currentUserID { return currentUserID }
+        return recordName
+    }
+
     /// Resolves a completion's `completedBy` for display.
     /// - Returns: `nil` when the row should show no attribution (no id recorded,
     ///   or it's the current user's own completion — seeing "by You" on every row
@@ -116,8 +128,10 @@ final class CompleterDirectory: ObservableObject {
             guard let householdID,
                   let share = (try? stack.container.fetchShares(matching: [householdID]))?[householdID] else { return }
             var names: [String: String] = [:]
+            let me = CompleterIdentity.cachedID
             for participant in share.participants {
-                guard let id = participant.userIdentity.userRecordID?.recordName else { continue }
+                guard let raw = participant.userIdentity.userRecordID?.recordName else { continue }
+                let id = CompleterNameResolver.canonicalRecordName(raw, currentUserID: me)
                 let resolved = CompleterNameResolver.displayName(
                     for: id,
                     currentUserID: nil,   // keep the raw name; self-hiding happens in name(for:)

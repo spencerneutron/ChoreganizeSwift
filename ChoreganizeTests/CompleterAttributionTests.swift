@@ -13,6 +13,16 @@ import Foundation
 
 struct CompleterAttributionTests {
 
+    // MARK: - Record-name canonicalisation (#99 picker dupe, 2-sim gate)
+
+    @Test func ownerPlaceholderCanonicalisesToCurrentUser() {
+        #expect(CompleterNameResolver.canonicalRecordName("__defaultOwner__", currentUserID: "_me") == "_me")
+        // No cached identity yet: leave the placeholder alone rather than invent an id.
+        #expect(CompleterNameResolver.canonicalRecordName("__defaultOwner__", currentUserID: nil) == "__defaultOwner__")
+        // Real names pass through untouched.
+        #expect(CompleterNameResolver.canonicalRecordName("_other", currentUserID: "_me") == "_other")
+    }
+
     // MARK: - Stamping
 
     @Test func householdCompletionIsStamped() throws {
