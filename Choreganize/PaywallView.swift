@@ -90,13 +90,13 @@ struct PaywallView: View {
             featureRow("bell.badge", "Member notifications",
                        "Know the moment someone else checks off a chore.")
             featureRow("person.2.badge.gearshape", "Chore assignment",
-                       "Give every chore an owner (coming to Plus).")
+                       "Give every chore an owner.")
             featureRow("house.and.flag", "Multiple households",
-                       "Home, the cabin, the office — switch freely (coming to Plus).")
+                       "Home, the cabin, the office — switch freely.")
             featureRow("chart.bar.xaxis", "Insights & heatmap",
-                       "Trends, streak history, and a yearly heatmap (coming to Plus).")
+                       "Trends, streak history, and a yearly heatmap.")
             featureRow("clock.badge", "Custom reminders & recurrence",
-                       "Per-room reminder times and flexible schedules (coming to Plus).")
+                       "Per-room reminder times and flexible schedules.")
             featureRow("person.3", "Family Sharing",
                        "Your purchase shares with your Apple Family at no extra cost.")
         }

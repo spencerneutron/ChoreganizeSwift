@@ -94,8 +94,8 @@ struct BackupRestoreView: View {
                 Text("Automatic Backups")
             } footer: {
                 Text(entitlements.isPlus
-                     ? "Backs up your Personal data on a schedule. Files are kept in Files ▸ On My iPhone ▸ Choreganize ▸ Backups; only the \(AutoBackupPolicy.keepCount) most recent are kept."
-                     : "Back up your Personal data automatically on a schedule. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus).")
+                     ? "Backs up your Personal data on a schedule. Files are kept in Files ▸ On My iPhone ▸ Choreganize ▸ Backups; only the \(AutoBackupPolicy.keepCount) most recent are kept. Household chores already live in iCloud and sync to every member, so they're covered automatically."
+                     : "Back up your Personal data automatically on a schedule. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus). Household chores already live in iCloud and sync to every member, so they're covered automatically.")
             }
 
             if entitlements.isPlus && !autoBackupFiles.isEmpty {
