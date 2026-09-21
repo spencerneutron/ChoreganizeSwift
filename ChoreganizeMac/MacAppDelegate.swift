@@ -43,6 +43,29 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// CloudKit share acceptance. macOS delivers this to the app delegate
     /// directly (no scene-delegate detour like iOS); requires
     /// `CKSharingSupported = YES` in Info.plist.
+    /// A share link handed straight to the app (Finder/`open -a`, a browser's
+    /// "Open in…", or a pasted link). macOS only routes iCloud share links to
+    /// the app on its own for production shares; development shares land on
+    /// the iCloud web home instead, so this is also how the Mac sharing script
+    /// is exercised. Fetches the share metadata for our container and funnels
+    /// it into the same accept path as the system callback.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard url.host?.hasSuffix("icloud.com") == true, url.path.hasPrefix("/share/") else { continue }
+            Log.info("Resolving CloudKit share link", category: .cloud)
+            let container = CKContainer(identifier: CoreDataStack.cloudContainerIdentifier)
+            container.fetchShareMetadata(with: url) { metadata, error in
+                if let metadata {
+                    DispatchQueue.main.async {
+                        self.application(application, userDidAcceptCloudKitShareWith: metadata)
+                    }
+                } else {
+                    Log.error("Share link could not be resolved: \(error?.localizedDescription ?? "no metadata")", category: .cloud)
+                }
+            }
+        }
+    }
+
     func application(_ application: NSApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
         Log.info("User accepted CloudKit share: \(metadata.share.recordID.recordName)", category: .cloud)
         CoreDataStack.shared.acceptShare(metadata)
