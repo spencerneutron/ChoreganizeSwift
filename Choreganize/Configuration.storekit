@@ -5,7 +5,7 @@
   ],
   "products" : [
     {
-      "displayPrice" : "20.00",
+      "displayPrice" : "19.99",
       "familyShareable" : true,
       "internalID" : "CG12-LIFETIME-0001",
       "localizations" : [
@@ -43,7 +43,7 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "5.00",
+          "displayPrice" : "4.99",
           "familyShareable" : true,
           "groupNumber" : 1,
           "internalID" : "CG12-YEARLY-0001",
