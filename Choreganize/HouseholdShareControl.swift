@@ -23,6 +23,13 @@ struct HouseholdShareControl: View {
                           systemImage: info.isShared ? "person.2.fill" : "square.and.arrow.up")
                 }
             }
+            // CG-11 / #64: bring Personal items into the household (owners
+            // move, participants add copies — the sheet explains which).
+            Button {
+                model.showMigrationPicker = true
+            } label: {
+                Label("Add Personal Items…", systemImage: "tray.and.arrow.up")
+            }
             Button {
                 draftName = model.activeHousehold?.name ?? "Household"
                 showRename = true

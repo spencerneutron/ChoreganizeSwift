@@ -71,16 +71,27 @@ final class AppModel: ObservableObject {
     /// mounted *in response* to the link and still see the pending target.
     @Published var deepLinkChore: UUID?
 
+    // MARK: - Personal→Household migration (CG-11 / #64)
+    /// Presents the migration picker sheet (set from the household menu, or by
+    /// the one-time offer banner after a share is created/accepted).
+    @Published var showMigrationPicker = false
+
     /// True once we've shown the "not signed in" cue this session, so the banner
     /// isn't re-queued on every CloudKit event.
     private var didAnnounceNotSignedIn = false
     private var cloudKitEventObserver: NSObjectProtocol?
+    private var shareChangeObserver: NSObjectProtocol?
+    private var plusChangeObserver: NSObjectProtocol?
 
     // MARK: - Scope (Solo vs Household)
     @Published private(set) var scope: AppScope = .solo
     /// Display name of the active household (mirrors `activeHousehold?.name`).
     @Published private(set) var householdName: String = "Household"
     private let scopeKey = "activeScope"
+    /// CG-16 / #98: which of several households backs the Household scope.
+    /// Persisted so widgets/intents (`ChoreScopeResolver`) resolve the same one.
+    @Published private(set) var activeHouseholdID: UUID?
+    static let activeHouseholdKey = "activeHouseholdID"
 
     private var bannerQueue: [BannerMessage] = []
     private var bannerTask: Task<Void, Never>?
@@ -88,14 +99,23 @@ final class AppModel: ObservableObject {
     init() {
         let restored = AppScope(rawValue: UserDefaults.standard.string(forKey: scopeKey) ?? "") ?? .solo
         scope = restored
+        activeHouseholdID = UserDefaults.standard.string(forKey: Self.activeHouseholdKey)
+            .flatMap(UUID.init(uuidString:))
         if restored == .household { ensureHousehold() }
         refreshHouseholdName()
         startSyncMonitoring()
+        startMigrationOfferMonitoring()
     }
 
     deinit {
         if let cloudKitEventObserver {
             NotificationCenter.default.removeObserver(cloudKitEventObserver)
+        }
+        if let shareChangeObserver {
+            NotificationCenter.default.removeObserver(shareChangeObserver)
+        }
+        if let plusChangeObserver {
+            NotificationCenter.default.removeObserver(plusChangeObserver)
         }
     }
 
@@ -149,6 +169,70 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - Migration offer (CG-11 / #64)
+
+    /// After a share is created (owner) or accepted (participant), offer — once
+    /// per household — to bring Personal items in. The share change posts from
+    /// sharing callbacks on arbitrary threads (queue: nil for the same
+    /// no-blocking-the-poster reason as the sync observer); the accept path
+    /// fires before the household record has imported, so evaluation is
+    /// delayed a beat and simply skips (without burning the one-time flag)
+    /// when the household or Personal items aren't visible yet.
+    private func startMigrationOfferMonitoring() {
+        shareChangeObserver = NotificationCenter.default.addObserver(
+            forName: .householdShareDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                // CG-15 / #97: joining/creating a share is a stamp point —
+                // an entitled member lights the household flag for everyone.
+                self?.syncHouseholdPlusStamp()
+                self?.offerMigrationIfWorthwhile()
+            }
+        }
+        plusChangeObserver = NotificationCenter.default.addObserver(
+            forName: .plusEntitlementDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in self?.syncHouseholdPlusStamp() }
+        }
+    }
+
+    /// CG-15 / #97: reconcile the household's propagated Plus flag with this
+    /// device's own entitlement.
+    func syncHouseholdPlusStamp() {
+        HouseholdEntitlement.syncStamp(household: resolvedHousehold,
+                                       isPlus: EntitlementStore.shared.isPlus)
+    }
+
+    private func offerMigrationIfWorthwhile() {
+        guard let household = resolvedHousehold, let householdID = household.id else { return }
+        let offeredKey = "migration.offered.\(householdID.uuidString)"
+        guard !UserDefaults.standard.bool(forKey: offeredKey) else { return }
+
+        let request = NSFetchRequest<CDChore>(entityName: "CDChore")
+        let personalChores = ((try? context.fetch(request)) ?? []).inScope(nil)
+        let areaRequest = NSFetchRequest<CDArea>(entityName: "CDArea")
+        let personalAreas = ((try? context.fetch(areaRequest)) ?? []).inScope(nil)
+        guard !personalChores.isEmpty || !personalAreas.isEmpty else { return }
+
+        UserDefaults.standard.set(true, forKey: offeredKey)
+        let isParticipant = HouseholdMigration.mode(for: household) == .participantCopy
+        showBanner(
+            title: isParticipant ? "You're in \(household.name ?? "the household")" : "Household shared",
+            message: isParticipant
+                ? "Want to add your Personal chores so everyone can see them? Your originals stay untouched."
+                : "Want to move your Personal chores into the household?",
+            style: .info,
+            actionTitle: "Choose Items…",
+            action: { [weak self] in self?.showMigrationPicker = true },
+            duration: 10.0
+        )
+    }
+
     /// Surfaces the "sync paused / not signed in" banner exactly once per session.
     private func announceNotSignedInIfNeeded() {
         guard !didAnnounceNotSignedIn else { return }
@@ -173,8 +257,50 @@ final class AppModel: ObservableObject {
     /// The household backing Household-scoped data, *regardless* of the active scope.
     /// `activeHousehold` is nil while in Solo, but the badge counts Household chores
     /// even from Solo, so it resolves the household through this instead.
+    /// CG-16 / #98: an explicit selection wins; the shared-store-first default is
+    /// the fallback (and the pre-multi-household behavior).
     var resolvedHousehold: CDHousehold? {
-        household(in: CoreDataStack.shared.sharedStore) ?? household(in: nil)
+        if let activeHouseholdID, let selected = household(withID: activeHouseholdID) {
+            return selected
+        }
+        return household(in: CoreDataStack.shared.sharedStore) ?? household(in: nil)
+    }
+
+    /// CG-16 / #98: every household the user owns or participates in,
+    /// shared-with-me first (same precedence as the single-household default).
+    var allHouseholds: [CDHousehold] {
+        let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
+        request.sortDescriptors = [NSSortDescriptor(key: "createdDate", ascending: true)]
+        let all = (try? context.fetch(request)) ?? []
+        let shared = CoreDataStack.shared.sharedStore
+        return all.sorted { a, b in
+            let aShared = shared != nil && a.objectID.persistentStore === shared
+            let bShared = shared != nil && b.objectID.persistentStore === shared
+            if aShared != bShared { return aShared }
+            return (a.createdDate ?? .distantPast) < (b.createdDate ?? .distantPast)
+        }
+    }
+
+    /// CG-16 / #98: switches the Household scope to a specific household.
+    func setActiveHousehold(_ household: CDHousehold) {
+        activeHouseholdID = household.id
+        UserDefaults.standard.set(household.id?.uuidString, forKey: Self.activeHouseholdKey)
+        refreshHouseholdName()
+        syncHouseholdPlusStamp()
+    }
+
+    /// CG-16 / #98: creates an additional household and makes it active (Plus).
+    @discardableResult
+    func createHousehold(named name: String) -> CDHousehold {
+        let created = CDHousehold(context: context)
+        created.id = UUID()
+        created.name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Household" : name.trimmingCharacters(in: .whitespacesAndNewlines)
+        created.createdDate = Date()
+        try? context.save()
+        setActiveHousehold(created)
+        Log.info("Created additional household", category: .model)
+        return created
     }
 
     /// The first household in the given store (or across all stores when `nil`).
@@ -186,11 +312,20 @@ final class AppModel: ObservableObject {
         return try? context.fetch(request).first
     }
 
+    /// A household by UUID, across both stores.
+    private func household(withID id: UUID) -> CDHousehold? {
+        let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
+        request.fetchLimit = 1
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        return try? context.fetch(request).first
+    }
+
     /// Returns the household (one we own or one shared with us), creating a local
-    /// one only when none exists anywhere.
+    /// one only when none exists anywhere. CG-16 / #98: honors the explicit
+    /// active-household selection when one is set.
     @discardableResult
     func ensureHousehold() -> CDHousehold {
-        if let existing = household(in: nil) { return existing }
+        if let existing = resolvedHousehold ?? household(in: nil) { return existing }
         let created = CDHousehold(context: context)
         created.id = UUID()
         created.name = "Household"

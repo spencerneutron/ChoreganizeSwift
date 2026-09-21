@@ -47,15 +47,24 @@ extension CDChore {
             return !cal.isDateInToday(lastDate)
         }
         guard let freq = frequencyValue else { return false }
+        // CG-18 / #100 — a multi-day chore comes due again at the next listed
+        // weekday, not a whole frequency period after the last completion.
+        if !assignedDaysValue.isEmpty {
+            guard let next = nextDueDate(after: lastDate) else { return false }
+            return now >= next
+        }
+        // CG-18 / #100 — interval N stretches the window to N periods
+        // (recurrenceIntervalValue is 1 for legacy chores, so their window is
+        // exactly the pre-interval behavior).
         switch freq {
         case .weekly:
-            guard let next = cal.date(byAdding: .weekOfYear, value: 1, to: lastDate) else { return false }
+            guard let next = cal.date(byAdding: .weekOfYear, value: recurrenceIntervalValue, to: lastDate) else { return false }
             return now >= next
         case .monthly:
-            guard let next = cal.date(byAdding: .month, value: 1, to: lastDate) else { return false }
+            guard let next = cal.date(byAdding: .month, value: recurrenceIntervalValue, to: lastDate) else { return false }
             return now >= next
         case .yearly:
-            guard let next = cal.date(byAdding: .year, value: 1, to: lastDate) else { return false }
+            guard let next = cal.date(byAdding: .year, value: recurrenceIntervalValue, to: lastDate) else { return false }
             return now >= next
         }
     }
@@ -75,6 +84,32 @@ extension CDChore {
         return cal.startOfDay(for: next) <= cal.startOfDay(for: date)
     }
 
+    /// CG-18 / #100 — the calendar weekdays this chore is scheduled on. A
+    /// non-empty multi-day set supersedes the legacy single `assignedDay`.
+    var dueWeekdays: Set<Int> {
+        let multi = assignedDaysValue
+        if !multi.isEmpty { return Set(multi.compactMap(\.calendarWeekday)) }
+        guard let single = assignedDayValue?.calendarWeekday else { return [] }
+        return [single]
+    }
+
+    /// CG-18 / #100 — whether `date` falls in an "on" period for the chore's
+    /// recurrence interval, anchored on the period containing `createdDate`
+    /// (biweekly = weekly + interval 2: on in weeks 0, 2, 4… since creation).
+    /// Interval 1 (and legacy 0) is always on, so pre-interval chores are
+    /// unaffected.
+    func isInActivePeriod(on date: Date) -> Bool {
+        let interval = recurrenceIntervalValue
+        guard interval > 1, let freq = frequencyValue else { return true }
+        let cal = Calendar.current
+        let unit = freq.component
+        guard let anchorStart = cal.dateInterval(of: unit, for: createdDate ?? date)?.start,
+              let dateStart = cal.dateInterval(of: unit, for: date)?.start,
+              let elapsed = cal.dateComponents([unit], from: anchorStart, to: dateStart).value(for: unit)
+        else { return true }
+        return ((elapsed % interval) + interval) % interval == 0
+    }
+
     /// The next scheduled date after the given reference (or the last completion).
     func nextDueDate(after date: Date? = nil) -> Date? {
         let cal = Calendar.current
@@ -88,9 +123,29 @@ extension CDChore {
         guard let freq = frequencyValue else { return nil }
         let reference = date ?? lastCompletion?.date
 
+        // CG-18 / #100 — multi-day: due on EACH listed weekday, so the next due
+        // date is the first listed weekday after the reference that lands in an
+        // active period (bounded day-walk; the interval cap keeps it short).
+        let multiWeekdays = Set(assignedDaysValue.compactMap(\.calendarWeekday))
+        if !multiWeekdays.isEmpty {
+            // With a reference the walk starts the day after it (mirrors the
+            // single-day path, which always moves forward one period first);
+            // without one, today itself can be due (as in the single-day path).
+            var next = reference.map { cal.date(byAdding: .day, value: 1, to: $0)! }
+                ?? cal.startOfDay(for: Date())
+            for _ in 0..<(recurrenceIntervalValue * 366 + 7) {
+                if multiWeekdays.contains(cal.component(.weekday, from: next)), isInActivePeriod(on: next) {
+                    return next
+                }
+                next = cal.date(byAdding: .day, value: 1, to: next)!
+            }
+            return nil
+        }
+
         let startDate: Date
         if let reference {
-            guard let advanced = cal.date(byAdding: freq.component, value: 1, to: reference) else { return nil }
+            // CG-18 / #100 — interval N advances N periods; 1 for legacy chores.
+            guard let advanced = cal.date(byAdding: freq.component, value: recurrenceIntervalValue, to: reference) else { return nil }
             startDate = advanced
         } else {
             startDate = cal.startOfDay(for: Date())
@@ -105,10 +160,16 @@ extension CDChore {
     }
 
     /// Records a completion for the given day (no-op if already completed).
+    /// Household completions are stamped with the completer's stable CloudKit
+    /// user id (#59); Solo chores get no attribution.
     @discardableResult
-    func recordCompletion(on date: Date = Date(), notes: String? = nil, in context: NSManagedObjectContext) -> CDCompletion? {
+    func recordCompletion(on date: Date = Date(), notes: String? = nil,
+                          by completerID: String? = CompleterIdentity.cachedID,
+                          in context: NSManagedObjectContext) -> CDCompletion? {
         guard !isCompleted(on: date) else { return nil }
-        let completion = CDCompletion.make(in: context, date: date, notes: notes, chore: self, household: household)
+        let completion = CDCompletion.make(in: context, date: date, notes: notes,
+                                           completedBy: household == nil ? nil : completerID,
+                                           chore: self, household: household)
         save(context)
         return completion
     }
@@ -143,8 +204,12 @@ enum Scheduling {
         let dayStart = cal.startOfDay(for: date)
         return chores.filter { chore in
             if chore.isDaily { return true }
-            guard let weekday = chore.assignedDayValue?.calendarWeekday,
-                  cal.component(.weekday, from: dayStart) == weekday else { return false }
+            // CG-18 / #100 — dueWeekdays folds multi-day over the legacy single
+            // day; the active-period gate keeps interval chores off their "off"
+            // weeks/months even while uncompleted.
+            let weekdays = chore.dueWeekdays
+            guard weekdays.contains(cal.component(.weekday, from: dayStart)),
+                  chore.isInActivePeriod(on: dayStart) else { return false }
             return chore.needsAttention(on: date) || chore.isCompleted(on: date)
         }
     }
@@ -181,14 +246,34 @@ enum Scheduling {
                 continue
             }
 
+            // CG-18 / #100 — multi-day: the chore recurs on each listed weekday
+            // of every active period, so the month's days are walked directly
+            // (the single-day period-step below marks one occurrence per period,
+            // which is wrong for a Mon+Thu-style chore).
+            let multiWeekdays = Set(chore.assignedDaysValue.compactMap(\.calendarWeekday))
+            if !multiWeekdays.isEmpty {
+                var day = max(created, monthStart)
+                while day <= monthEnd {
+                    if multiWeekdays.contains(cal.component(.weekday, from: day)),
+                       chore.isInActivePeriod(on: day) {
+                        result[cal.startOfDay(for: day), default: []].append(chore)
+                    }
+                    day = cal.date(byAdding: .day, value: 1, to: day)!
+                }
+                continue
+            }
+
             guard let weekday = chore.assignedDayValue?.calendarWeekday, let freq = chore.frequencyValue else { continue }
+            // CG-18 / #100 — stepping N periods from the created-date occurrence
+            // keeps interval chores anchored on createdDate; N is 1 for legacy.
+            let interval = chore.recurrenceIntervalValue
 
             var next = created
             while cal.component(.weekday, from: next) != weekday {
                 next = cal.date(byAdding: .day, value: 1, to: next)!
             }
             while next < monthStart {
-                guard let advanced = cal.date(byAdding: freq.component, value: 1, to: next) else { break }
+                guard let advanced = cal.date(byAdding: freq.component, value: interval, to: next) else { break }
                 var candidate = advanced
                 while cal.component(.weekday, from: candidate) != weekday {
                     candidate = cal.date(byAdding: .day, value: 1, to: candidate)!
@@ -197,7 +282,7 @@ enum Scheduling {
             }
             while next <= monthEnd {
                 result[cal.startOfDay(for: next), default: []].append(chore)
-                guard let advanced = cal.date(byAdding: freq.component, value: 1, to: next) else { break }
+                guard let advanced = cal.date(byAdding: freq.component, value: interval, to: next) else { break }
                 var candidate = advanced
                 while cal.component(.weekday, from: candidate) != weekday {
                     candidate = cal.date(byAdding: .day, value: 1, to: candidate)!

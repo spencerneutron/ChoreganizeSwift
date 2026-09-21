@@ -1,4 +1,6 @@
+#if os(iOS)
 import CoreMotion
+#endif
 import Foundation
 
 /// One shared device-motion source for the calendar's perfect-day glow bars (#57 fast-follow).
@@ -19,6 +21,7 @@ final class TiltProvider {
     /// Normalized device roll, clamped to a comfortable −1...1. Plain (unobserved) on purpose.
     private(set) var roll: Double = 0
 
+    #if os(iOS)
     private let manager = CMMotionManager()
     private var running = false
 
@@ -40,4 +43,10 @@ final class TiltProvider {
         running = false
         roll = 0
     }
+    #else
+    // Macs have no motion sensors: `roll` stays 0 and the glow's specular sweep
+    // takes its documented time-driven fallback (same as the Simulator).
+    func start() {}
+    func stop() {}
+    #endif
 }

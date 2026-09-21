@@ -1,6 +1,5 @@
 import SwiftUI
 import CoreData
-import UIKit
 
 // P2: the guided "add chores & areas" wizard, pushed in-tab from EditHomeView (not a
 // modal sheet — keeps the Edit tab context, matching how Chores/Areas already push onto
@@ -22,7 +21,7 @@ struct AddFlowFlowView: View {
     @State private var showDiscardConfirm = false
     // Reused + pre-warmed so the success haptic on Done doesn't cold-start the
     // CHHapticEngine/AVAudioSession on the main thread (multi-second hang; cz_device11).
-    @State private var successHaptic = UINotificationFeedbackGenerator()
+    @State private var successHaptic = SuccessHaptic()
 
     enum Step { case pickGroup, addChores, another, review }
 
@@ -40,7 +39,7 @@ struct AddFlowFlowView: View {
                     removal: .move(edge: .leading).combined(with: .opacity)))
         }
         .navigationTitle(grouping.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .compatInlineNavigationTitle()
         // Warm the haptic engine on entry so the Done haptic fires instantly (cz_device11).
         .onAppear { successHaptic.prepare() }
         // With staged drafts uncommitted, replace the system back button (which would pop
@@ -48,7 +47,7 @@ struct AddFlowFlowView: View {
         .navigationBarBackButtonHidden(flow.draftCount > 0)
         .toolbar {
             if flow.draftCount > 0 {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .compatLeading) {
                     Button("Cancel") { showDiscardConfirm = true }
                 }
             }
@@ -90,7 +89,7 @@ struct AddFlowFlowView: View {
 
     private func save() {
         flow.commit(in: context, household: model.activeHousehold)
-        successHaptic.notificationOccurred(.success)
+        successHaptic.success()
         dismiss()
     }
 }
@@ -116,7 +115,7 @@ private struct AddFlowGroupPicker: View {
                     HStack {
                         TextField("Room name", text: $newRoom)
                             .accessibilityIdentifier("addflow.newRoomField")
-                            .textInputAutocapitalization(.words)
+                            .compatAutocapitalizeWords()
                             .autocorrectionDisabled()
                         Button("Add") { onSelect(.area(.new(trimmedRoom))); newRoom = "" }
                             .disabled(trimmedRoom.isEmpty)
@@ -180,7 +179,7 @@ private struct AddChoresStep: View {
             Section("Add a chore") {
                 TextField("Name", text: $name)
                     .accessibilityIdentifier("addflow.choreNameField")
-                    .textInputAutocapitalization(.words)
+                    .compatAutocapitalizeWords()
                     .autocorrectionDisabled()
                     .focused($nameFocused)
                     .onSubmit(addChore)
@@ -197,7 +196,7 @@ private struct AddChoresStep: View {
             }
         }
         .navigationTitle(groupTitle)
-        .navigationBarTitleDisplayMode(.inline)
+        .compatInlineNavigationTitle()
         .sensoryFeedback(.increase, trigger: flow.draftCount)
         .onAppear {
             nameFocused = true
@@ -329,7 +328,7 @@ private struct AnotherGroupStep: View {
         }
         .padding()
         .navigationTitle("Nice work")
-        .navigationBarTitleDisplayMode(.inline)
+        .compatInlineNavigationTitle()
     }
 }
 
@@ -372,7 +371,7 @@ private struct AddFlowReview: View {
             }
         }
         .navigationTitle("Review")
-        .navigationBarTitleDisplayMode(.inline)
+        .compatInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { onSave() }.disabled(flow.draftCount == 0).bold()
@@ -461,7 +460,7 @@ private struct AddFlowDraftEditor: View {
             Form {
                 Section("Name") {
                     TextField("Name", text: $name)
-                        .textInputAutocapitalization(.words)
+                        .compatAutocapitalizeWords()
                         .autocorrectionDisabled()
                 }
                 Section("Details") {
@@ -471,7 +470,7 @@ private struct AddFlowDraftEditor: View {
                 }
             }
             .navigationTitle("Edit Chore")
-            .navigationBarTitleDisplayMode(.inline)
+            .compatInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

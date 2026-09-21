@@ -21,9 +21,23 @@ extension CDArea: HouseholdScoped {}
 extension CDCompletion: HouseholdScoped {}
 extension CDLockedDay: HouseholdScoped {}
 
-extension Sequence where Element: HouseholdScoped {
+extension Sequence where Element: NSManagedObject & HouseholdScoped {
     /// The items in the given scope (`nil` household == Solo).
     func inScope(_ household: CDHousehold?) -> [Element] {
-        filter { $0.household == household }
+        inScope(household, sharedStore: CoreDataStack.shared.sharedStore)
+    }
+
+    /// Personal scope must be store-scoped, not just `household == nil`: a
+    /// nil-household record in the *shared* store is a legal mid-migration
+    /// state (CG-11 / #64), and without this check it would leak into every
+    /// member's Personal list. `sharedStore` is injectable for tests; unsaved
+    /// inserts (no store yet) count as Personal.
+    func inScope(_ household: CDHousehold?, sharedStore: NSPersistentStore?) -> [Element] {
+        if let household { return filter { $0.household == household } }
+        return filter { element in
+            guard element.household == nil else { return false }
+            guard let sharedStore, let store = element.objectID.persistentStore else { return true }
+            return store !== sharedStore
+        }
     }
 }

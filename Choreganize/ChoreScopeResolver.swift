@@ -14,11 +14,19 @@ enum ChoreScopeResolver {
         AppScope(rawValue: UserDefaults.standard.string(forKey: scopeKey) ?? "") ?? .solo
     }
 
-    /// The household backing the active scope (`nil` in Solo). Prefers a
-    /// household shared with us over one we own — same precedence as `AppModel`.
+    /// The household backing the active scope (`nil` in Solo). CG-16 / #98: an
+    /// explicit selection (persisted by `AppModel.setActiveHousehold`) wins;
+    /// otherwise shared-with-us over owned — same precedence as `AppModel`.
     @MainActor
     static func activeHousehold(in context: NSManagedObjectContext) -> CDHousehold? {
         guard scope == .household else { return nil }
+        if let raw = UserDefaults.standard.string(forKey: AppModel.activeHouseholdKey),
+           let id = UUID(uuidString: raw) {
+            let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
+            request.fetchLimit = 1
+            request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+            if let selected = try? context.fetch(request).first { return selected }
+        }
         return household(in: CoreDataStack.shared.sharedStore, context: context)
             ?? household(in: nil, context: context)
     }

@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import UserNotifications
 
 /// Reminder preferences (Phase B). Toggling on requests notification
@@ -13,6 +12,9 @@ struct NotificationSettingsView: View {
     @AppStorage(NotificationManager.Keys.enabled) private var enabled = false
     @AppStorage(NotificationManager.Keys.hour) private var hour = 18
     @AppStorage(NotificationManager.Keys.minute) private var minute = 0
+    /// CG-14 / #62: member-completion alerts (Plus). Default on; Plus gates delivery.
+    @AppStorage(MemberCompletionNotifier.Keys.enabled) private var memberAlerts = true
+    @ObservedObject private var entitlements = EntitlementStore.shared
 
     @State private var selectedDays: Set<Weekday> = Set(Weekday.standardCases)
     @State private var badgeScopes: Set<AppScope> = Set(AppScope.allCases)
@@ -20,6 +22,11 @@ struct NotificationSettingsView: View {
     @State private var didLoad = false
 
     private var deniedInSystem: Bool { status == .denied }
+
+    /// CG-15 / #97: own Plus OR the household's propagated flag.
+    private var effectivePlus: Bool {
+        entitlements.isPlus || model.resolvedHousehold?.plusEnabled == true
+    }
 
     var body: some View {
         Form {
@@ -32,10 +39,10 @@ struct NotificationSettingsView: View {
 
             if deniedInSystem {
                 Section {
-                    Label("Notifications are off for Choreganize in iOS Settings.",
+                    Label("Notifications are off for Choreganize in \(Self.settingsAppName).",
                           systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.secondary)
-                    Button("Open iOS Settings") { openSystemSettings() }
+                    Button("Open \(Self.settingsAppName)") { openSystemSettings() }
                 }
             }
 
@@ -64,6 +71,44 @@ struct NotificationSettingsView: View {
                     Text("Days")
                 } footer: {
                     Text("You're only reminded on days that still have chores to do.")
+                }
+
+                // CG-19 / #101: per-room/per-chore custom times (Plus). Locked-row
+                // presentation mirrors "Member completions" below, behind the same
+                // household-scoped gate (CG-15 / #97). Lives inside the `enabled`
+                // block because overrides only shape the daily-reminder plan.
+                Section {
+                    if effectivePlus {
+                        NavigationLink("Custom Times") { CustomRemindersView() }
+                    } else {
+                        Label("Custom Times", systemImage: "lock")
+                            .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text(effectivePlus
+                         ? "Remind specific rooms or chores at their own times."
+                         : "Remind specific rooms or chores at their own times. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus).")
+                }
+            }
+
+            // CG-14 / #62: household activity alerts (Plus). Independent of the
+            // daily-reminder toggle — these fire on sync when ANOTHER member
+            // completes a chore, not on a schedule. The gate is household-
+            // scoped (CG-15 / #97): any member's Plus lights it up for all.
+            if !deniedInSystem {
+                Section {
+                    if effectivePlus {
+                        Toggle("Member completions", isOn: $memberAlerts)
+                    } else {
+                        Label("Member completions", systemImage: "lock")
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Household Activity")
+                } footer: {
+                    Text(effectivePlus
+                         ? "Get notified when another household member completes a chore."
+                         : "Get notified when another household member completes a chore. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus).")
                 }
             }
 
@@ -163,9 +208,16 @@ struct NotificationSettingsView: View {
         Task { await NotificationManager.reschedule(using: context, activeHousehold: model.activeHousehold) }
     }
 
+    private static var settingsAppName: String {
+        #if os(iOS)
+        "iOS Settings"
+        #else
+        "System Settings"
+        #endif
+    }
+
     private func openSystemSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-        UIApplication.shared.open(url)
+        SystemSettingsOpener.openNotificationSettings()
     }
 }
 

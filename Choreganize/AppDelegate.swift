@@ -12,6 +12,22 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         Log.info("App did finish launching; registering for remote notifications", category: .app)
         application.registerForRemoteNotifications()
+        // #59: cache the stable CloudKit user id so Household completions can be
+        // stamped with who completed them (no-op when CloudKit is off).
+        CompleterIdentity.refresh()
+        // CG-11 / #64: finish an owner-side migration interrupted between its
+        // local save and the share-zone re-home (no-op when the journal is clear).
+        HouseholdMigration.resumePendingMoveIfNeeded()
+        // CG-12 / #95: start the StoreKit 2 transaction listener + entitlement load.
+        EntitlementStore.shared.start()
+        // CG-14 / #62: watch mirroring imports for other members' completions
+        // and surface them as local notifications (Plus).
+        MemberCompletionNotifier.shared.start()
+        // CG-20 / #102: register the auto-backup BGTask (must happen before
+        // launch finishes) and take an overdue backup now — the scheduler is
+        // best-effort, so the launch catch-up is the reliability backstop.
+        AutoBackup.register()
+        AutoBackup.runCatchUpIfDue()
         // Become the notification delegate and register the actionable reminder
         // category up front, so a delivered reminder shows "Mark done" and routes
         // the tap back here even on a cold launch from the notification.
