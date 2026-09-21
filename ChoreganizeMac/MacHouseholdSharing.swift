@@ -23,19 +23,26 @@ extension HouseholdSharing {
         let container = stack.container
         let ckContainer = CKContainer(identifier: CoreDataStack.cloudContainerIdentifier)
         let title = household.name ?? "Household"
+        let thumbnail = thumbnailPNG   // main thread: reads the app icon
         let householdID = household.objectID
 
         Task.detached(priority: .userInitiated) {
             if let existing = (try? container.fetchShares(matching: [householdID]))?[householdID] {
                 Log.info("Presenting existing household share", category: .cloud)
-                // Heal shares created before the title was persisted (their invitation
-                // links read "cloudkit.zoneshare"); only the owner may edit the share.
-                if existing[CKShare.SystemFieldKey.title] == nil,
+                // Heal shares created before the title/thumbnail were persisted
+                // (their invitation links read "cloudkit.zoneshare" and the
+                // collaboration panel's header rendered empty); only the owner
+                // may edit the share.
+                let missingTitle = existing[CKShare.SystemFieldKey.title] == nil
+                let missingThumbnail = existing[CKShare.SystemFieldKey.thumbnailImageData] == nil
+                if missingTitle || missingThumbnail,
                    existing.currentUserParticipant?.role == .owner,
                    let store = stack.privateStore {
-                    existing[CKShare.SystemFieldKey.title] = title as CKRecordValue
+                    if missingTitle { existing[CKShare.SystemFieldKey.title] = title as CKRecordValue }
+                    if missingThumbnail, let thumbnail { existing[CKShare.SystemFieldKey.thumbnailImageData] = thumbnail as CKRecordValue }
+                    existing[CKShare.SystemFieldKey.shareType] = Self.shareType as CKRecordValue
                     container.persistUpdatedShare(existing, in: store) { _, error in
-                        if let error { Log.error("Backfilling share title failed: \(error.localizedDescription)", category: .cloud) }
+                        if let error { Log.error("Backfilling share title/thumbnail failed: \(error.localizedDescription)", category: .cloud) }
                     }
                 }
                 await MainActor.run {
@@ -51,6 +58,8 @@ extension HouseholdSharing {
                     return
                 }
                 share[CKShare.SystemFieldKey.title] = title as CKRecordValue
+                if let thumbnail { share[CKShare.SystemFieldKey.thumbnailImageData] = thumbnail as CKRecordValue }
+                share[CKShare.SystemFieldKey.shareType] = Self.shareType as CKRecordValue
                 // Persist the title before the panel can send a link (same as iOS).
                 guard let store = stack.privateStore else {
                     Task { @MainActor in
@@ -68,6 +77,21 @@ extension HouseholdSharing {
         }
     }
 
+    /// Uniform type identifier recorded on the share so the panel and
+    /// invitations can describe what is being shared.
+    static let shareType = "com.svk.Choreganize.household"
+
+    /// PNG of the app icon for the collaboration panel header and invitation
+    /// previews. Without a thumbnail the macOS panel renders an empty header
+    /// (seen at the 2-sim gate), title or not.
+    @MainActor
+    private static var thumbnailPNG: Data? {
+        let icon: NSImage? = NSApp.applicationIconImage
+        guard let icon, let tiff = icon.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .png, properties: [:])
+    }
+
     @MainActor
     private static func present(_ share: CKShare, in container: CKContainer) {
         guard let service = NSSharingService(named: .cloudSharing) else {
@@ -76,7 +100,11 @@ extension HouseholdSharing {
         }
         let itemProvider = NSItemProvider()
         itemProvider.registerCloudKitShare(share, container: container)
+        itemProvider.suggestedName = share[CKShare.SystemFieldKey.title] as? String
         service.delegate = MacSharingDelegate.shared
+        // The panel attaches to the key window; bring the app forward first
+        // so it doesn't sit behind another app bouncing the Dock icon.
+        NSApp.activate(ignoringOtherApps: true)
         service.perform(withItems: [itemProvider])
     }
 }
@@ -92,6 +120,14 @@ final class MacSharingDelegate: NSObject, NSCloudSharingServiceDelegate {
     func options(for sharingService: NSSharingService,
                  share provider: NSItemProvider) -> NSSharingService.CloudKitOptions {
         [.allowReadWrite, .allowPrivate, .allowPublic]
+    }
+
+    /// Anchor the collaboration panel to our window instead of a detached
+    /// panel that demands activation from the Dock.
+    func sharingService(_ sharingService: NSSharingService,
+                        sourceWindowForShareItems items: [Any],
+                        sharingContentScope: UnsafeMutablePointer<NSSharingService.SharingContentScope>) -> NSWindow? {
+        NSApp.keyWindow ?? NSApp.mainWindow
     }
 
     func sharingService(_ sharingService: NSSharingService, didSave share: CKShare) {
