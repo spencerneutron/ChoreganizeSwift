@@ -207,6 +207,8 @@ struct DayPage: View {
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
     @State private var showLogSheet = false
+    /// #107: the check-off-with-a-photo sheet (today only, iOS 27 + Apple Intelligence).
+    @State private var showPhotoCheck = false
     /// The chore a widget deep-link (CG-05) is briefly highlighting on this page.
     @State private var highlightedChore: UUID?
 
@@ -303,6 +305,18 @@ struct DayPage: View {
                         Label("Mark all done", systemImage: "checklist.checked")
                     }
                     .accessibilityIdentifier("markAllDoneButton")
+                    #if os(iOS)
+                    // #107 — photograph a room; chores that look done come back pre-checked
+                    // for the user to confirm. Today only: a photo shows the room now.
+                    if isToday && RoomVisionAvailability.current.isAvailable {
+                        Button {
+                            showPhotoCheck = true
+                        } label: {
+                            Label("Check off with a photo", systemImage: "camera.viewfinder")
+                        }
+                        .accessibilityIdentifier("photoCheckButton")
+                    }
+                    #endif
                 }
             }
 
@@ -335,6 +349,11 @@ struct DayPage: View {
         .sheet(isPresented: $showLogSheet) {
             LogCompletionSheet(date: date, chores: inScopeChores)
         }
+        #if os(iOS)
+        .sheet(isPresented: $showPhotoCheck) {
+            PhotoCheckView(date: date, chores: incompleteChores)
+        }
+        #endif
         .alert("Finish day?", isPresented: $showDoneAlert) {
             Button("Confirm") {
                 DayLock.lock(date, existing: scopedLocks, household: active, in: context)

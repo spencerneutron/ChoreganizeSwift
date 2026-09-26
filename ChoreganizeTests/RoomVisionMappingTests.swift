@@ -115,4 +115,45 @@ struct RoomVisionMappingTests {
             #expect(RoomVisionMapping.existingChoreNames(in: .none, chores: chores) == ["Water plants"])
         }
     }
+
+    // MARK: Photo check-off (#107)
+
+    @Test func checkRoomsGroupByRoomWithOtherChoresLast() throws {
+        let ctx = makeContext()
+        ctx.performAndWait {
+            let kitchen = CDArea.make(in: ctx, name: "Kitchen")
+            let bath = CDArea.make(in: ctx, name: "Bathroom")
+            let wipe = CDChore.make(in: ctx, name: "Wipe counters", isDaily: true, assignedDay: .all)
+            wipe.area = kitchen
+            let dishes = CDChore.make(in: ctx, name: "Do the dishes", isDaily: true, assignedDay: .all)
+            dishes.area = kitchen
+            let toilet = CDChore.make(in: ctx, name: "Clean the toilet", frequency: .weekly, assignedDay: .monday)
+            toilet.area = bath
+            let plants = CDChore.make(in: ctx, name: "Water plants", frequency: .weekly, assignedDay: .monday)
+
+            let rooms = RoomVisionMapping.checkRooms(for: [wipe, plants, toilet, dishes])
+            #expect(rooms.map(\.title) == ["Bathroom", "Kitchen", "Other chores"])
+            #expect(rooms[1].chores.map { $0.name ?? "" } == ["Do the dishes", "Wipe counters"])   // A→Z
+            #expect(rooms[1].areaID == kitchen.id)
+            #expect(rooms[2].areaID == nil && rooms[2].chores == [plants])
+            #expect(RoomVisionMapping.checkRooms(for: []).isEmpty)
+        }
+    }
+
+    @Test func checkRoomsCapTheChoresPerRoom() throws {
+        let ctx = makeContext()
+        ctx.performAndWait {
+            let chores = (1...40).map { CDChore.make(in: ctx, name: "Chore \($0)", isDaily: true, assignedDay: .all) }
+            let rooms = RoomVisionMapping.checkRooms(for: chores)
+            #expect(rooms.count == 1)
+            #expect(rooms[0].chores.count == RoomVisionMapping.maxCheckChores)
+            #expect(rooms[0].chores.first?.name == "Chore 1")       // numeric-aware ordering
+        }
+    }
+
+    @Test func onlyLooksDoneIsPreselected() {
+        #expect(RoomVisionMapping.preselected([1, 2, 3, 4], verdicts: [.looksDone, .cantTell, .notDone, .looksDone]) == [1, 4])
+        #expect(RoomVisionMapping.preselected([1, 2], verdicts: [.cantTell]).isEmpty)          // missing verdicts never select
+        #expect(RoomVisionMapping.preselected([Int](), verdicts: [.looksDone]).isEmpty)
+    }
 }
