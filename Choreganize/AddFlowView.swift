@@ -358,7 +358,7 @@ private struct AddFlowReview: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(draft.name).foregroundStyle(.primary)
-                                    Text(scheduleText(draft)).font(.caption).foregroundStyle(.secondary)
+                                    Text(draft.scheduleSummary).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 Image(systemName: "chevron.right")
@@ -408,9 +408,6 @@ private struct AddFlowReview: View {
     private func dayLabel(_ d: ChoreDraft) -> String {
         d.isDaily ? "Every Day" : (d.day?.displayName ?? "Unassigned")
     }
-    private func scheduleText(_ d: ChoreDraft) -> String {
-        d.isDaily ? "Every day" : "\(d.frequency.rawValue.capitalized) · \(d.day?.displayName ?? "No day")"
-    }
 }
 
 // MARK: - Review inline editor
@@ -419,9 +416,11 @@ private struct AddFlowReview: View {
 /// the shared `ChoreFormRows` so the fields match New/Edit Chore and the rest of the
 /// wizard (#49). Edits are local until the user taps Save here, then handed back via
 /// `onSave`; nothing touches Core Data (the batch still commits only on Review → Save).
-private struct AddFlowDraftEditor: View {
+/// Snap a Room reuses it with `showsArea: false` (the room is chosen for the batch).
+struct AddFlowDraftEditor: View {
     let grouping: AddFlowGrouping
     var areas: [CDArea]
+    var showsArea = true
     var onSave: (ChoreDraft) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -436,10 +435,11 @@ private struct AddFlowDraftEditor: View {
     @State private var day: Weekday?
     @State private var areaId: UUID?
 
-    init(draft: ChoreDraft, grouping: AddFlowGrouping, areas: [CDArea],
+    init(draft: ChoreDraft, grouping: AddFlowGrouping, areas: [CDArea], showsArea: Bool = true,
          onSave: @escaping (ChoreDraft) -> Void) {
         self.grouping = grouping
         self.areas = areas
+        self.showsArea = showsArea
         self.onSave = onSave
         self.draftId = draft.id
         self.originalAreaRef = draft.areaRef
@@ -466,7 +466,7 @@ private struct AddFlowDraftEditor: View {
                 Section("Details") {
                     ChoreFormRows(name: $name, isDaily: $isDaily, frequency: $frequency,
                                   day: $day, areaId: $areaId, areas: areas,
-                                  showsName: false)
+                                  showsName: false, showsArea: showsArea)
                 }
             }
             .navigationTitle("Edit Chore")

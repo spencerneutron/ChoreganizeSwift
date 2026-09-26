@@ -1,6 +1,6 @@
 # Choreganize Privacy Policy
 
-_Last updated: 2026-JUNE-13_
+_Last updated: 2026-SEPTEMBER-26_
 
 Choreganize ("the app") is a chore-organizing app for iPhone and iPad. This
 policy explains how the app handles your information. In short: **the app is
@@ -53,6 +53,15 @@ If you add the Choreganize widget, it shows a summary of the current scope's
 chores for today. That summary is stored only on your device — in an app‑group
 container shared between the app and the widget so the widget can display it. It
 is not collected by or sent to the developer.
+
+## Photos (Snap a Room)
+
+On devices that support Apple Intelligence, you can take or choose a photo of a room
+to get chore suggestions for it. The photo is analyzed on your device by Apple's
+on-device model. The app doesn't save the photo, doesn't add it to your chores or
+iCloud data, and doesn't send it to the developer or to any server. Choosing a photo
+from your library uses the system photo picker, which gives the app only the photo
+you pick.
 
 ## Diagnostics
 

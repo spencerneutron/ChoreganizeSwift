@@ -9,28 +9,21 @@ struct EditHomeView: View {
                     NavigationLink {
                         AddFlowFlowView(grouping: lens)
                     } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: lens.systemImage)
-                                .font(.title2)
-                                .foregroundStyle(.tint)
-                                .frame(width: 36, height: 36)
-                                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(lens.title).font(.headline)
-                                Text(lens == .byArea
-                                     ? "Pick a room, then add its chores."
-                                     : "Pick a day, then add chores for it.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 4)
+                        lensLabel(lens.title,
+                                  subtitle: lens == .byArea
+                                      ? "Pick a room, then add its chores."
+                                      : "Pick a day, then add chores for it.",
+                                  systemImage: lens.systemImage)
                     }
                     .accessibilityIdentifier("addflow.lens.\(lens.rawValue)")
                 }
+                #if os(iOS)
+                snapRoomRow
+                #endif
             } header: {
                 Text("Add chores & areas")
             } footer: {
-                Text("Add several at once — go room by room, or day by day. You can fine-tune anything afterward below.")
+                Text(footer)
             }
 
             Section("Manage") {
@@ -42,6 +35,49 @@ struct EditHomeView: View {
         // hidden behind it.
         .contentMargins(.bottom, 100, for: .scrollContent)
     }
+
+    private func lensLabel(_ title: String, subtitle: String, systemImage: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .frame(width: 36, height: 36)
+                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var footer: String {
+        #if os(iOS)
+        if RoomVisionAvailability.current.isOfferable {
+            return "Add several at once — go room by room, day by day, or snap a photo of a room. You can fine-tune anything afterward below."
+        }
+        #endif
+        return "Add several at once — go room by room, or day by day. You can fine-tune anything afterward below."
+    }
+
+    #if os(iOS)
+    /// Snap a Room (#105): offered only where the on-device model can read photos, and
+    /// shown disabled with the reason while Apple Intelligence is off or still preparing.
+    @ViewBuilder private var snapRoomRow: some View {
+        let vision = RoomVisionAvailability.current
+        if vision.isOfferable {
+            NavigationLink {
+                RoomSnapFlowView()
+            } label: {
+                lensLabel("Snap a Room",
+                          subtitle: vision.hint ?? "Take a photo of a room to get chore ideas.",
+                          systemImage: "camera.viewfinder")
+            }
+            .disabled(!vision.isAvailable)
+            .accessibilityIdentifier("addflow.snapRoom")
+        }
+    }
+    #endif
 }
 
 struct ChoreListView: View {

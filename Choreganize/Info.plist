@@ -10,6 +10,10 @@
 	     never delivered. -->
 	<key>CKSharingSupported</key>
 	<true/>
+	<!-- Snap a Room (#105): the camera is used only when the user takes a photo of a
+	     room; the photo is analyzed on-device and never saved. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo of a room to get chore ideas for it. Photos are analyzed on this device and aren’t saved.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
