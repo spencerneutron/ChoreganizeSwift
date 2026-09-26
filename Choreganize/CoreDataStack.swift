@@ -63,11 +63,12 @@ final class CoreDataStack {
             || NSClassFromString("XCTestCase") != nil
     }
 
-    /// Skip CloudKit under test, in SwiftUI previews, or when explicitly asked via
-    /// `CHOREGANIZE_LOCAL_ONLY=1` (simulator runs not signed into iCloud, where
-    /// CloudKit setup can trap).
+    /// Skip CloudKit under test, in SwiftUI previews, for an isolated-data run (see
+    /// `DataIsolation`), or when explicitly asked via `CHOREGANIZE_LOCAL_ONLY=1`
+    /// (simulator runs not signed into iCloud, where CloudKit setup can trap).
     static var skipCloudKit: Bool {
         isRunningTests
+            || DataIsolation.isIsolated
             || ProcessInfo.processInfo.environment["CHOREGANIZE_LOCAL_ONLY"] == "1"
             || ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
@@ -98,6 +99,18 @@ final class CoreDataStack {
 
         if inMemory {
             privateDescription.url = URL(fileURLWithPath: "/dev/null")
+        } else if let defaultURL = privateDescription.url {
+            // Debug builds never open the App Store build's store files: they keep
+            // theirs in a Development (or Isolated) folder beside them. Release
+            // builds are unchanged. The shared store below follows the same folder.
+            let base = defaultURL.deletingLastPathComponent()
+            let directory = DataIsolation.storeDirectory(base)
+            if directory != base {
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                privateDescription.url = directory.appendingPathComponent(defaultURL.lastPathComponent)
+            }
+            Log.info("Data mode \(DataIsolation.mode.rawValue): \(privateDescription.url?.path ?? "?")",
+                     category: .persistence)
         }
 
         // Both required for CloudKit sync and clean merges of remote changes.

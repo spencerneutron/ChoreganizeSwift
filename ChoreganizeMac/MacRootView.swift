@@ -202,6 +202,22 @@ struct MacRootView: View {
     }
 
     private var sidebarFooter: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Debug builds only (DataIsolation): never mistake a dev run for the real app.
+            if let dataLabel = DataIsolation.label {
+                Label(dataLabel, systemImage: "hammer.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.orange)
+                    .help("A debug build: its data is kept apart from the App Store app's.")
+            }
+            syncStatusRow
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    private var syncStatusRow: some View {
         HStack(spacing: 8) {
             switch model.syncState {
             case .syncing:
@@ -229,9 +245,6 @@ struct MacRootView: View {
                 .help("Get Choreganize Plus")
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.bar)
     }
 
     // MARK: Detail
