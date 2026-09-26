@@ -137,6 +137,52 @@ enum RoomVisionMapping {
     }
 }
 
+// MARK: - Photo check-off (#107)
+
+/// One room's open chores, as offered by the photo check-off room picker.
+struct PhotoCheckRoom: Identifiable {
+    /// The area's id; nil for chores without a room.
+    let areaID: UUID?
+    let title: String
+    let chores: [CDChore]
+
+    var id: String { areaID?.uuidString ?? "none" }
+}
+
+extension RoomVisionMapping {
+    /// The most chores one photo check looks at (keeps the prompt and the list small).
+    static let maxCheckChores = 30
+
+    /// Open chores grouped by room for the check-off picker: rooms A→Z, then chores
+    /// without a room as "Other chores"; chores A→Z within each, capped.
+    static func checkRooms(for chores: [CDChore]) -> [PhotoCheckRoom] {
+        var groups: [UUID?: [CDChore]] = [:]
+        var titles: [UUID: String] = [:]
+        for chore in chores {
+            let id = chore.area?.id
+            groups[id, default: []].append(chore)
+            if let id { titles[id] = chore.area?.name ?? "Untitled" }
+        }
+        func ordered(_ chores: [CDChore]) -> [CDChore] {
+            Array(chores.sorted { ($0.name ?? "").localizedStandardCompare($1.name ?? "") == .orderedAscending }
+                .prefix(maxCheckChores))
+        }
+        let rooms = groups.compactMap { id, chores -> PhotoCheckRoom? in
+            guard let id else { return nil }
+            return PhotoCheckRoom(areaID: id, title: titles[id] ?? "Untitled", chores: ordered(chores))
+        }
+        .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        let other = groups[nil].map { [PhotoCheckRoom(areaID: nil, title: "Other chores", chores: ordered($0))] } ?? []
+        return rooms + other
+    }
+
+    /// What a check pre-selects: only the chores that look done. "Can't tell" and "not
+    /// done" are never pre-checked, and nothing is completed without the user confirming.
+    static func preselected<ID: Hashable>(_ ids: [ID], verdicts: [ChoreVerdict]) -> Set<ID> {
+        Set(zip(ids, verdicts).filter { $0.1 == .looksDone }.map(\.0))
+    }
+}
+
 extension Frequency {
     /// The add-flow frequency for a model cadence; nil for daily (a daily chore has none).
     init?(_ cadence: ChoreCadence) {
