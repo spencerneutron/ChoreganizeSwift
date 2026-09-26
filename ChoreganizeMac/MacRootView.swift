@@ -86,6 +86,15 @@ struct MacRootView: View {
                 .environmentObject(model)
                 .frame(minWidth: 480, minHeight: 520)
         }
+        // #121: the photo flows (⌥⌘N / ⇧⌘K, the Edit row, the Work toolbar, or a drop).
+        .sheet(item: $ui.roomSnap) { request in
+            MacRoomSnapSheet(initialPhoto: request.photo)
+                .environmentObject(model)
+        }
+        .sheet(item: $ui.photoCheck) { request in
+            MacPhotoCheckSheet(initialPhoto: request.photo)
+                .environmentObject(model)
+        }
         #if DEBUG
         .onAppear { MacDebugSnapshots.openSettings = { openSettings() } }
         #endif
@@ -273,6 +282,13 @@ struct MacRootView: View {
                 }
             }
             .animation(.easeInOut, value: ui.surface)
+            .modifier(SurfacePhotoDrop(surface: ui.surface) { surface, photo in
+                if surface == .edit {
+                    ui.roomSnap = MacPhotoRequest(photo: photo)
+                } else {
+                    ui.photoCheck = MacPhotoRequest(photo: photo)
+                }
+            })
             .navigationTitle(ui.surface.rawValue)
             .toolbar {
                 if model.scope == .household {
@@ -340,5 +356,55 @@ private struct TodayHeroCard: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 14))
+    }
+}
+
+/// #121: drop a photo on the Edit surface to Snap a Room, or on Work to check off
+/// chores. Only while the on-device model can read photos; the surface shows what
+/// the drop will do while a photo hovers over it.
+private struct SurfacePhotoDrop: ViewModifier {
+    let surface: AppMode
+    var onPhoto: (AppMode, CGImage?) -> Void
+
+    @State private var isTargeted = false
+
+    private var prompt: String? {
+        guard RoomVisionAvailability.current.isAvailable else { return nil }
+        switch surface {
+        case .edit: return "Drop to get chore ideas for this room"
+        case .work: return "Drop to check off today's chores"
+        default:    return nil
+        }
+    }
+
+    func body(content: Content) -> some View {
+        if let prompt {
+            content
+                .onDrop(of: MacPhotoLoader.acceptedTypes, isTargeted: $isTargeted) { providers in
+                    let surface = surface
+                    Task { onPhoto(surface, await MacPhotoLoader.load(providers)) }
+                    return true
+                }
+                .overlay {
+                    if isTargeted {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.10))
+                            .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+                            .overlay {
+                                Label(prompt, systemImage: "photo.badge.plus")
+                                    .font(.title3.weight(.semibold))
+                                    .padding(.horizontal, 18)
+                                    .padding(.vertical, 12)
+                                    .background(.regularMaterial, in: Capsule())
+                            }
+                            .padding(12)
+                            .allowsHitTesting(false)
+                            .transition(.opacity)
+                    }
+                }
+                .animation(.easeOut(duration: 0.15), value: isTargeted)
+        } else {
+            content
+        }
     }
 }

@@ -183,6 +183,19 @@ enum RoomVisionPrompts {
         Don't mention or describe any people in the photo.
         """
 
+    static let identifyInstructions = """
+        You'll see one photo of a room in someone's home and a list of the rooms in their home.
+        Say which listed room the photo shows. If it shows none of them, answer "none of these".
+        Don't mention or describe any people in the photo.
+        """
+
+    /// The "no match" choice for `identifyRoom`.
+    static let noRoom = "none of these"
+
+    static func identifyPrompt(rooms: [String]) -> String {
+        "Rooms in this home: \(rooms.joined(separator: ", "))"
+    }
+
     /// Caps that keep a large household's context well inside the 8K window.
     static let maxRooms = 30
     static let maxExistingChores = 120
@@ -413,6 +426,37 @@ enum RoomVisionEngine {
                 return verdict
             }
             return (RoomCheck(observations: observations, verdicts: verdicts), usage(response.usage))
+        } catch {
+            throw mapError(error)
+        }
+    }
+
+    // MARK: Identify (which room)
+
+    /// Which of `rooms` the photo shows, or nil when it's none of them. The answer is
+    /// constrained to the given names (plus "none of these"), so it's always one of
+    /// the household's rooms. Used when a photo arrives before a room was chosen.
+    static func identifyRoom(in image: CGImage, among rooms: [String]) async throws -> String? {
+        var seen = Set<String>()
+        let names = rooms.map(RoomVisionPrompts.clip).filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+        guard !names.isEmpty else { return nil }
+        do {
+            let schema = try GenerationSchema(
+                root: DynamicGenerationSchema(name: "RoomGuess", properties: [
+                    .init(name: RoomVisionPrompts.observationsKey,
+                          description: "In a few words, what kind of room the photo shows",
+                          schema: DynamicGenerationSchema(type: String.self)),
+                    .init(name: "room", description: "The listed room the photo shows",
+                          schema: DynamicGenerationSchema(name: "RoomName", anyOf: names + [RoomVisionPrompts.noRoom])),
+                ]),
+                dependencies: [])
+            let session = LanguageModelSession(instructions: RoomVisionPrompts.identifyInstructions)
+            let response = try await session.respond(schema: schema, options: options) {
+                Attachment(image)
+                RoomVisionPrompts.identifyPrompt(rooms: names)
+            }
+            let room = try? response.content.value(String.self, forProperty: "room")
+            return names.first { $0 == room }
         } catch {
             throw mapError(error)
         }

@@ -73,7 +73,12 @@ struct ChoreganizeMacApp: App {
                 }
         }
         .defaultSize(width: 980, height: 640)
-        .commands { MacCommands() }
+        .commands {
+            MacCommands()
+            // Continuity Camera (#121): File ▸ Import from iPhone or iPad ▸ Take Photo
+            // delivers into the photo sheet that's open (importsItemProviders).
+            ImportFromDevicesCommands()
+        }
 
         Settings {
             MacSettingsView()

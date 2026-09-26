@@ -8,6 +8,7 @@ import SwiftUI
 /// slide in the direction of travel.
 struct MacWorkHomeView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var ui: MacUIState
 
     /// Same symmetric 13-day window the iOS WeekView pages over.
     private var dates: [Date] {
@@ -31,6 +32,17 @@ struct MacWorkHomeView: View {
         }
         .background(Color.compatGroupedBackground.ignoresSafeArea())
         .toolbar {
+            // #121: photograph a room to check off today's chores that look done.
+            if index == todayIndex && RoomVisionAvailability.current.isAvailable {
+                ToolbarItem(placement: .compatTrailing) {
+                    Button {
+                        ui.photoCheck = MacPhotoRequest()
+                    } label: {
+                        Label("Check Off with a Photo", systemImage: "camera.viewfinder")
+                    }
+                    .help("Check off today's chores that look done in a photo (⇧⌘K)")
+                }
+            }
             ToolbarItemGroup(placement: .compatTrailing) {
                 Button {
                     step(-1)

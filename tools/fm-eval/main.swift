@@ -102,6 +102,19 @@ func acceptable(_ spec: String?) -> [String]? {
     spec.map { $0.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) } }
 }
 
+// The rooms offered to identifyRoom: every room any sidecar names, plus a few distractors.
+let allRooms: [String] = {
+    var names = Set(["Kitchen", "Bathroom", "Bedroom", "Living Room", "Garage", "Laundry Room", "Office", "Dining Room"])
+    for url in photos {
+        let sidecar = (try? Data(contentsOf: url.deletingPathExtension().appendingPathExtension("json")))
+            .flatMap { try? JSONDecoder().decode(Sidecar.self, from: $0) }
+        if let room = sidecar?.check?.room { names.insert(room) }
+    }
+    return names.sorted()
+}()
+var roomCorrect = 0
+var roomScored = 0
+
 var results: [PhotoResult] = []
 var falseDone = 0
 var missedDone = 0
@@ -118,6 +131,22 @@ for url in photos {
         result.error = "unreadable photo"
         print("- unreadable photo\n")
         results.append(result)
+        continue
+    }
+
+    if only == "room" {
+        let start = Date()
+        do {
+            let guess = try await RoomVisionEngine.identifyRoom(in: image, among: allRooms)
+            let expected = sidecar?.check?.room
+            let ok = expected == nil || guess == expected
+            if expected != nil { roomScored += 1; if ok { roomCorrect += 1 } }
+            print("- **Room** (\(String(format: "%.1f", Date().timeIntervalSince(start))) s): \(guess ?? "none")"
+                  + (expected.map { " (expected \($0))\(ok ? "" : " ← wrong")" } ?? ""))
+        } catch {
+            print("- **Room** failed: \(error)")
+        }
+        print("")
         continue
     }
 
@@ -190,6 +219,7 @@ for url in photos {
     results.append(result)
 }
 
+if only == "room" { print("---\nRooms identified: \(roomCorrect) / \(roomScored)") }
 print("---\nScored verdicts: \(scored) · FALSE DONE: \(falseDone) · missed done: \(missedDone)")
 let encoder = JSONEncoder()
 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

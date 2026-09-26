@@ -57,12 +57,8 @@ enum PhotoInput {
     }
 
     #if DEBUG
-    /// UI tests and screenshots: a photo path handed in through the environment
-    /// (`CHOREGANIZE_ROOM_PHOTO`), used in place of the camera or picker.
-    static var testPhoto: CGImage? {
-        guard let path = ProcessInfo.processInfo.environment["CHOREGANIZE_ROOM_PHOTO"], !path.isEmpty else { return nil }
-        return RoomPhoto.prepare(contentsOf: URL(fileURLWithPath: path))
-    }
+    /// UI tests and screenshots: see `RoomPhoto.testPhotoFromEnvironment`.
+    static var testPhoto: CGImage? { RoomPhoto.testPhotoFromEnvironment }
     #endif
 }
 

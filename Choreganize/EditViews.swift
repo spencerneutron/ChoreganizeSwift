@@ -17,9 +17,7 @@ struct EditHomeView: View {
                     }
                     .accessibilityIdentifier("addflow.lens.\(lens.rawValue)")
                 }
-                #if os(iOS)
                 snapRoomRow
-                #endif
             } header: {
                 Text("Add chores & areas")
             } footer: {
@@ -52,20 +50,19 @@ struct EditHomeView: View {
     }
 
     private var footer: String {
-        #if os(iOS)
         if RoomVisionAvailability.current.isOfferable {
             return "Add several at once — go room by room, day by day, or snap a photo of a room. You can fine-tune anything afterward below."
         }
-        #endif
         return "Add several at once — go room by room, or day by day. You can fine-tune anything afterward below."
     }
 
-    #if os(iOS)
-    /// Snap a Room (#105): offered only where the on-device model can read photos, and
-    /// shown disabled with the reason while Apple Intelligence is off or still preparing.
+    /// Snap a Room (#105, Mac #121): offered only where the on-device model can read
+    /// photos, and shown disabled with the reason while Apple Intelligence is off or
+    /// still preparing. Pushed in-tab on iPhone; a sheet on the Mac.
     @ViewBuilder private var snapRoomRow: some View {
         let vision = RoomVisionAvailability.current
         if vision.isOfferable {
+            #if os(iOS)
             NavigationLink {
                 RoomSnapFlowView()
             } label: {
@@ -75,9 +72,21 @@ struct EditHomeView: View {
             }
             .disabled(!vision.isAvailable)
             .accessibilityIdentifier("addflow.snapRoom")
+            #else
+            Button {
+                MacUIState.shared.roomSnap = MacPhotoRequest()
+            } label: {
+                lensLabel("Snap a Room",
+                          subtitle: vision.hint ?? "Drop in a photo of a room to get chore ideas.",
+                          systemImage: "camera.viewfinder")
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!vision.isAvailable)
+            .accessibilityIdentifier("addflow.snapRoom")
+            #endif
         }
     }
-    #endif
 }
 
 struct ChoreListView: View {

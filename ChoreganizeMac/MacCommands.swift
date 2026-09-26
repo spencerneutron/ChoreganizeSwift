@@ -12,10 +12,22 @@ struct MacCommands: Commands {
                 ForEach(AddFlowGrouping.allCases) { lens in
                     Button(lens.title) { ui.addFlowLens = lens }
                 }
+                // #121: Snap a Room (on-device model, macOS 27 + Apple Intelligence).
+                if RoomVisionAvailability.current.isOfferable {
+                    Divider()
+                    Button("From a Photo…") { ui.roomSnap = MacPhotoRequest() }
+                        .keyboardShortcut("n", modifiers: [.command, .option])
+                        .disabled(!RoomVisionAvailability.current.isAvailable)
+                }
             }
             Button("New Chores — Room by Room") { ui.addFlowLens = .byArea }
                 .keyboardShortcut("n", modifiers: .command)
                 .hidden()   // hidden twin just to own ⌘N for the default lens
+            if RoomVisionAvailability.current.isOfferable {
+                Button("Check Off with a Photo…") { ui.photoCheck = MacPhotoRequest() }
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                    .disabled(!RoomVisionAvailability.current.isAvailable)
+            }
         }
 
         CommandMenu("Go") {

@@ -63,6 +63,11 @@ struct RoomVisionTests {
         #expect(!RoomVisionPrompts.checkPrompt(roomName: nil, keys: ["X"]).contains("Room:"))
     }
 
+    @Test func identifyPromptListsTheRoomsWithANoneChoice() {
+        #expect(RoomVisionPrompts.identifyPrompt(rooms: ["Kitchen", "Garage"]) == "Rooms in this home: Kitchen, Garage")
+        #expect(RoomVisionPrompts.identifyInstructions.contains(RoomVisionPrompts.noRoom))
+    }
+
     // MARK: Photo preparation
 
     @Test func photoPrepDownsizesAndBakesInOrientation() throws {

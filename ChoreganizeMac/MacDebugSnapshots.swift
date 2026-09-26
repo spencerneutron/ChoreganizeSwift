@@ -25,6 +25,7 @@ enum MacDebugSnapshots {
                 await pause(1.2)
                 if let window = mainWindow { write(window, to: directory, name: "main-\(mode.rawValue.lowercased())") }
             }
+            await snapshotPhotoSheets(to: directory)
             openSettings?()
             for pane in MacSettingsPane.allCases {
                 UserDefaults.standard.set(pane.rawValue, forKey: MacSettingsPane.storageKey)
@@ -35,6 +36,38 @@ enum MacDebugSnapshots {
                      + NSApp.windows.map { "\(type(of: $0)) '\($0.title)' visible=\($0.isVisible) style=\($0.toolbarStyle.rawValue)" }.joined(separator: " | "))
             NSApp.terminate(nil)
         }
+    }
+
+    /// #121: with a test photo (`CHOREGANIZE_ROOM_PHOTO`) and the on-device model,
+    /// the Snap a Room sheet (empty, then analyzed) and the check-off sheet.
+    private static func snapshotPhotoSheets(to directory: URL) async {
+        guard let photo = RoomPhoto.testPhotoFromEnvironment, RoomVisionAvailability.current.isAvailable else { return }
+        let ui = MacUIState.shared
+        ui.surface = .edit
+        await pause(1)
+        if let window = mainWindow { write(window, to: directory, name: "main-edit-snap-row") }
+        ui.roomSnap = MacPhotoRequest()
+        await pause(1.5)
+        writeSheet(to: directory, name: "sheet-snap-capture")
+        ui.roomSnap = nil
+        await pause(1)
+        ui.roomSnap = MacPhotoRequest(photo: photo)
+        await pause(12)   // real on-device inference
+        writeSheet(to: directory, name: "sheet-snap-review")
+        ui.roomSnap = nil
+        await pause(1)
+        ui.surface = .work
+        await pause(1.2)
+        if let window = mainWindow { write(window, to: directory, name: "main-work-photo-button") }
+        ui.photoCheck = MacPhotoRequest(photo: photo)
+        await pause(9)
+        writeSheet(to: directory, name: "sheet-check-results")
+        ui.photoCheck = nil
+        await pause(1)
+    }
+
+    private static func writeSheet(to directory: URL, name: String) {
+        if let sheet = mainWindow?.attachedSheet { write(sheet, to: directory, name: name) }
     }
 
     private static var mainWindow: NSWindow? {
