@@ -70,6 +70,13 @@ struct ChoreDraft: Identifiable, Equatable {
     }
 }
 
+extension ChoreDraft {
+    /// One-line schedule for list rows: "Every day" or "Weekly · Monday".
+    var scheduleSummary: String {
+        isDaily ? "Every day" : "\(frequency.rawValue.capitalized) · \(day?.displayName ?? "No day")"
+    }
+}
+
 /// The pure commit engine shared by both modalities — translates drafts into
 /// `CDChore`/`CDArea` via the existing factories. Modelled on `BulkChoreOps`: plain
 /// static funcs over a context, no UI/MainActor dependency, so it is unit-testable.
