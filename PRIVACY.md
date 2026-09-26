@@ -54,10 +54,11 @@ chores for today. That summary is stored only on your device — in an app‑gro
 container shared between the app and the widget so the widget can display it. It
 is not collected by or sent to the developer.
 
-## Photos (Snap a Room)
+## Photos (Snap a Room and photo check-off)
 
 On devices that support Apple Intelligence, you can take or choose a photo of a room
-to get chore suggestions for it. The photo is analyzed on your device by Apple's
+to get chore suggestions for it, or to check off chores that look done in it. You
+confirm before any chore is marked done. The photo is analyzed on your device by Apple's
 on-device model. The app doesn't save the photo, doesn't add it to your chores or
 iCloud data, and doesn't send it to the developer or to any server. Choosing a photo
 from your library uses the system photo picker, which gives the app only the photo
