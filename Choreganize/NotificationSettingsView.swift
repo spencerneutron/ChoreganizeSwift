@@ -20,6 +20,10 @@ struct NotificationSettingsView: View {
     @State private var badgeScopes: Set<AppScope> = Set(AppScope.allCases)
     @State private var status: UNAuthorizationStatus = .notDetermined
     @State private var didLoad = false
+    #if os(macOS)
+    /// macOS: Custom Times opens as a sheet (Settings panes don't push pages).
+    @State private var showCustomTimes = false
+    #endif
 
     private var deniedInSystem: Bool { status == .denied }
 
@@ -52,6 +56,11 @@ struct NotificationSettingsView: View {
                 }
                 Section {
                     ForEach(Weekday.standardCases) { day in
+                        #if os(macOS)
+                        Toggle(day.displayName, isOn: Binding(get: { selectedDays.contains(day) },
+                                                              set: { _ in toggleDay(day) }))
+                            .toggleStyle(.checkbox)
+                        #else
                         Button {
                             toggleDay(day)
                         } label: {
@@ -66,6 +75,7 @@ struct NotificationSettingsView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        #endif
                     }
                 } header: {
                     Text("Days")
@@ -79,7 +89,11 @@ struct NotificationSettingsView: View {
                 // block because overrides only shape the daily-reminder plan.
                 Section {
                     if effectivePlus {
+                        #if os(macOS)
+                        Button("Custom Times…") { showCustomTimes = true }
+                        #else
                         NavigationLink("Custom Times") { CustomRemindersView() }
+                        #endif
                     } else {
                         Label("Custom Times", systemImage: "lock")
                             .foregroundStyle(.secondary)
@@ -87,7 +101,7 @@ struct NotificationSettingsView: View {
                 } footer: {
                     Text(effectivePlus
                          ? "Remind specific rooms or chores at their own times."
-                         : "Remind specific rooms or chores at their own times. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus).")
+                         : "Remind specific rooms or chores at their own times. Requires Choreganize Plus (\(PlatformText.plusLocation)).")
                 }
             }
 
@@ -108,7 +122,7 @@ struct NotificationSettingsView: View {
                 } footer: {
                     Text(effectivePlus
                          ? "Get notified when another household member completes a chore."
-                         : "Get notified when another household member completes a chore. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus).")
+                         : "Get notified when another household member completes a chore. Requires Choreganize Plus (\(PlatformText.plusLocation)).")
                 }
             }
 
@@ -117,6 +131,13 @@ struct NotificationSettingsView: View {
             if !deniedInSystem {
                 Section {
                     ForEach(AppScope.allCases) { scope in
+                        #if os(macOS)
+                        Toggle(isOn: Binding(get: { badgeScopes.contains(scope) },
+                                             set: { _ in toggleBadgeScope(scope) })) {
+                            Label(scope.title, systemImage: scope.systemImage)
+                        }
+                        .toggleStyle(.checkbox)
+                        #else
                         Button {
                             toggleBadgeScope(scope)
                         } label: {
@@ -132,6 +153,7 @@ struct NotificationSettingsView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        #endif
                     }
                 } header: {
                     Text("App Icon Badge")
@@ -141,11 +163,24 @@ struct NotificationSettingsView: View {
             }
         }
         .navigationTitle("Reminders")
+        #if os(macOS)
+        .sheet(isPresented: $showCustomTimes) {
+            NavigationStack {
+                CustomRemindersView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showCustomTimes = false }
+                        }
+                    }
+            }
+            .frame(minWidth: 460, minHeight: 480)
+        }
+        #endif
         .task {
             status = await NotificationManager.authorizationStatus()
             // Single, low-frequency auth prompt: only the first time the user opens
             // this screen (never on launch/foreground), so we don't badger them.
-            if status == .notDetermined {
+            if status == .notDetermined && !Self.isUnattendedSnapshot {
                 _ = await NotificationManager.requestAuthorization()
                 status = await NotificationManager.authorizationStatus()
             }
@@ -206,6 +241,16 @@ struct NotificationSettingsView: View {
 
     private func apply() {
         Task { await NotificationManager.reschedule(using: context, activeHousehold: model.activeHousehold) }
+    }
+
+    /// DEBUG Mac layout snapshots (MacDebugSnapshots) render this pane unattended:
+    /// never raise the notification permission prompt for them.
+    private static var isUnattendedSnapshot: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CHOREGANIZE_MAC_SNAPSHOTS"] != nil
+        #else
+        return false
+        #endif
     }
 
     private static var settingsAppName: String {

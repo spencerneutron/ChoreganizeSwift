@@ -17,6 +17,11 @@ struct ChoreganizeMacApp: App {
     init() {
         _model = StateObject(wrappedValue: AppModel())
         Log.setLevel(.trace)
+        #if DEBUG
+        // Demo/screenshot seed, same hook as iOS (no-op unless CHOREGANIZE_SEED_JSON
+        // is set). Pair with an isolated-data run so it never lands in real data.
+        JSONImporter.seedFromEnvironmentIfNeeded()
+        #endif
         // Same GPU/shader pre-warms as iOS: the calendar's perfect-day glow
         // shader is shared, and the first Metal device load is just as laggy
         // on the Mac's main thread.

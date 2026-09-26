@@ -15,6 +15,9 @@ struct MacRootView: View {
     @State private var newHouseholdName = ""
     @State private var showingError = false
     @State private var householdPendingDelete: CDHousehold?
+    #if DEBUG
+    @Environment(\.openSettings) private var openSettings
+    #endif
 
     var body: some View {
         NavigationSplitView {
@@ -83,6 +86,9 @@ struct MacRootView: View {
                 .environmentObject(model)
                 .frame(minWidth: 480, minHeight: 520)
         }
+        #if DEBUG
+        .onAppear { MacDebugSnapshots.openSettings = { openSettings() } }
+        #endif
     }
 
     // MARK: Sidebar

@@ -89,7 +89,7 @@ struct ChoreFormFields: View {
             Text("Schedule")
         } footer: {
             if !plusUnlocked {
-                Text("Repeating every 2–6 \(unitName)s and multiple days per week require Choreganize Plus (Hub ▸ Get Choreganize Plus).")
+                Text("Repeating every 2–6 \(unitName)s and multiple days per week require Choreganize Plus (\(PlatformText.plusLocation)).")
             }
         }
         // Frequency changes keep the two day representations coherent: entering
@@ -152,7 +152,7 @@ struct ChoreFormFields: View {
         } footer: {
             Text(plusUnlocked
                  ? "Everyone in the household sees who a chore belongs to; anyone can still complete it."
-                 : "Assigning chores to household members requires Choreganize Plus (Hub ▸ Get Choreganize Plus).")
+                 : "Assigning chores to household members requires Choreganize Plus (\(PlatformText.plusLocation)).")
         }
     }
 

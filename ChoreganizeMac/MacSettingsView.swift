@@ -4,21 +4,50 @@ import StoreKit
 /// The Mac Settings scene (⌘,) — the Hub's settings content redistributed into
 /// native panes: General (name, Work-view grouping), Reminders (the shared
 /// notification prefs), Plus (entitlement + paywall), and Backups (the shared
-/// backup/restore flow, including automatic backups).
+/// backup/restore flow, including automatic backups). Every pane is a grouped
+/// form at the same width, sized to its content; the shared iOS views render
+/// Mac controls and copy themselves (checkboxes, sheets, Finder).
 struct MacSettingsView: View {
+    /// Settings reopens on the pane you left it on (the Mac convention).
+    @AppStorage(MacSettingsPane.storageKey) private var pane: MacSettingsPane = .general
+
     var body: some View {
-        TabView {
+        TabView(selection: $pane) {
             GeneralSettingsPane()
+                .settingsPane(height: 360)
                 .tabItem { Label("General", systemImage: "gear") }
-            NavigationStack { NotificationSettingsView() }
+                .tag(MacSettingsPane.general)
+            NotificationSettingsView()
+                .settingsPane(height: 480)
                 .tabItem { Label("Reminders", systemImage: "bell.badge") }
+                .tag(MacSettingsPane.reminders)
             PlusSettingsPane()
+                .settingsPane(height: 280)
                 .tabItem { Label("Plus", systemImage: "sparkles") }
-            NavigationStack { BackupRestoreView() }
+                .tag(MacSettingsPane.plus)
+            BackupRestoreView()
+                .settingsPane(height: 480)
                 .tabItem { Label("Backups", systemImage: "externaldrive") }
+                .tag(MacSettingsPane.backups)
         }
-        .frame(width: 620, height: 560)
     }
+}
+
+private extension View {
+    /// One Settings pane: the grouped form style (margins, section cards) at the
+    /// window's standard width and a height fitted to the pane. Taller content
+    /// scrolls inside the pane; the window resizes as you switch panes.
+    func settingsPane(height: CGFloat) -> some View {
+        formStyle(.grouped)
+            .frame(width: 560, height: height)
+    }
+}
+
+/// The Settings panes, persisted so the window reopens where you left it.
+enum MacSettingsPane: String, CaseIterable {
+    case general, reminders, plus, backups
+
+    static let storageKey = "mac.settingsPane"
 }
 
 private struct GeneralSettingsPane: View {
