@@ -24,6 +24,9 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         AutoBackup.runCatchUpIfDue()
         UNUserNotificationCenter.current().delegate = self
         NotificationManager.registerCategories()
+        #if DEBUG
+        MacDebugSnapshots.runIfRequested()   // no-op unless CHOREGANIZE_MAC_SNAPSHOTS is set
+        #endif
     }
 
     /// The window may be closed while the menu-bar extra keeps working —

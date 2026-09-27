@@ -9,28 +9,20 @@ struct EditHomeView: View {
                     NavigationLink {
                         AddFlowFlowView(grouping: lens)
                     } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: lens.systemImage)
-                                .font(.title2)
-                                .foregroundStyle(.tint)
-                                .frame(width: 36, height: 36)
-                                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(lens.title).font(.headline)
-                                Text(lens == .byArea
-                                     ? "Pick a room, then add its chores."
-                                     : "Pick a day, then add chores for it.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 4)
+                        lensLabel(lens.title,
+                                  subtitle: lens == .byArea
+                                      ? "Pick a room, then add its chores."
+                                      : "Pick a day, then add chores for it.",
+                                  systemImage: lens.systemImage)
                     }
                     .accessibilityIdentifier("addflow.lens.\(lens.rawValue)")
                 }
+                snapRoomRow
+                describeRow
             } header: {
                 Text("Add chores & areas")
             } footer: {
-                Text("Add several at once — go room by room, or day by day. You can fine-tune anything afterward below.")
+                Text(footer)
             }
 
             Section("Manage") {
@@ -41,6 +33,101 @@ struct EditHomeView: View {
         // Float-over-content (#65): clear the floating mode switcher so the last row isn't
         // hidden behind it.
         .contentMargins(.bottom, 100, for: .scrollContent)
+    }
+
+    private func lensLabel(_ title: String, subtitle: String, systemImage: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .frame(width: 36, height: 36)
+                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var footer: String {
+        let ways: String
+        if RoomVisionAvailability.current.isOfferable {
+            ways = "Add several at once — go room by room or day by day, snap a photo of a room, or describe them in your own words."
+        } else if RoomVisionAvailability.describeChores.isOfferable {
+            ways = "Add several at once — go room by room or day by day, or describe them in your own words."
+        } else {
+            ways = "Add several at once — go room by room, or day by day."
+        }
+        #if os(macOS)
+        return ways   // a Mac list footer is one line
+        #else
+        return ways + " You can fine-tune anything afterward below."
+        #endif
+    }
+
+    /// Describe Chores (#106): offered where the on-device model runs (no vision
+    /// needed), disabled with the reason while Apple Intelligence is off or preparing.
+    /// Pushed in-tab on iPhone; a sheet on the Mac.
+    @ViewBuilder private var describeRow: some View {
+        let language = RoomVisionAvailability.describeChores
+        if language.isOfferable {
+            #if os(iOS)
+            NavigationLink {
+                DescribeChoresFlowView()
+            } label: {
+                lensLabel("Describe Chores",
+                          subtitle: language.hint ?? "Type or say what needs doing, and when.",
+                          systemImage: "text.bubble")
+            }
+            .disabled(!language.isAvailable)
+            .accessibilityIdentifier("addflow.describe")
+            #else
+            Button {
+                MacUIState.shared.describeChores = MacDescribeRequest()
+            } label: {
+                lensLabel("Describe Chores",
+                          subtitle: language.hint ?? "Type what needs doing, and when.",
+                          systemImage: "text.bubble")
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!language.isAvailable)
+            .accessibilityIdentifier("addflow.describe")
+            #endif
+        }
+    }
+
+    /// Snap a Room (#105, Mac #121): offered only where the on-device model can read
+    /// photos, and shown disabled with the reason while Apple Intelligence is off or
+    /// still preparing. Pushed in-tab on iPhone; a sheet on the Mac.
+    @ViewBuilder private var snapRoomRow: some View {
+        let vision = RoomVisionAvailability.current
+        if vision.isOfferable {
+            #if os(iOS)
+            NavigationLink {
+                RoomSnapFlowView()
+            } label: {
+                lensLabel("Snap a Room",
+                          subtitle: vision.hint ?? "Take a photo of a room to get chore ideas.",
+                          systemImage: "camera.viewfinder")
+            }
+            .disabled(!vision.isAvailable)
+            .accessibilityIdentifier("addflow.snapRoom")
+            #else
+            Button {
+                MacUIState.shared.roomSnap = MacPhotoRequest()
+            } label: {
+                lensLabel("Snap a Room",
+                          subtitle: vision.hint ?? "Drop in a photo of a room to get chore ideas.",
+                          systemImage: "camera.viewfinder")
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!vision.isAvailable)
+            .accessibilityIdentifier("addflow.snapRoom")
+            #endif
+        }
     }
 }
 

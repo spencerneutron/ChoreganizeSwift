@@ -13,4 +13,10 @@ final class MacUIState: ObservableObject {
     @Published var showPaywall = false
     /// Presents the guided add-chores wizard (⌘N). Carries the chosen lens.
     @Published var addFlowLens: AddFlowGrouping?
+    /// Presents Snap a Room (#121), with the photo when it started from a drop.
+    @Published var roomSnap: MacPhotoRequest?
+    /// Presents check off with a photo (#121), with the photo when it started from a drop.
+    @Published var photoCheck: MacPhotoRequest?
+    /// Presents Describe Chores (#106).
+    @Published var describeChores: MacDescribeRequest?
 }

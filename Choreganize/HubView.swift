@@ -176,6 +176,10 @@ struct HubView: View {
 
                 Section("About") {
                     LabeledContent("Version", value: Self.appVersion)
+                    // Debug builds only (DataIsolation): which data this run is using.
+                    if let dataLabel = DataIsolation.label {
+                        LabeledContent("Data", value: dataLabel)
+                    }
                 }
             }
             .navigationTitle("Hub")

@@ -1,0 +1,788 @@
+[
+ {
+  "text": "Deep clean the bathroom every other Saturday",
+  "rooms": [
+   "Kitchen",
+   "Bathroom",
+   "Living Room"
+  ],
+  "expect": [
+   {
+    "match": [
+     "bathroom"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "saturday"
+    ],
+    "every": 2,
+    "room": "Bathroom"
+   }
+  ]
+ },
+ {
+  "text": "Do the dishes every night",
+  "rooms": [
+   "Kitchen",
+   "Bathroom"
+  ],
+  "expect": [
+   {
+    "match": [
+     "dish"
+    ],
+    "cadence": "daily",
+    "every": 1,
+    "room": "Kitchen|"
+   }
+  ]
+ },
+ {
+  "text": "Vacuum the living room on Saturdays, water the plants on Wednesdays, and take out the trash every Monday night",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "vacuum"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "saturday"
+    ],
+    "every": 1,
+    "room": "Living Room"
+   },
+   {
+    "match": [
+     "plant"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "wednesday"
+    ],
+    "every": 1
+   },
+   {
+    "match": [
+     "trash"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "monday"
+    ],
+    "every": 1
+   }
+  ]
+ },
+ {
+  "text": "Mow the lawn on weekends",
+  "rooms": [
+   "Kitchen",
+   "Bathroom",
+   "Backyard"
+  ],
+  "expect": [
+   {
+    "match": [
+     "mow"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "saturday",
+     "sunday"
+    ],
+    "every": 1,
+    "room": "Backyard|"
+   }
+  ]
+ },
+ {
+  "text": "Make the bed every weekday",
+  "rooms": [
+   "Bedroom",
+   "Kitchen"
+  ],
+  "expect": [
+   {
+    "match": [
+     "bed"
+    ],
+    "cadence": "weekly",
+    "room": "Bedroom|",
+    "days": [
+     "monday",
+     "tuesday",
+     "wednesday",
+     "thursday",
+     "friday"
+    ]
+   }
+  ]
+ },
+ {
+  "text": "Change the air filter once a month",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "filter"
+    ],
+    "cadence": "monthly",
+    "days": [],
+    "every": 1,
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "Clean the gutters every spring",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "gutter"
+    ],
+    "cadence": "yearly",
+    "every": 1,
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "Wash the car every three weeks",
+  "rooms": [
+   "Garage"
+  ],
+  "expect": [
+   {
+    "match": [
+     "car"
+    ],
+    "cadence": "weekly",
+    "every": 3,
+    "room": "Garage|"
+   }
+  ]
+ },
+ {
+  "text": "Sweep the kitchen twice a week",
+  "rooms": [
+   "Kitchen"
+  ],
+  "expect": [
+   {
+    "match": [
+     "sweep"
+    ],
+    "cadence": "weekly",
+    "room": "Kitchen",
+    "every": 1
+   }
+  ]
+ },
+ {
+  "text": "Hello there!",
+  "rooms": [
+   "Kitchen"
+  ],
+  "expect": []
+ },
+ {
+  "text": "Every morning I feed the cat. On Tuesdays I do laundry, and on Fridays I clean the bathrooms. Once a month I dust the ceiling fans.",
+  "rooms": [
+   "Kitchen",
+   "Bathroom",
+   "Laundry Room",
+   "Living Room"
+  ],
+  "expect": [
+   {
+    "match": [
+     "cat"
+    ],
+    "cadence": "daily",
+    "every": 1
+   },
+   {
+    "match": [
+     "laundry"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "tuesday"
+    ],
+    "every": 1,
+    "room": "Laundry Room|"
+   },
+   {
+    "match": [
+     "bathroom"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "friday"
+    ],
+    "every": 1,
+    "room": "Bathroom"
+   },
+   {
+    "match": [
+     "fan"
+    ],
+    "cadence": "monthly",
+    "every": 1
+   }
+  ]
+ },
+ {
+  "text": "vacum the rug evry sunday",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "vacuum"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "sunday"
+    ],
+    "every": 1,
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "Clean out the fridge every other month",
+  "rooms": [
+   "Kitchen",
+   "Bathroom"
+  ],
+  "expect": [
+   {
+    "match": [
+     "fridge"
+    ],
+    "cadence": "monthly",
+    "days": [],
+    "every": 2,
+    "room": "Kitchen|"
+   }
+  ]
+ },
+ {
+  "text": "Trash out Mon & Thu",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "trash"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "monday",
+     "thursday"
+    ],
+    "every": 1,
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "Wipe the counters daily",
+  "rooms": [
+   "Kitchen",
+   "Bathroom"
+  ],
+  "expect": [
+   {
+    "match": [
+     "counter"
+    ],
+    "cadence": "daily",
+    "every": 1,
+    "room": "Kitchen|"
+   }
+  ]
+ },
+ {
+  "text": "Clean the kids' bathroom on Sundays",
+  "rooms": [
+   "Master Bath",
+   "Kids Bath",
+   "Kitchen"
+  ],
+  "expect": [
+   {
+    "match": [
+     "bathroom"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "sunday"
+    ],
+    "every": 1,
+    "room": "Kids Bath"
+   }
+  ]
+ },
+ {
+  "text": "Run the dishwasher every night",
+  "rooms": [
+   "Kitchen"
+  ],
+  "expect": [
+   {
+    "match": [
+     "dishwasher"
+    ],
+    "cadence": "daily",
+    "every": 1,
+    "room": "Kitchen|"
+   }
+  ]
+ },
+ {
+  "text": "Every Monday and Thursday water the garden",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "garden"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "monday",
+     "thursday"
+    ],
+    "every": 1
+   }
+  ]
+ },
+ {
+  "text": "Mop the floors biweekly",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "mop"
+    ],
+    "cadence": "weekly",
+    "every": 2
+   }
+  ]
+ },
+ {
+  "text": "Dishes daily, laundry on Sundays, bathrooms on Saturdays, vacuum Wednesdays, change the sheets every other Sunday, and clean the fridge monthly",
+  "rooms": [
+   "Kitchen",
+   "Bathroom",
+   "Bedroom",
+   "Living Room"
+  ],
+  "expect": [
+   {
+    "match": [
+     "dish"
+    ],
+    "cadence": "daily",
+    "every": 1
+   },
+   {
+    "match": [
+     "laundry"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "sunday"
+    ],
+    "every": 1,
+    "room": ""
+   },
+   {
+    "match": [
+     "bathroom"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "saturday"
+    ],
+    "every": 1
+   },
+   {
+    "match": [
+     "vacuum"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "wednesday"
+    ],
+    "every": 1
+   },
+   {
+    "match": [
+     "sheet"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "sunday"
+    ],
+    "every": 2,
+    "room": "Bedroom|"
+   },
+   {
+    "match": [
+     "fridge"
+    ],
+    "cadence": "monthly",
+    "every": 1,
+    "room": "Kitchen|"
+   }
+  ]
+ },
+ {
+  "text": "Sam takes out the trash on Tuesdays",
+  "rooms": [
+   "Kitchen"
+  ],
+  "expect": [
+   {
+    "match": [
+     "trash"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "tuesday"
+    ],
+    "every": 1,
+    "room": "Kitchen|"
+   }
+  ]
+ },
+ {
+  "text": "Test the smoke detectors every three months",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "smoke"
+    ],
+    "cadence": "monthly",
+    "every": 3,
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "Take the recycling out Thursday evenings",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "recycling"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "thursday"
+    ],
+    "every": 1,
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "asdf qwer",
+  "rooms": [],
+  "expect": []
+ },
+ {
+  "text": "What chores should I do?",
+  "rooms": [
+   "Kitchen",
+   "Bathroom"
+  ],
+  "expect": []
+ },
+ {
+  "text": "Laundry — Mondays + Fridays",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "laundry"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "monday",
+     "friday"
+    ],
+    "every": 1,
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "In the kitchen: wipe the counters every day and mop the floor every week",
+  "rooms": [
+   "Kitchen",
+   "Bathroom"
+  ],
+  "expect": [
+   {
+    "match": [
+     "counter"
+    ],
+    "cadence": "daily",
+    "every": 1,
+    "room": "Kitchen"
+   },
+   {
+    "match": [
+     "mop"
+    ],
+    "cadence": "weekly",
+    "every": 1,
+    "room": "Kitchen"
+   }
+  ]
+ },
+ {
+  "text": "Every January wash the windows",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "window"
+    ],
+    "cadence": "yearly",
+    "every": 1,
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "Change the sheets on the first Sunday of every month",
+  "rooms": [
+   "Bedroom"
+  ],
+  "expect": [
+   {
+    "match": [
+     "sheet"
+    ],
+    "cadence": "monthly",
+    "days": [
+     "sunday"
+    ],
+    "every": 1,
+    "room": "Bedroom|"
+   }
+  ]
+ },
+ {
+  "text": "Clean the litter box",
+  "rooms": [
+   "Laundry Room"
+  ],
+  "expect": [
+   {
+    "match": [
+     "litter"
+    ],
+    "cadence": "weekly|daily",
+    "every": 1,
+    "room": "Laundry Room|"
+   }
+  ]
+ },
+ {
+  "text": "Descale the coffee maker every 2 months and replace the water filter every 6 months",
+  "rooms": [
+   "Kitchen"
+  ],
+  "expect": [
+   {
+    "match": [
+     "coffee"
+    ],
+    "cadence": "monthly",
+    "every": 2,
+    "room": "Kitchen|"
+   },
+   {
+    "match": [
+     "filter"
+    ],
+    "cadence": "monthly",
+    "every": 6,
+    "room": "Kitchen|"
+   }
+  ]
+ },
+ {
+  "text": "Walk the dog every morning and brush him on Sundays",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "walk"
+    ],
+    "cadence": "daily",
+    "every": 1,
+    "room": ""
+   },
+   {
+    "match": [
+     "brush"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "sunday"
+    ],
+    "every": 1,
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "Scrub the shower in the upstairs bathroom every other week",
+  "rooms": [
+   "Upstairs Bathroom",
+   "Downstairs Bathroom",
+   "Kitchen"
+  ],
+  "expect": [
+   {
+    "match": [
+     "shower"
+    ],
+    "cadence": "weekly",
+    "every": 2,
+    "room": "Upstairs Bathroom"
+   }
+  ]
+ },
+ {
+  "text": "Pay the rent on the first of the month",
+  "rooms": [],
+  "expect": [
+   {
+    "match": [
+     "rent"
+    ],
+    "cadence": "monthly",
+    "days": [],
+    "every": 1,
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "I hate doing chores",
+  "rooms": [
+   "Kitchen"
+  ],
+  "expect": []
+ },
+ {
+  "text": "Dust the shelves every Saturday and Sunday in the living room and den",
+  "rooms": [
+   "Living Room",
+   "Den",
+   "Kitchen"
+  ],
+  "expect": [
+   {
+    "match": [
+     "dust"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "saturday",
+     "sunday"
+    ],
+    "every": 1
+   }
+  ]
+ },
+ {
+  "text": "Walk the dog every morning",
+  "rooms": [
+   "Kitchen",
+   "Bathroom",
+   "Bedroom"
+  ],
+  "expect": [
+   {
+    "match": [
+     "dog"
+    ],
+    "cadence": "daily",
+    "room": ""
+   }
+  ]
+ },
+ {
+  "text": "Organize the garage every other month",
+  "rooms": [
+   "Kitchen",
+   "Bathroom"
+  ],
+  "expect": [
+   {
+    "match": [
+     "garage"
+    ],
+    "cadence": "monthly",
+    "every": 2,
+    "room": "Garage"
+   }
+  ]
+ },
+ {
+  "text": "Water the plants twice a week and feed the fish daily",
+  "rooms": [
+   "Living Room",
+   "Kitchen"
+  ],
+  "expect": [
+   {
+    "match": [
+     "plant"
+    ],
+    "cadence": "weekly",
+    "every": 1
+   },
+   {
+    "match": [
+     "fish"
+    ],
+    "cadence": "daily",
+    "every": 1
+   }
+  ]
+ },
+ {
+  "text": "Take out the trash every Monday night",
+  "rooms": [
+   "Kitchen",
+   "Garage"
+  ],
+  "expect": [
+   {
+    "match": [
+     "trash"
+    ],
+    "cadence": "weekly",
+    "days": [
+     "monday"
+    ],
+    "every": 1
+   }
+  ]
+ },
+ {
+  "text": "Thanks!",
+  "rooms": [],
+  "expect": []
+ }
+]

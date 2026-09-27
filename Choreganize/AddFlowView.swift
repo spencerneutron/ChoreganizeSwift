@@ -358,7 +358,7 @@ private struct AddFlowReview: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(draft.name).foregroundStyle(.primary)
-                                    Text(scheduleText(draft)).font(.caption).foregroundStyle(.secondary)
+                                    Text(draft.scheduleSummary).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 Image(systemName: "chevron.right")
@@ -408,9 +408,6 @@ private struct AddFlowReview: View {
     private func dayLabel(_ d: ChoreDraft) -> String {
         d.isDaily ? "Every Day" : (d.day?.displayName ?? "Unassigned")
     }
-    private func scheduleText(_ d: ChoreDraft) -> String {
-        d.isDaily ? "Every day" : "\(d.frequency.rawValue.capitalized) · \(d.day?.displayName ?? "No day")"
-    }
 }
 
 // MARK: - Review inline editor
@@ -419,9 +416,11 @@ private struct AddFlowReview: View {
 /// the shared `ChoreFormRows` so the fields match New/Edit Chore and the rest of the
 /// wizard (#49). Edits are local until the user taps Save here, then handed back via
 /// `onSave`; nothing touches Core Data (the batch still commits only on Review → Save).
-private struct AddFlowDraftEditor: View {
+/// Snap a Room reuses it with `showsArea: false` (the room is chosen for the batch).
+struct AddFlowDraftEditor: View {
     let grouping: AddFlowGrouping
     var areas: [CDArea]
+    var showsArea = true
     var onSave: (ChoreDraft) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -430,19 +429,26 @@ private struct AddFlowDraftEditor: View {
     // The draft's original area ref, kept so a name-only (`.new`) room survives an edit
     // that never re-touches the Area picker (which can only select existing areas).
     private let originalAreaRef: AreaRef
+    // Plus schedule parts (#100, set by Describe Chores) this editor has no controls for;
+    // carried through the edit (normalized() drops what no longer fits).
+    private let originalMultiDays: Set<Weekday>
+    private let originalInterval: Int
     @State private var name: String
     @State private var isDaily: Bool
     @State private var frequency: Frequency
     @State private var day: Weekday?
     @State private var areaId: UUID?
 
-    init(draft: ChoreDraft, grouping: AddFlowGrouping, areas: [CDArea],
+    init(draft: ChoreDraft, grouping: AddFlowGrouping, areas: [CDArea], showsArea: Bool = true,
          onSave: @escaping (ChoreDraft) -> Void) {
         self.grouping = grouping
         self.areas = areas
+        self.showsArea = showsArea
         self.onSave = onSave
         self.draftId = draft.id
         self.originalAreaRef = draft.areaRef
+        self.originalMultiDays = draft.multiDays
+        self.originalInterval = draft.interval
         _name = State(initialValue: draft.name)
         _isDaily = State(initialValue: draft.isDaily)
         _frequency = State(initialValue: draft.frequency)
@@ -466,7 +472,7 @@ private struct AddFlowDraftEditor: View {
                 Section("Details") {
                     ChoreFormRows(name: $name, isDaily: $isDaily, frequency: $frequency,
                                   day: $day, areaId: $areaId, areas: areas,
-                                  showsName: false)
+                                  showsName: false, showsArea: showsArea)
                 }
             }
             .navigationTitle("Edit Chore")
@@ -488,8 +494,10 @@ private struct AddFlowDraftEditor: View {
                                 isDaily: isDaily,
                                 frequency: frequency,
                                 day: isDaily ? nil : day,
-                                areaRef: resolvedAreaRef)
-        onSave(edited)
+                                areaRef: resolvedAreaRef,
+                                multiDays: originalMultiDays,
+                                interval: originalInterval)
+        onSave(edited.normalized())
         dismiss()
     }
 

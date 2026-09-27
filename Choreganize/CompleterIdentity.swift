@@ -10,7 +10,9 @@ import Foundation
 /// the widget's CompleteChoreIntent process stamps the same id as the app.
 /// Completions are stamped only for Household chores — Solo has no attribution.
 enum CompleterIdentity {
-    private static let cacheKey = "completerIdentity.userRecordName"
+    /// Per data mode: a debug build's CloudKit Development user id must never be
+    /// stamped by the App Store build (see `DataIsolation`).
+    private static var cacheKey: String { DataIsolation.key("completerIdentity.userRecordName") }
 
     /// App Group defaults, shared with the widget extension; falls back to
     /// standard for contexts without the group entitlement (unit tests).

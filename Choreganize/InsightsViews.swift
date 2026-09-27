@@ -63,7 +63,7 @@ private struct InsightsLockCard: View {
             Text("Insights is part of Choreganize Plus")
                 .font(.headline)
                 .multilineTextAlignment(.center)
-            Text("Unlock in Hub ▸ Get Choreganize Plus")
+            Text("Unlock in \(PlatformText.plusLocation)")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

@@ -56,7 +56,11 @@ struct BackupRestoreView: View {
             } header: {
                 Text("Back Up")
             } footer: {
+                #if os(macOS)
+                Text("Saves your Personal chores, areas, and completion history to a JSON file wherever you choose, like a folder in Finder or iCloud Drive.")
+                #else
                 Text("Saves your Personal chores, areas, and completion history to a JSON file in Files or iCloud Drive.")
+                #endif
             }
 
             Section {
@@ -94,8 +98,8 @@ struct BackupRestoreView: View {
                 Text("Automatic Backups")
             } footer: {
                 Text(entitlements.isPlus
-                     ? "Backs up your Personal data on a schedule. Files are kept in Files ▸ On My iPhone ▸ Choreganize ▸ Backups; only the \(AutoBackupPolicy.keepCount) most recent are kept. Household chores already live in iCloud and sync to every member, so they're covered automatically."
-                     : "Back up your Personal data automatically on a schedule. Requires Choreganize Plus (Hub ▸ Get Choreganize Plus). Household chores already live in iCloud and sync to every member, so they're covered automatically.")
+                     ? "Backs up your Personal data on a schedule. \(Self.autoBackupLocation); only the \(AutoBackupPolicy.keepCount) most recent are kept. Household chores already live in iCloud and sync to every member, so they're covered automatically."
+                     : "Back up your Personal data automatically on a schedule. Requires Choreganize Plus (\(PlatformText.plusLocation)). Household chores already live in iCloud and sync to every member, so they're covered automatically.")
             }
 
             if entitlements.isPlus && !autoBackupFiles.isEmpty {
@@ -117,17 +121,33 @@ struct BackupRestoreView: View {
                             }
                             .buttonStyle(.borderless)
                         }
+                        #if os(macOS)
+                        .contextMenu {
+                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                            Divider()
+                            Button("Delete", role: .destructive) {
+                                AutoBackup.deleteBackupFile(at: url)
+                                refreshAutoBackups()
+                            }
+                        }
+                        #endif
                     }
                     .onDelete(perform: deleteAutoBackups)
                 } header: {
                     Text("Automatic Backup Files")
                 } footer: {
+                    #if os(macOS)
+                    Text("Right-click a backup to show it in Finder or delete it.")
+                    #else
                     Text("Swipe left to delete a backup file.")
+                    #endif
                 }
             }
         }
+        #if os(iOS)
         .navigationTitle("Backup & Restore")
         .compatInlineNavigationTitle()
+        #endif
         .task { refreshAutoBackups() }
         .onChange(of: autoEnabled) { _, isOn in
             AutoBackup.scheduleNextIfEnabled()   // cancels the pending request when off
@@ -184,6 +204,15 @@ struct BackupRestoreView: View {
     private func refreshAutoBackups() {
         autoBackupFiles = AutoBackup.listBackupFiles()
         lastAutoBackup = AutoBackup.lastBackupDate
+    }
+
+    /// Where automatic backups live, in the platform's own terms.
+    private static var autoBackupLocation: String {
+        #if os(macOS)
+        return "Files are kept in Choreganize's Backups folder (right-click one below to show it in Finder)"
+        #else
+        return "Files are kept in Files ▸ On My iPhone ▸ Choreganize ▸ Backups"
+        #endif
     }
 
     private func deleteAutoBackups(at offsets: IndexSet) {

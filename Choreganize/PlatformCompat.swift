@@ -159,3 +159,16 @@ enum SystemSettingsOpener {
         #endif
     }
 }
+
+/// Copy that names platform-specific places in the app.
+enum PlatformText {
+    /// Where Choreganize Plus is bought, for "Requires Choreganize Plus (…)" copy:
+    /// the Hub on iPhone and iPad, Settings on the Mac (which has no Hub).
+    static var plusLocation: String {
+        #if os(macOS)
+        return "Settings ▸ Plus"
+        #else
+        return "Hub ▸ Get Choreganize Plus"
+        #endif
+    }
+}

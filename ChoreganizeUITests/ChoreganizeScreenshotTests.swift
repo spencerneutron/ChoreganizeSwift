@@ -286,4 +286,194 @@ final class ChoreganizeScreenshotTests: XCTestCase {
             snap("v160-4-review-editor")
         }
     }
+
+    // MARK: - Room vision (#105, #107)
+
+    /// Local room photos for the on-device-model captures (never committed); override
+    /// with `CHOREGANIZE_ROOM_PHOTO`. The captures skip when the photo isn't there.
+    private static let roomPhotoDir = "/Users/spencervankeuren/XcodeRepo/.claude-work/fm-eval/photos"
+
+    @MainActor
+    private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
+        let button = app.buttons[identifier]
+        return button.exists ? button : app.descendants(matching: .any)[identifier]
+    }
+
+    /// Snap a Room (#105) end to end with the real on-device model — needs a simulator
+    /// on a Mac with Apple Intelligence. The DEBUG `CHOREGANIZE_ROOM_PHOTO` hook stands
+    /// in for the camera/picker. Captures the entry row, the capture screen, streaming
+    /// analysis and the review, then saves and checks a suggestion landed in Chores.
+    @MainActor
+    func testCaptureSnapARoom() throws {
+        let photo = ProcessInfo.processInfo.environment["CHOREGANIZE_ROOM_PHOTO"]
+            ?? "\(Self.roomPhotoDir)/kitchen-c-2.jpg"
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: photo), "no room photo at \(photo)")
+
+        // 1. Entry row + capture screen (no photo hook on this launch).
+        var app = launchSeeded()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30), "seeded Work rows should render")
+        selectMode(app, "Edit")
+        let entry = element(app, "addflow.snapRoom")
+        let offered = entry.waitForExistence(timeout: 10)
+        settle()
+        snap("snap-0-edit")   // on iOS 18 / without Apple Intelligence: the Edit tab without the row
+        try XCTSkipUnless(offered, "Snap a Room isn't offered (no Apple Intelligence?)")
+        entry.tap()
+        XCTAssertTrue(element(app, "roomvision.choosePhoto").waitForExistence(timeout: 5), "capture step should show")
+        settle(0.5)
+        snap("snap-1-capture")
+        app.terminate()
+
+        // 2. Same path with the photo hook: analysis starts on its own.
+        app = XCUIApplication()
+        app.launchEnvironment["CHOREGANIZE_LOCAL_ONLY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_UITEST_INMEMORY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_SEED_JSON"] = ProcessInfo.processInfo.environment["CHOREGANIZE_SEED_JSON"]
+            ?? Self.defaultSeedPath
+        app.launchEnvironment["CHOREGANIZE_ROOM_PHOTO"] = photo
+        app.launchArguments += ["-hasSeenOnboarding", "YES", "-activeScope", "solo"]
+        app.launch()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30), "seeded Work rows should render")
+        selectMode(app, "Edit")
+        let entry2 = element(app, "addflow.snapRoom")
+        XCTAssertTrue(entry2.waitForExistence(timeout: 10))
+        entry2.tap()
+        settle(1.2)
+        snap("snap-2-analyzing")
+
+        let add = element(app, "roomsnap.add")
+        XCTAssertTrue(add.waitForExistence(timeout: 90), "suggestions should arrive")
+        settle()
+        snap("snap-3-review")
+
+        // The first kept suggestion's name (row label = "Name, schedule").
+        let first = element(app, "roomsnap.suggestion.0")
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        let name = first.label.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? ""
+        XCTAssertFalse(name.isEmpty, "a suggestion should have a name")
+        add.tap()
+
+        // Back on Edit: the saved chore shows up in Chores.
+        let chores = app.buttons["Chores"]
+        XCTAssertTrue(chores.waitForExistence(timeout: 10), "should return to the Edit tab")
+        chores.tap()
+        XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 10), "saved suggestion \"\(name)\" should be listed")
+        settle(0.5)
+        snap("snap-4-saved")
+    }
+
+    /// Describe Chores (#106) end to end with the real on-device model: the Edit row →
+    /// the text (DEBUG hook) → chores read from it (the Plus-only "every other" noted)
+    /// → Add → listed in Chores.
+    @MainActor
+    func testCaptureDescribeChores() throws {
+        // 1. Entry row + compose screen (no text hook on this launch).
+        var app = launchSeeded()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30), "seeded Work rows should render")
+        selectMode(app, "Edit")
+        let entry = element(app, "addflow.describe")
+        let offered = entry.waitForExistence(timeout: 10)
+        settle()
+        snap("describe-0-edit")   // on iOS 18 / without Apple Intelligence: the Edit tab without the row
+        try XCTSkipUnless(offered, "Describe Chores isn't offered (no Apple Intelligence?)")
+        entry.tap()
+        XCTAssertTrue(element(app, "describe.read").waitForExistence(timeout: 5), "compose step should show")
+        settle(0.8)
+        snap("describe-1-compose")
+        app.terminate()
+
+        // 2. Same path with the text hook: reading starts on its own.
+        app = XCUIApplication()
+        app.launchEnvironment["CHOREGANIZE_LOCAL_ONLY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_UITEST_INMEMORY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_SEED_JSON"] = ProcessInfo.processInfo.environment["CHOREGANIZE_SEED_JSON"]
+            ?? Self.defaultSeedPath
+        app.launchEnvironment["CHOREGANIZE_DESCRIBE_TEXT"] = ProcessInfo.processInfo.environment["CHOREGANIZE_DESCRIBE_TEXT"]
+            ?? "Deep clean the bathroom every other Saturday, water the plants on Wednesdays, and change the air filter once a month"
+        app.launchArguments += ["-hasSeenOnboarding", "YES", "-activeScope", "solo"]
+        app.launch()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30), "seeded Work rows should render")
+        selectMode(app, "Edit")
+        let entry2 = element(app, "addflow.describe")
+        XCTAssertTrue(entry2.waitForExistence(timeout: 10))
+        entry2.tap()
+        settle(0.6)
+        snap("describe-2-reading")
+
+        let add = element(app, "describe.add")
+        XCTAssertTrue(add.waitForExistence(timeout: 60), "chores should arrive")
+        settle()
+        snap("describe-3-review")
+
+        // The first chore's name (row label = "Name, schedule · room, …").
+        let first = element(app, "describe.chore.0")
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        let name = first.label.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? ""
+        XCTAssertFalse(name.isEmpty, "a chore should have a name")
+        add.tap()
+
+        // Back on Edit: the saved chore shows up in Chores.
+        let chores = app.buttons["Chores"]
+        XCTAssertTrue(chores.waitForExistence(timeout: 10), "should return to the Edit tab")
+        chores.tap()
+        // Chores are listed by day, so a weekend chore can sit below the fold.
+        let saved = app.staticTexts[name]
+        _ = saved.waitForExistence(timeout: 5)
+        for _ in 0..<8 where !saved.exists { app.swipeUp() }
+        XCTAssertTrue(saved.waitForExistence(timeout: 5), "saved chore \"\(name)\" should be listed")
+        settle(0.5)
+        snap("describe-4-saved")
+    }
+
+    /// Check off with a photo (#107) end to end with the real on-device model: today's
+    /// page → the button beside "Mark all done" → the room → the photo (DEBUG hook) →
+    /// results with looks-done chores pre-checked → Mark Done.
+    @MainActor
+    func testCapturePhotoCheckOff() throws {
+        let photo = ProcessInfo.processInfo.environment["CHOREGANIZE_ROOM_PHOTO"]
+            ?? "\(Self.roomPhotoDir)/kitchen-b-1.jpg"
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: photo), "no room photo at \(photo)")
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CHOREGANIZE_LOCAL_ONLY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_UITEST_INMEMORY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_SEED_JSON"] = ProcessInfo.processInfo.environment["CHOREGANIZE_SEED_JSON"]
+            ?? Self.defaultSeedPath
+        app.launchEnvironment["CHOREGANIZE_ROOM_PHOTO"] = photo
+        app.launchArguments += ["-hasSeenOnboarding", "YES", "-activeScope", "solo"]
+        app.launch()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30), "seeded Work rows should render")
+        settle()
+
+        let button = element(app, "photoCheckButton")
+        let markAll = app.buttons["markAllDoneButton"]
+        for _ in 0..<6 where !(button.exists ? button.isHittable : markAll.isHittable) { app.swipeUp(); settle(0.2) }
+        let offered = button.waitForExistence(timeout: 5)
+        settle(0.4)
+        snap("check-0-work")   // on iOS 18 / without Apple Intelligence: "Mark all done" alone
+        try XCTSkipUnless(offered, "photo check-off isn't offered (no Apple Intelligence?)")
+        button.tap()
+
+        // Room picker (skipped automatically when only one room has open chores).
+        let kitchen = element(app, "photocheck.room.Kitchen")
+        if kitchen.waitForExistence(timeout: 5) {
+            settle(0.4)
+            snap("check-1-rooms")
+            kitchen.tap()
+        }
+        settle(0.8)
+        snap("check-2-checking")
+
+        let markDone = element(app, "photocheck.markDone")
+        XCTAssertTrue(markDone.waitForExistence(timeout: 90), "verdicts should arrive")
+        settle()
+        snap("check-3-results")
+
+        if markDone.isEnabled {
+            markDone.tap()
+            XCTAssertTrue(markDone.waitForNonExistence(timeout: 10), "the sheet should close after Mark Done")
+            settle()
+            snap("check-4-done")
+        }
+    }
 }

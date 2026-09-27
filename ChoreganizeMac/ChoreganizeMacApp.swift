@@ -17,6 +17,11 @@ struct ChoreganizeMacApp: App {
     init() {
         _model = StateObject(wrappedValue: AppModel())
         Log.setLevel(.trace)
+        #if DEBUG
+        // Demo/screenshot seed, same hook as iOS (no-op unless CHOREGANIZE_SEED_JSON
+        // is set). Pair with an isolated-data run so it never lands in real data.
+        JSONImporter.seedFromEnvironmentIfNeeded()
+        #endif
         // Same GPU/shader pre-warms as iOS: the calendar's perfect-day glow
         // shader is shared, and the first Metal device load is just as laggy
         // on the Mac's main thread.
@@ -68,7 +73,12 @@ struct ChoreganizeMacApp: App {
                 }
         }
         .defaultSize(width: 980, height: 640)
-        .commands { MacCommands() }
+        .commands {
+            MacCommands()
+            // Continuity Camera (#121): File ▸ Import from iPhone or iPad ▸ Take Photo
+            // delivers into the photo sheet that's open (importsItemProviders).
+            ImportFromDevicesCommands()
+        }
 
         Settings {
             MacSettingsView()

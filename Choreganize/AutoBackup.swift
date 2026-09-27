@@ -105,8 +105,13 @@ enum AutoBackup {
     enum Keys {
         static let enabled = "autoBackup.enabled"          // Bool, default false
         static let cadence = "autoBackup.cadence"          // Cadence.rawValue, default weekly
-        static let lastBackupDate = "autoBackup.lastDate"  // Date
+        /// Date. Per data mode, so a debug run's backup never makes the App Store
+        /// build skip its own (see `DataIsolation`).
+        static var lastBackupDate: String { DataIsolation.key("autoBackup.lastDate") }
     }
+
+    /// Isolated-data runs never back up automatically: their data is scratch.
+    private static var allowedInThisMode: Bool { !DataIsolation.isIsolated }
 
     static var isEnabled: Bool { UserDefaults.standard.bool(forKey: Keys.enabled) }
 
@@ -120,10 +125,12 @@ enum AutoBackup {
     }
 
     /// `Documents/Backups` — inside the file-sharing-visible container
-    /// (Files ▸ On My iPhone ▸ Choreganize ▸ Backups).
+    /// (Files ▸ On My iPhone ▸ Choreganize ▸ Backups). Debug builds use
+    /// `Backups (Development)`, so pruning never touches the real backups.
     static var backupsDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Backups", isDirectory: true)
+        let name = DataIsolation.mode == .production ? "Backups" : "Backups (\(DataIsolation.mode.rawValue.capitalized))"
+        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(name, isDirectory: true)
     }
 
     // MARK: BGTask lifecycle
@@ -155,7 +162,7 @@ enum AutoBackup {
     /// network/power requirements: the export is a small local file write.
     static func scheduleNextIfEnabled() {
         guard !CoreDataStack.isRunningTests else { return }
-        guard isEnabled else {
+        guard isEnabled, allowedInThisMode else {
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskIdentifier)
             return
         }
@@ -211,7 +218,7 @@ enum AutoBackup {
         guard !CoreDataStack.isRunningTests else { return }
         activityScheduler?.invalidate()
         activityScheduler = nil
-        guard isEnabled else { return }
+        guard isEnabled, allowedInThisMode else { return }
         let scheduler = NSBackgroundActivityScheduler(identifier: taskIdentifier)
         scheduler.repeats = true
         scheduler.interval = cadence.minimumInterval
@@ -234,6 +241,7 @@ enum AutoBackup {
     /// UI callers can refresh their file list.
     static func runCatchUpIfDue(completion: ((Bool) -> Void)? = nil) {
         guard !CoreDataStack.isRunningTests,
+              allowedInThisMode,
               isEnabled,
               AutoBackupPolicy.isDue(last: lastBackupDate, cadence: cadence) else {
             if let completion { DispatchQueue.main.async { completion(false) } }

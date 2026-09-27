@@ -54,19 +54,64 @@ struct ChoreDraft: Identifiable, Equatable {
     var frequency: Frequency
     var day: Weekday?
     var areaRef: AreaRef
+    /// CG-18 / #100 (Plus): several days a week. Weekly only; when set it holds `day`
+    /// too, and it's written only when the caller allows Plus schedules.
+    var multiDays: Set<Weekday>
+    /// CG-18 / #100 (Plus): repeat every this many weeks, months or years (1 = every).
+    var interval: Int
 
     init(id: UUID = UUID(),
          name: String = "",
          isDaily: Bool = false,
          frequency: Frequency = .weekly,
          day: Weekday? = nil,
-         areaRef: AreaRef = .none) {
+         areaRef: AreaRef = .none,
+         multiDays: Set<Weekday> = [],
+         interval: Int = 1) {
         self.id = id
         self.name = name
         self.isDaily = isDaily
         self.frequency = frequency
         self.day = day
         self.areaRef = areaRef
+        self.multiDays = multiDays
+        self.interval = interval
+    }
+}
+
+extension ChoreDraft {
+    /// One-line schedule for list rows: "Every day", "Weekly · Monday",
+    /// "Every 2 weeks · Saturday", "Weekly · Mon, Thu".
+    var scheduleSummary: String {
+        guard !isDaily else { return "Every day" }
+        let unit: String
+        switch frequency {
+        case .weekly:  unit = "week"
+        case .monthly: unit = "month"
+        case .yearly:  unit = "year"
+        }
+        let period = interval > 1 ? "Every \(interval) \(unit)s" : frequency.rawValue.capitalized
+        let days = multiDays.count >= 2 && frequency == .weekly
+            ? Weekday.standardCases.filter(multiDays.contains).map { String($0.displayName.prefix(3)) }.joined(separator: ", ")
+            : (day?.displayName ?? "No day")
+        return "\(period) · \(days)"
+    }
+
+    /// The draft made consistent after an edit: a daily chore has no day, extra days
+    /// or interval; extra days only exist for weekly chores and only while they still
+    /// include the chosen day (picking a single other day means that day alone).
+    func normalized() -> ChoreDraft {
+        var draft = self
+        if draft.isDaily {
+            draft.day = nil
+            draft.multiDays = []
+            draft.interval = 1
+        } else if draft.frequency != .weekly || draft.multiDays.count < 2
+                    || !(draft.day.map(draft.multiDays.contains) ?? false) {
+            draft.multiDays = []
+        }
+        draft.interval = max(1, draft.interval)
+        return draft
     }
 }
 
@@ -79,10 +124,14 @@ enum AddFlowCommit {
     /// existing in-scope area reuses that area instead of creating a duplicate.
     /// Mirrors `NewChoreView`'s save semantics (daily ⇒ `Weekday.all`, no frequency).
     /// Returns the created chores. Saves once.
+    /// `allowsPlusSchedule` (the caller's `Entitlements.isPlus(for:)`) lets a draft's
+    /// extra days and interval through (CG-18 / #100); otherwise they're dropped and
+    /// the plain frequency + day are saved.
     @discardableResult
     static func commit(_ drafts: [ChoreDraft],
                        in ctx: NSManagedObjectContext,
-                       household: CDHousehold?) -> [CDChore] {
+                       household: CDHousehold?,
+                       allowsPlusSchedule: Bool = false) -> [CDChore] {
         guard !drafts.isEmpty else { return [] }
 
         // Existing areas in this scope, indexed for reuse (by id and by name key).
@@ -123,6 +172,12 @@ enum AddFlowCommit {
                                      assignedDay: assigned,
                                      household: household)
             chore.area = resolve(draft.areaRef)
+            if allowsPlusSchedule && !draft.isDaily {
+                if draft.frequency == .weekly && draft.multiDays.count >= 2 {
+                    chore.assignedDaysValue = draft.multiDays
+                }
+                chore.recurrenceIntervalValue = draft.interval
+            }
             made.append(chore)
         }
         try? ctx.save()
