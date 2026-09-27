@@ -89,6 +89,16 @@ enum RoomVisionAvailability: Equatable, Sendable {
         return .unsupported
     }
 
+    /// Describe Chores (#106) needs the same on-device model, but not vision.
+    static var describeChores: RoomVisionAvailability {
+        #if canImport(FoundationModels)
+        if #available(iOS 27.0, macOS 27.0, *) {
+            return RoomVisionEngine.availability(needsVision: false)
+        }
+        #endif
+        return .unsupported
+    }
+
     var isAvailable: Bool { self == .available }
 
     /// Worth showing an entry point for, even if it has to be disabled for now.
@@ -306,10 +316,11 @@ enum CadenceOutput {
 
 @available(iOS 27.0, macOS 27.0, *)
 enum RoomVisionEngine {
-    static func availability(of model: SystemLanguageModel = .default) -> RoomVisionAvailability {
+    static func availability(of model: SystemLanguageModel = .default,
+                             needsVision: Bool = true) -> RoomVisionAvailability {
         switch model.availability {
         case .available:
-            guard model.capabilities.contains(.vision), model.supportsLocale() else { return .unsupported }
+            guard !needsVision || model.capabilities.contains(.vision), model.supportsLocale() else { return .unsupported }
             return .available
         case .unavailable(.appleIntelligenceNotEnabled):
             return .appleIntelligenceOff
