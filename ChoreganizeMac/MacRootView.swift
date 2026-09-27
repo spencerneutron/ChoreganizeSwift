@@ -20,7 +20,15 @@ struct MacRootView: View {
     #endif
 
     var body: some View {
-        shell
+        NavigationSplitView {
+            sidebar
+                .navigationSplitViewColumnWidth(min: 210, ideal: 240)
+        } detail: {
+            detail
+        }
+        #if DEBUG
+        .modifier(MacStoreCaptureLayout(sidebar: sidebar, detail: detail))   // deploy-skill screenshots only
+        #endif
         // Transient app banners (sync paused, migration offer, errors) — the
         // same queue AppModel drives on iOS, surfaced above the split view.
         .safeAreaInset(edge: .top) {
@@ -100,47 +108,6 @@ struct MacRootView: View {
         #endif
     }
 
-    @ViewBuilder private var shell: some View {
-        #if DEBUG
-        if MacDebugSnapshots.isStoreCapture {
-            storeCaptureShell
-        } else {
-            splitView
-        }
-        #else
-        splitView
-        #endif
-    }
-
-    private var splitView: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 210, ideal: 240)
-        } detail: {
-            detail
-        }
-    }
-
-    #if DEBUG
-    /// App Store capture only (MacDebugSnapshots): the same sidebar and detail side by
-    /// side, without the split view's sidebar material and vibrancy — both composited
-    /// by the window server, so an in-process render draws them blank.
-    private var storeCaptureShell: some View {
-        HStack(spacing: 0) {
-            sidebar
-                .scrollContentBackground(.hidden)
-                .frame(width: 240)
-                .background(Color(nsColor: NSColor(name: nil) { appearance in
-                    appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                        ? NSColor(white: 0.17, alpha: 1) : NSColor(white: 0.945, alpha: 1)
-                }))
-            Divider()
-            detail
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-    #endif
-
     // MARK: Sidebar
 
     private var sidebar: some View {
@@ -149,7 +116,6 @@ struct MacRootView: View {
                 TodayHeroCard()
             }
             .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 8, trailing: 8))
-            .listRowSeparator(.hidden)
 
             Section("Views") {
                 ForEach(AppMode.allCases) { mode in
@@ -157,7 +123,6 @@ struct MacRootView: View {
                         .tag(mode)
                 }
             }
-            .listRowSeparator(.hidden)
 
             Section("Scope") {
                 scopeRow(title: AppScope.solo.title, systemImage: AppScope.solo.systemImage,
@@ -194,7 +159,6 @@ struct MacRootView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .listRowSeparator(.hidden)
         }
         .safeAreaInset(edge: .bottom) { sidebarFooter }
     }
@@ -263,7 +227,7 @@ struct MacRootView: View {
     private var sidebarFooter: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Debug builds only (DataIsolation): never mistake a dev run for the real app.
-            if let dataLabel = DataIsolation.label, !Self.isStoreCapture {
+            if let dataLabel = DataIsolation.label {
                 Label(dataLabel, systemImage: "hammer.fill")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.orange)
@@ -274,14 +238,6 @@ struct MacRootView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(.bar)
-    }
-
-    private static var isStoreCapture: Bool {
-        #if DEBUG
-        MacDebugSnapshots.isStoreCapture
-        #else
-        false
-        #endif
     }
 
     private var syncStatusRow: some View {
@@ -407,24 +363,8 @@ private struct TodayHeroCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
-        .modifier(HeroCardBackground())
-    }
-}
-
-/// Liquid Glass, except while capturing App Store screenshots: glass is composited by
-/// the window server, which an in-process render can't reproduce, so the card gets a
-/// plain fill instead (DEBUG capture only).
-private struct HeroCardBackground: ViewModifier {
-    func body(content: Content) -> some View {
-        #if DEBUG
-        if MacDebugSnapshots.isStoreCapture {
-            content.background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        } else {
-            content.glassEffect(.regular.interactive(), in: .rect(cornerRadius: 14))
-        }
-        #else
-        content.glassEffect(.regular.interactive(), in: .rect(cornerRadius: 14))
-        #endif
+        .glassEffect(MacStoreCapture.isActive ? .identity : .regular.interactive(),   // no glass in store screenshots
+                     in: .rect(cornerRadius: 14))
     }
 }
 

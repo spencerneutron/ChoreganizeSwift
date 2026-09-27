@@ -97,15 +97,14 @@ enum MacDebugSnapshots {
     /// is set to 1440×900 pt and rendered at 2× — 2880×1800 px, a Mac App Store size —
     /// in light and dark, over the seeded demo data with Plus on (so Insights shows).
     /// Describe Chores and Snap a Room (with `CHOREGANIZE_ROOM_PHOTO`) are captured as
-    /// their sheets over the window. While capturing, the shell draws its sidebar without
-    /// the window-server vibrancy an in-process render can't reproduce, and hides the
-    /// debug-only data label. Takes focus for about a minute.
+    /// their sheets over the window. While capturing, `MacStoreCaptureLayout` draws the
+    /// shell without the window-server effects an in-process render can't reproduce (see
+    /// there). Takes focus for about a minute.
     static let storeDirectory: URL? = {
-        guard let path = ProcessInfo.processInfo.environment["CHOREGANIZE_MAC_STORE_SHOTS"], !path.isEmpty else { return nil }
+        guard MacStoreCapture.isActive,
+              let path = ProcessInfo.processInfo.environment["CHOREGANIZE_MAC_STORE_SHOTS"] else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
     }()
-
-    static var isStoreCapture: Bool { storeDirectory != nil }
 
     /// The size App Store screenshots are taken at (points; rendered at 2×).
     static let storeWindowSize = CGSize(width: 1440, height: 900)
@@ -241,4 +240,45 @@ enum MacDebugSnapshots {
         try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 }
+
+/// The shell while capturing App Store screenshots (`CHOREGANIZE_MAC_STORE_SHOTS`):
+/// the same sidebar and detail side by side. `cacheDisplay` can't draw what the window
+/// server composites (the split view's sidebar material and vibrancy render blank), so
+/// the sidebar sits on a flat color instead. MacRootView applies this in DEBUG only;
+/// outside a capture it passes the real split view through untouched.
+struct MacStoreCaptureLayout<Sidebar: View, Detail: View>: ViewModifier {
+    let sidebar: Sidebar
+    let detail: Detail
+
+    func body(content: Content) -> some View {
+        if MacStoreCapture.isActive {
+            HStack(spacing: 0) {
+                sidebar
+                    .scrollContentBackground(.hidden)
+                    .frame(width: 240)
+                    .background(Color(nsColor: NSColor(name: nil) { appearance in
+                        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                            ? NSColor(white: 0.17, alpha: 1) : NSColor(white: 0.945, alpha: 1)
+                    }))
+                Divider()
+                detail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else {
+            content
+        }
+    }
+}
 #endif
+
+/// Whether this run is the DEBUG App Store screenshot capture (the deploy skill's
+/// `CHOREGANIZE_MAC_STORE_SHOTS`). Always false in Release.
+enum MacStoreCapture {
+    static let isActive: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CHOREGANIZE_MAC_STORE_SHOTS"]?.isEmpty == false
+        #else
+        return false
+        #endif
+    }()
+}

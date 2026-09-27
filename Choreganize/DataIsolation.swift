@@ -67,6 +67,8 @@ enum DataIsolation {
     /// Shown in the app outside production, so a debug run is never mistaken for
     /// the real one.
     static var label: String? {
+        // The Mac's App Store screenshot capture (a debug build) mustn't show it.
+        if ProcessInfo.processInfo.environment["CHOREGANIZE_MAC_STORE_SHOTS"]?.isEmpty == false { return nil }
         switch mode {
         case .production:  return nil
         case .development: return "Development data"
