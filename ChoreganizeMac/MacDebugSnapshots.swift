@@ -26,6 +26,7 @@ enum MacDebugSnapshots {
                 if let window = mainWindow { write(window, to: directory, name: "main-\(mode.rawValue.lowercased())") }
             }
             await snapshotPhotoSheets(to: directory)
+            await snapshotDescribeSheet(to: directory)
             openSettings?()
             for pane in MacSettingsPane.allCases {
                 UserDefaults.standard.set(pane.rawValue, forKey: MacSettingsPane.storageKey)
@@ -63,6 +64,26 @@ enum MacDebugSnapshots {
         await pause(9)
         writeSheet(to: directory, name: "sheet-check-results")
         ui.photoCheck = nil
+        await pause(1)
+    }
+
+    /// #106: with the on-device model, the Describe Chores sheet (empty, then read from
+    /// `CHOREGANIZE_DESCRIBE_TEXT` or a sample routine).
+    private static func snapshotDescribeSheet(to directory: URL) async {
+        guard RoomVisionAvailability.describeChores.isAvailable else { return }
+        let ui = MacUIState.shared
+        ui.surface = .edit
+        await pause(1)
+        ui.describeChores = MacDescribeRequest()
+        await pause(1.5)
+        writeSheet(to: directory, name: "sheet-describe-compose")
+        ui.describeChores = nil
+        await pause(1)
+        ui.describeChores = MacDescribeRequest(text: DescribeChoresModel.testTextFromEnvironment
+            ?? "Vacuum the living room on Saturdays, do the dishes every night, deep clean the bathroom every other week, and change the air filter once a month.")
+        await pause(8)   // real on-device inference
+        writeSheet(to: directory, name: "sheet-describe-review")
+        ui.describeChores = nil
         await pause(1)
     }
 

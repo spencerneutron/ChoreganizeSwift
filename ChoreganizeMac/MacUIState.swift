@@ -17,4 +17,6 @@ final class MacUIState: ObservableObject {
     @Published var roomSnap: MacPhotoRequest?
     /// Presents check off with a photo (#121), with the photo when it started from a drop.
     @Published var photoCheck: MacPhotoRequest?
+    /// Presents Describe Chores (#106).
+    @Published var describeChores: MacDescribeRequest?
 }

@@ -429,6 +429,10 @@ struct AddFlowDraftEditor: View {
     // The draft's original area ref, kept so a name-only (`.new`) room survives an edit
     // that never re-touches the Area picker (which can only select existing areas).
     private let originalAreaRef: AreaRef
+    // Plus schedule parts (#100, set by Describe Chores) this editor has no controls for;
+    // carried through the edit (normalized() drops what no longer fits).
+    private let originalMultiDays: Set<Weekday>
+    private let originalInterval: Int
     @State private var name: String
     @State private var isDaily: Bool
     @State private var frequency: Frequency
@@ -443,6 +447,8 @@ struct AddFlowDraftEditor: View {
         self.onSave = onSave
         self.draftId = draft.id
         self.originalAreaRef = draft.areaRef
+        self.originalMultiDays = draft.multiDays
+        self.originalInterval = draft.interval
         _name = State(initialValue: draft.name)
         _isDaily = State(initialValue: draft.isDaily)
         _frequency = State(initialValue: draft.frequency)
@@ -488,8 +494,10 @@ struct AddFlowDraftEditor: View {
                                 isDaily: isDaily,
                                 frequency: frequency,
                                 day: isDaily ? nil : day,
-                                areaRef: resolvedAreaRef)
-        onSave(edited)
+                                areaRef: resolvedAreaRef,
+                                multiDays: originalMultiDays,
+                                interval: originalInterval)
+        onSave(edited.normalized())
         dismiss()
     }
 

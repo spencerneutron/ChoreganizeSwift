@@ -362,6 +362,69 @@ final class ChoreganizeScreenshotTests: XCTestCase {
         snap("snap-4-saved")
     }
 
+    /// Describe Chores (#106) end to end with the real on-device model: the Edit row →
+    /// the text (DEBUG hook) → chores read from it (the Plus-only "every other" noted)
+    /// → Add → listed in Chores.
+    @MainActor
+    func testCaptureDescribeChores() throws {
+        // 1. Entry row + compose screen (no text hook on this launch).
+        var app = launchSeeded()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30), "seeded Work rows should render")
+        selectMode(app, "Edit")
+        let entry = element(app, "addflow.describe")
+        let offered = entry.waitForExistence(timeout: 10)
+        settle()
+        snap("describe-0-edit")   // on iOS 18 / without Apple Intelligence: the Edit tab without the row
+        try XCTSkipUnless(offered, "Describe Chores isn't offered (no Apple Intelligence?)")
+        entry.tap()
+        XCTAssertTrue(element(app, "describe.read").waitForExistence(timeout: 5), "compose step should show")
+        settle(0.8)
+        snap("describe-1-compose")
+        app.terminate()
+
+        // 2. Same path with the text hook: reading starts on its own.
+        app = XCUIApplication()
+        app.launchEnvironment["CHOREGANIZE_LOCAL_ONLY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_UITEST_INMEMORY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_SEED_JSON"] = ProcessInfo.processInfo.environment["CHOREGANIZE_SEED_JSON"]
+            ?? Self.defaultSeedPath
+        app.launchEnvironment["CHOREGANIZE_DESCRIBE_TEXT"] = ProcessInfo.processInfo.environment["CHOREGANIZE_DESCRIBE_TEXT"]
+            ?? "Deep clean the bathroom every other Saturday, water the plants on Wednesdays, and change the air filter once a month"
+        app.launchArguments += ["-hasSeenOnboarding", "YES", "-activeScope", "solo"]
+        app.launch()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30), "seeded Work rows should render")
+        selectMode(app, "Edit")
+        let entry2 = element(app, "addflow.describe")
+        XCTAssertTrue(entry2.waitForExistence(timeout: 10))
+        entry2.tap()
+        settle(0.6)
+        snap("describe-2-reading")
+
+        let add = element(app, "describe.add")
+        XCTAssertTrue(add.waitForExistence(timeout: 60), "chores should arrive")
+        settle()
+        snap("describe-3-review")
+
+        // The first chore's name (row label = "Name, schedule · room, …").
+        let first = element(app, "describe.chore.0")
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        let name = first.label.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? ""
+        XCTAssertFalse(name.isEmpty, "a chore should have a name")
+        add.tap()
+
+        // Back on Edit: the saved chore shows up in Chores.
+        let chores = app.buttons["Chores"]
+        XCTAssertTrue(chores.waitForExistence(timeout: 10), "should return to the Edit tab")
+        chores.tap()
+        // Chores are listed by day, so a weekend chore can sit below the fold.
+        let saved = app.staticTexts[name]
+        _ = saved.waitForExistence(timeout: 5)
+        for _ in 0..<8 where !saved.exists { app.swipeUp() }
+        XCTAssertTrue(saved.waitForExistence(timeout: 5), "saved chore \"\(name)\" should be listed")
+        settle(0.5)
+        snap("describe-4-saved")
+    }
+
     /// Check off with a photo (#107) end to end with the real on-device model: today's
     /// page → the button beside "Mark all done" → the room → the photo (DEBUG hook) →
     /// results with looks-done chores pre-checked → Mark Done.

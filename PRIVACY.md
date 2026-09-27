@@ -64,6 +64,15 @@ iCloud data, and doesn't send it to the developer or to any server. Choosing a p
 from your library uses the system photo picker, which gives the app only the photo
 you pick.
 
+## Describe Chores
+
+On devices that support Apple Intelligence, you can type or dictate the chores you do,
+and the app turns your words into chores for you to review. The text is read on your
+device by Apple's on-device model. The app doesn't save what you type and doesn't send
+it to the developer or to any server; only the chores you choose to add are saved, like
+any chore you add yourself. If you dictate, the keyboard's dictation turns your voice
+into text first; the app never receives audio.
+
 ## Diagnostics
 
 The app keeps a small, temporary log on your device to help with troubleshooting,

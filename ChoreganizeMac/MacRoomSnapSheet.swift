@@ -201,30 +201,46 @@ struct MacRoomSnapSheet: View {
     }
 }
 
-/// Edits one suggestion's name and schedule in place (a popover on the row).
-private struct MacDraftEditor: View {
+/// Edits one draft's name and schedule in place (a popover on the row), and its room
+/// when `areas` are given (Describe Chores, where each chore has its own room).
+struct MacDraftEditor: View {
     @State private var draft: ChoreDraft
-    @State private var unusedArea: UUID?
+    var areas: [CDArea] = []
     var onChange: (ChoreDraft) -> Void
 
-    init(draft: ChoreDraft, onChange: @escaping (ChoreDraft) -> Void) {
+    init(draft: ChoreDraft, areas: [CDArea] = [], onChange: @escaping (ChoreDraft) -> Void) {
         _draft = State(initialValue: draft)
+        self.areas = areas
         self.onChange = onChange
+    }
+
+    /// The Area picker lists existing areas; a room the draft names but that doesn't
+    /// exist yet (`.new`) shows as None and is kept until another area is picked.
+    private var areaID: Binding<UUID?> {
+        Binding(get: {
+            if case .existing(let id) = draft.areaRef { return id }
+            return nil
+        }, set: { id in
+            if let id {
+                draft.areaRef = .existing(id)
+            } else if case .existing = draft.areaRef {
+                draft.areaRef = .none
+            }
+        })
     }
 
     var body: some View {
         Form {
             TextField("Name", text: $draft.name)
             ChoreFormRows(name: $draft.name, isDaily: $draft.isDaily, frequency: $draft.frequency,
-                          day: $draft.day, areaId: $unusedArea, areas: [],
-                          showsName: false, showsArea: false)
+                          day: $draft.day, areaId: areaID, areas: areas,
+                          showsName: false, showsArea: !areas.isEmpty)
         }
         .formStyle(.grouped)
         .frame(width: 340)
         .fixedSize(horizontal: false, vertical: true)
         .onChange(of: draft) { _, edited in
-            var normalized = edited
-            if normalized.isDaily { normalized.day = nil }
+            let normalized = edited.normalized()
             if !normalized.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { onChange(normalized) }
         }
     }

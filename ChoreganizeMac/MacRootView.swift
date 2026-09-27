@@ -95,6 +95,11 @@ struct MacRootView: View {
             MacPhotoCheckSheet(initialPhoto: request.photo)
                 .environmentObject(model)
         }
+        // #106: Describe Chores (the Edit row or File ▸ New Chores ▸ From a Description…).
+        .sheet(item: $ui.describeChores) { request in
+            MacDescribeChoresSheet(initialText: request.text)
+                .environmentObject(model)
+        }
         #if DEBUG
         .onAppear { MacDebugSnapshots.openSettings = { openSettings() } }
         #endif

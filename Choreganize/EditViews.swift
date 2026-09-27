@@ -18,6 +18,7 @@ struct EditHomeView: View {
                     .accessibilityIdentifier("addflow.lens.\(lens.rawValue)")
                 }
                 snapRoomRow
+                describeRow
             } header: {
                 Text("Add chores & areas")
             } footer: {
@@ -50,10 +51,51 @@ struct EditHomeView: View {
     }
 
     private var footer: String {
+        let ways: String
         if RoomVisionAvailability.current.isOfferable {
-            return "Add several at once — go room by room, day by day, or snap a photo of a room. You can fine-tune anything afterward below."
+            ways = "Add several at once — go room by room or day by day, snap a photo of a room, or describe them in your own words."
+        } else if RoomVisionAvailability.describeChores.isOfferable {
+            ways = "Add several at once — go room by room or day by day, or describe them in your own words."
+        } else {
+            ways = "Add several at once — go room by room, or day by day."
         }
-        return "Add several at once — go room by room, or day by day. You can fine-tune anything afterward below."
+        #if os(macOS)
+        return ways   // a Mac list footer is one line
+        #else
+        return ways + " You can fine-tune anything afterward below."
+        #endif
+    }
+
+    /// Describe Chores (#106): offered where the on-device model runs (no vision
+    /// needed), disabled with the reason while Apple Intelligence is off or preparing.
+    /// Pushed in-tab on iPhone; a sheet on the Mac.
+    @ViewBuilder private var describeRow: some View {
+        let language = RoomVisionAvailability.describeChores
+        if language.isOfferable {
+            #if os(iOS)
+            NavigationLink {
+                DescribeChoresFlowView()
+            } label: {
+                lensLabel("Describe Chores",
+                          subtitle: language.hint ?? "Type or say what needs doing, and when.",
+                          systemImage: "text.bubble")
+            }
+            .disabled(!language.isAvailable)
+            .accessibilityIdentifier("addflow.describe")
+            #else
+            Button {
+                MacUIState.shared.describeChores = MacDescribeRequest()
+            } label: {
+                lensLabel("Describe Chores",
+                          subtitle: language.hint ?? "Type what needs doing, and when.",
+                          systemImage: "text.bubble")
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!language.isAvailable)
+            .accessibilityIdentifier("addflow.describe")
+            #endif
+        }
     }
 
     /// Snap a Room (#105, Mac #121): offered only where the on-device model can read
