@@ -20,6 +20,8 @@ struct ChoreFormFields: View {
     @Binding var areaId: UUID?
     var areas: [CDArea]
     var household: CDHousehold?
+    /// Focuses the name field (Quick Add opens with it focused).
+    var nameFocus: FocusState<Bool>.Binding?
 
     // Observed so the gated rows re-render when the entitlement flips
     // mid-session (purchase, restore, household flag sync).
@@ -39,7 +41,7 @@ struct ChoreFormFields: View {
         Section("Details") {
             ChoreFormRows(name: $name, isDaily: $isDaily, frequency: $frequency,
                           day: $day, areaId: $areaId, areas: areas,
-                          showsDay: !hidesSingleDay)
+                          showsDay: !hidesSingleDay, nameFocus: nameFocus)
         }
         if !isDaily {
             scheduleSection
@@ -212,10 +214,17 @@ struct ChoreFormRows: View {
     var showsDailyToggle = true
     var showsDay = true
     var showsArea = true
+    var nameFocus: FocusState<Bool>.Binding?
 
     var body: some View {
         if showsName {
-            TextField("Name", text: $name)
+            if let nameFocus {
+                TextField("Name", text: $name)
+                    .focused(nameFocus)
+                    .submitLabel(.done)
+            } else {
+                TextField("Name", text: $name)
+            }
         }
         if showsDailyToggle {
             Toggle("Every Day", isOn: $isDaily)

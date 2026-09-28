@@ -332,6 +332,29 @@ struct NewChoreView: View {
     @State private var interval = 1
     @State private var assignee: String?
     @State private var areaId: UUID?
+    @FocusState private var nameFocused: Bool
+
+    /// #127: set when the Quick Add ghost opened the sheet.
+    private let prefill: ChorePrefill?
+    private let onSave: ((CDChore) -> Void)?
+
+    /// Edit ▸ Chores ▸ Add keeps the plain defaults (weekly, Monday, no area);
+    /// the Quick Add ghost passes its section's prefill and focuses the name.
+    init(prefill: ChorePrefill? = nil, onSave: ((CDChore) -> Void)? = nil) {
+        self.prefill = prefill
+        self.onSave = onSave
+        if let prefill {
+            _isDaily = State(initialValue: prefill.isDaily)
+            _frequency = State(initialValue: prefill.frequency)
+            _day = State(initialValue: prefill.day)
+            _multiDays = State(initialValue: prefill.day.map { $0 == .all ? [] : [$0] } ?? [])
+            _areaId = State(initialValue: prefill.areaID)
+        }
+    }
+
+    private var canSave: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         NavigationStack {
@@ -345,32 +368,66 @@ struct NewChoreView: View {
                                 assignee: $assignee,
                                 areaId: $areaId,
                                 areas: Array(areas).inScope(model.activeHousehold),
-                                household: model.activeHousehold)
+                                household: model.activeHousehold,
+                                nameFocus: prefill == nil ? nil : $nameFocused)
             }
+            .formStyle(.grouped)
+            .onSubmit { if canSave { save() } }
             .navigationTitle("New Chore")
+            .quickAddSubtitle(prefill?.summary)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        let assigned = isDaily ? Weekday.all : day
-                        let chore = CDChore.make(in: context,
-                                                 name: name,
-                                                 isDaily: isDaily,
-                                                 frequency: isDaily ? nil : frequency,
-                                                 assignedDay: assigned,
-                                                 createdDate: Date(),
-                                                 household: model.activeHousehold)
-                        chore.area = areaId.flatMap { id in areas.first { $0.id == id } }
-                        applyPlusChoreFields(to: chore, isDaily: isDaily, frequency: frequency,
-                                             multiDays: multiDays, interval: interval, assignee: assignee)
-                        try? context.save()
-                        dismiss()
-                    }
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Save") { save() }
+                        .disabled(!canSave)
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .task {
+                guard prefill != nil else { return }
+                // Let the sheet finish presenting, or the keyboard request is dropped.
+                try? await Task.sleep(for: .milliseconds(350))
+                nameFocused = true
+            }
+        }
+    }
+
+    private func save() {
+        let assigned = isDaily ? Weekday.all : day
+        let chore = CDChore.make(in: context,
+                                 name: name,
+                                 isDaily: isDaily,
+                                 frequency: isDaily ? nil : frequency,
+                                 assignedDay: assigned,
+                                 createdDate: Date(),
+                                 household: model.activeHousehold)
+        chore.area = areaId.flatMap { id in areas.first { $0.id == id } }
+        applyPlusChoreFields(to: chore, isDaily: isDaily, frequency: frequency,
+                             multiDays: multiDays, interval: interval, assignee: assignee)
+        try? context.save()
+        onSave?(chore)
+        dismiss()
+    }
+}
+
+private extension View {
+    /// The Quick Add context line ("Weekly on Tuesdays") under the title, where
+    /// the platform has navigation subtitles.
+    @ViewBuilder
+    func quickAddSubtitle(_ text: String?) -> some View {
+        if let text {
+            #if os(macOS)
+            self.navigationSubtitle(text)
+            #else
+            if #available(iOS 26.0, *) {
+                self.navigationSubtitle(text)
+            } else {
+                self
+            }
+            #endif
+        } else {
+            self
         }
     }
 }
