@@ -7,4 +7,7 @@ enum SettingsKeys {
     static let displayName = "displayName"
     static let workGrouping = "workGrouping"
     static let switcherStyle = "switcherStyle"
+    /// #128: lifts the 3-at-a-time one-off limit for Personal on this device. A
+    /// household's setting is synced instead (`CDHousehold.oneOffsUnlimited`).
+    static let oneOffsUnlimitedPersonal = "oneOffsUnlimitedPersonal"
 }
