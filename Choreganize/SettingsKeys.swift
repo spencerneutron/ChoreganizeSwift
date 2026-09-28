@@ -7,6 +7,4 @@ enum SettingsKeys {
     static let displayName = "displayName"
     static let workGrouping = "workGrouping"
     static let switcherStyle = "switcherStyle"
-    /// DEBUG: the Quick Add ghost's look (#127 A/B).
-    static let quickAddStyle = "quickAddStyle"
 }

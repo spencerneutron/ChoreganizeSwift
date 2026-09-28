@@ -151,19 +151,6 @@ final class QuickAddTracker {
 
 // MARK: - Views
 
-/// DEBUG A/B for the ghost's look (Hub ▸ Developer, or `-quickAddStyle` on the Mac).
-enum QuickAddGhostStyle: String, CaseIterable, Identifiable {
-    case dashed, glass, soft
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .dashed: "Dashed outline (default)"
-        case .glass:  "Glass pill"
-        case .soft:   "Soft row"
-        }
-    }
-}
-
 /// A section's fixed-height footer slot. Always laid out; draws the ghost only
 /// when it's the target (or hovered, or pinned visible), so rows never move.
 struct QuickAddSlot: View {
@@ -179,14 +166,6 @@ struct QuickAddSlot: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
-    #if DEBUG
-    @AppStorage(SettingsKeys.quickAddStyle) private var styleRaw = QuickAddGhostStyle.dashed.rawValue
-    private var style: QuickAddGhostStyle { QuickAddGhostStyle(rawValue: styleRaw) ?? .dashed }
-    #else
-    private let style = QuickAddGhostStyle.dashed
-    #endif
-
-    static let height: CGFloat = 42
 
     var body: some View {
         // VoiceOver users get a static button under every section: no scrolling needed.
@@ -196,7 +175,7 @@ struct QuickAddSlot: View {
             // fixed frame below keeps the slot's space either way.
             if visible {
                 Button(action: action) {
-                    QuickAddGhostRow(title: title, summary: prefill.summary, style: style)
+                    QuickAddGhostRow(title: title, summary: prefill.summary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(sectionName.map { "Add chore to \($0)" } ?? title)
@@ -209,7 +188,7 @@ struct QuickAddSlot: View {
         }
         .animation(.easeOut(duration: 0.22), value: visible)
         .frame(maxWidth: .infinity)
-        .frame(height: Self.height)
+        .frame(height: QuickAddGhostRow.height)
         #if os(iOS)
         // A list footer is inset to the row text and padded above and below; span the
         // card, and let the ghost use that padding rather than grow the gap further.
@@ -231,27 +210,35 @@ struct QuickAddSlot: View {
     }
 }
 
-/// The ghost itself: the width of the section card, clearly not a real row.
+/// The ghost itself: a dashed placeholder the width of the section card. It's a
+/// little shorter than a chore row (about 74 pt on iOS 26, 45 pt on the Mac), so it
+/// reads as the next row without passing for one.
 struct QuickAddGhostRow: View {
     let title: String
     let summary: String
-    var style: QuickAddGhostStyle = .dashed
+
+    #if os(iOS)
+    static let height: CGFloat = 58
+    #else
+    static let height: CGFloat = 42
+    #endif
 
     private let radius: CGFloat = {
         if #available(iOS 26.0, macOS 26.0, *) { return 22 }
         return 12
     }()
 
-    private var label: some View {
-        HStack(spacing: 10) {
+    var body: some View {
+        HStack(spacing: 12) {
             Image(systemName: "plus.circle.fill")
-                .font(.title3)
+                .font(.title2)
                 .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 1) {
-                // Explicit colors: a list footer resolves the hierarchical `.primary`
-                // to its own secondary style.
+            VStack(alignment: .leading, spacing: 2) {
+                // The chore row's type (body name, caption detail). Explicit fonts and
+                // colors: a list footer sets a smaller font and resolves the hierarchical
+                // `.primary` to its own secondary style.
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.body.weight(.medium))
                     .foregroundStyle(Color.primary)
                 Text(summary)
                     .font(.caption)
@@ -261,30 +248,12 @@ struct QuickAddGhostRow: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, minHeight: 42, maxHeight: 42)
+        .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
         .contentShape(Rectangle())
-    }
-
-    var body: some View {
-        switch style {
-        case .dashed:
-            label
-                .background(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.07)))
-                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(Color.accentColor.opacity(0.55),
-                                  style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
-        case .glass:
-            if #available(iOS 26.0, macOS 26.0, *) {
-                label.glassEffect(.regular.tint(Color.accentColor.opacity(0.12)).interactive(), in: .capsule)
-            } else {
-                label.background(.bar, in: Capsule())
-            }
-        case .soft:
-            label
-                .background(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(Color.compatCardBackground.opacity(0.6)))
-                .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
-        }
+        .background(RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(Color.accentColor.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .strokeBorder(Color.accentColor.opacity(0.55),
+                          style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
     }
 }
