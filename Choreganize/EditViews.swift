@@ -334,14 +334,26 @@ struct NewChoreView: View {
     @State private var areaId: UUID?
     @FocusState private var nameFocused: Bool
 
+    /// #128: from the Work view the sheet can add a one-off instead.
+    private enum Kind: String, CaseIterable, Identifiable {
+        case chore = "Chore", oneOff = "One-off"
+        var id: String { rawValue }
+    }
+    @State private var kind = Kind.chore
+    @FetchRequest(fetchRequest: oneOffsFetchRequest()) private var oneOffs: FetchedResults<CDOneOff>
+    @AppStorage(SettingsKeys.oneOffsUnlimitedPersonal) private var oneOffsUnlimitedPersonal = false
+
     /// #127: set when the Quick Add ghost opened the sheet.
     private let prefill: ChorePrefill?
+    private let offersOneOff: Bool
     private let onSave: ((CDChore) -> Void)?
 
     /// Edit ▸ Chores ▸ Add keeps the plain defaults (weekly, Monday, no area);
-    /// the Quick Add ghost passes its section's prefill and focuses the name.
-    init(prefill: ChorePrefill? = nil, onSave: ((CDChore) -> Void)? = nil) {
+    /// the Quick Add ghost passes its section's prefill, focuses the name, and
+    /// offers a Chore | One-off switch.
+    init(prefill: ChorePrefill? = nil, offersOneOff: Bool = false, onSave: ((CDChore) -> Void)? = nil) {
         self.prefill = prefill
+        self.offersOneOff = offersOneOff
         self.onSave = onSave
         if let prefill {
             _isDaily = State(initialValue: prefill.isDaily)
@@ -352,29 +364,56 @@ struct NewChoreView: View {
         }
     }
 
+    private var scopedOneOffCount: Int { Array(oneOffs).inScope(model.activeHousehold).count }
+
+    private var oneOffsUnlimited: Bool {
+        OneOffLimit.isUnlimited(household: model.activeHousehold, personalUnlimited: oneOffsUnlimitedPersonal)
+    }
+
+    private var oneOffAtLimit: Bool {
+        !OneOffLimit.canAdd(existing: scopedOneOffCount, unlimited: oneOffsUnlimited)
+    }
+
     private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !(kind == .oneOff && oneOffAtLimit)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                ChoreFormFields(name: $name,
-                                isDaily: $isDaily,
-                                frequency: $frequency,
-                                day: $day,
-                                multiDays: $multiDays,
-                                interval: $interval,
-                                assignee: $assignee,
-                                areaId: $areaId,
-                                areas: Array(areas).inScope(model.activeHousehold),
-                                household: model.activeHousehold,
-                                nameFocus: prefill == nil ? nil : $nameFocused)
+                if offersOneOff {
+                    Section {
+                        Picker("Kind", selection: $kind) {
+                            ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .accessibilityIdentifier("newItem.kind")
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
+                if kind == .oneOff {
+                    OneOffFormFields(title: $name, assignee: $assignee, household: model.activeHousehold,
+                                     atLimit: oneOffAtLimit, titleFocus: $nameFocused)
+                } else {
+                    ChoreFormFields(name: $name,
+                                    isDaily: $isDaily,
+                                    frequency: $frequency,
+                                    day: $day,
+                                    multiDays: $multiDays,
+                                    interval: $interval,
+                                    assignee: $assignee,
+                                    areaId: $areaId,
+                                    areas: Array(areas).inScope(model.activeHousehold),
+                                    household: model.activeHousehold,
+                                    nameFocus: prefill == nil ? nil : $nameFocused)
+                }
             }
             .formStyle(.grouped)
             .onSubmit { if canSave { save() } }
-            .navigationTitle("New Chore")
-            .quickAddSubtitle(prefill?.summary)
+            .navigationTitle(kind == .oneOff ? "New One-off" : "New Chore")
+            .quickAddSubtitle(kind == .oneOff ? nil : prefill?.summary)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
@@ -390,10 +429,25 @@ struct NewChoreView: View {
                 try? await Task.sleep(for: .milliseconds(350))
                 nameFocused = true
             }
+            // The one-off title is a different field; keep typing where the user was.
+            .onChange(of: kind) { _, _ in
+                guard prefill != nil else { return }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(120))   // the new field mounts first
+                    nameFocused = true
+                }
+            }
         }
     }
 
     private func save() {
+        if kind == .oneOff {
+            OneOffOps.add(title: name, assignee: assignee, household: model.activeHousehold,
+                          existing: scopedOneOffCount, unlimited: oneOffsUnlimited,
+                          isPlus: Entitlements.isPlus(for: model.activeHousehold), in: context)
+            dismiss()
+            return
+        }
         let assigned = isDaily ? Weekday.all : day
         let chore = CDChore.make(in: context,
                                  name: name,

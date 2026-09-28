@@ -26,7 +26,6 @@ struct ChoreFormFields: View {
     // Observed so the gated rows re-render when the entitlement flips
     // mid-session (purchase, restore, household flag sync).
     @ObservedObject private var entitlements = EntitlementStore.shared
-    @ObservedObject private var completers = CompleterDirectory.shared
 
     private var plusUnlocked: Bool { Entitlements.isPlus(for: household) }
 
@@ -47,7 +46,7 @@ struct ChoreFormFields: View {
             scheduleSection
         }
         if household != nil {
-            assignmentSection
+            AssigneeSection(assignee: $assignee, household: household)
         }
     }
 
@@ -110,7 +109,25 @@ struct ChoreFormFields: View {
         }
     }
 
-    // MARK: - Assignment (CG-17 / #99)
+    private func lockedRow(_ label: String, value: String) -> some View {
+        LockedValueRow(label: label, value: value)
+    }
+}
+
+// MARK: - Assignment (CG-17 / #99)
+
+/// The Plus-gated "Assigned to" picker for household items: chores (#99) and
+/// one-offs (#128). Outside a household the caller omits it.
+struct AssigneeSection: View {
+    @Binding var assignee: String?
+    var household: CDHousehold?
+    /// "chore" or "one-off", for the footer.
+    var noun = "chore"
+
+    @ObservedObject private var entitlements = EntitlementStore.shared
+    @ObservedObject private var completers = CompleterDirectory.shared
+
+    private var plusUnlocked: Bool { Entitlements.isPlus(for: household) }
 
     /// Household members other than the current user, from the share-participant
     /// directory. Ids share the CloudKit user-record-name domain with
@@ -128,7 +145,7 @@ struct ChoreFormFields: View {
         return completers.namesByID[assignee] ?? "Member"
     }
 
-    @ViewBuilder private var assignmentSection: some View {
+    var body: some View {
         Section {
             if plusUnlocked {
                 Picker("Assigned to", selection: $assignee) {
@@ -147,18 +164,24 @@ struct ChoreFormFields: View {
                     }
                 }
             } else {
-                lockedRow("Assigned to", value: assigneeName)
+                LockedValueRow(label: "Assigned to", value: assigneeName)
             }
         } header: {
             Text("Assignment")
         } footer: {
             Text(plusUnlocked
-                 ? "Everyone in the household sees who a chore belongs to; anyone can still complete it."
-                 : "Assigning chores to household members requires Choreganize Plus (\(PlatformText.plusLocation)).")
+                 ? "Everyone in the household sees who a \(noun) belongs to; anyone can still complete it."
+                 : "Assigning \(noun)s to household members requires Choreganize Plus (\(PlatformText.plusLocation)).")
         }
     }
+}
 
-    private func lockedRow(_ label: String, value: String) -> some View {
+/// A read-only value behind the Plus lock.
+struct LockedValueRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
         LabeledContent(label) {
             HStack(spacing: 4) {
                 Image(systemName: "lock")

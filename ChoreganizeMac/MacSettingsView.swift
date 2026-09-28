@@ -70,10 +70,13 @@ private struct GeneralSettingsPane: View {
                 Picker("Group tasks by", selection: $workGrouping) {
                     ForEach(WorkGrouping.allCases) { Text($0.title).tag($0.rawValue) }
                 }
+                OneOffLimitToggle()
             } header: {
                 Text("Work View")
             } footer: {
-                Text("Group each day's tasks in the Work view by frequency or by room.")
+                Text(model.activeHousehold == nil
+                     ? "Group each day's tasks by frequency or by room. One-offs stay at the top, a few at a time."
+                     : "Group each day's tasks by frequency or by room. The one-off limit applies to everyone in the household.")
             }
 
             Section("About") {
