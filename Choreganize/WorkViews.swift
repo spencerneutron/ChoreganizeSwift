@@ -190,6 +190,12 @@ struct WeekView: View {
                 .animation(.easeInOut, value: idx)
             }
         }
+        // #128 DEBUG A/B: one-offs pinned above the pager instead of in each day's list.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if OneOffPlacement.current == .shelf {
+                OneOffShelf()
+            }
+        }
     }
 }
 
@@ -203,6 +209,12 @@ struct DayPage: View {
     @FetchRequest(fetchRequest: displayChoresFetchRequest()) private var chores: FetchedResults<CDChore>
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDLockedDay.date)]) private var lockedDays: FetchedResults<CDLockedDay>
     @AppStorage(SettingsKeys.workGrouping) private var workGroupingRaw = WorkGrouping.none.rawValue
+    /// #128: one-offs lead every upcoming day's list. Households are fetched so a
+    /// synced change to the limit setting refreshes the section's ＋.
+    @FetchRequest(fetchRequest: oneOffsFetchRequest()) private var oneOffs: FetchedResults<CDOneOff>
+    @FetchRequest(sortDescriptors: []) private var households: FetchedResults<CDHousehold>
+    @AppStorage(SettingsKeys.oneOffsUnlimitedPersonal) private var oneOffsUnlimitedPersonal = false
+    @State private var oneOffSheet: OneOffEditor.Mode?
     var date: Date
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
@@ -290,6 +302,13 @@ struct DayPage: View {
         let hasDayButton = !(isLocked && isPast)
         let offersQuickAdd = QuickAddRules.offersGhost(on: date, isLocked: isLocked)
         let bottomClearance = hasDayButton ? bottomClearanceWithButton : bottomClearanceNoButton
+        // One-offs aren't tied to a day, so every upcoming page shows the same ones
+        // (past pages are history). Hidden when there are none.
+        let scopedOneOffs = Array(oneOffs).inScope(active)
+        let showsOneOffs = !isPast && !scopedOneOffs.isEmpty && OneOffPlacement.current == .inList
+        let canAddOneOff = OneOffLimit.canAdd(
+            existing: scopedOneOffs.count,
+            unlimited: OneOffLimit.isUnlimited(household: active, personalUnlimited: oneOffsUnlimitedPersonal))
 
         ScrollViewReader { proxy in
         List {
@@ -300,13 +319,19 @@ struct DayPage: View {
             // single dated section; otherwise one section per group, the date riding the
             // first group's header so it stays visible (WeekView shows no date of its own).
             let groups = grouping == .none ? [] : grouping.sections(for: dayChores)
+            // #128: one-offs are the first section and take the date header with them.
+            if showsOneOffs {
+                OneOffsSection(oneOffs: scopedOneOffs, dateHeader: header, canAdd: canAddOneOff,
+                               onAdd: { oneOffSheet = .new },
+                               onEdit: { oneOffSheet = .edit($0) })
+            }
             if groups.isEmpty {
                 Section {
                     ForEach(dayChores, id: \.objectID) { chore in
                         ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore)
                     }
                 } header: {
-                    Text(header)
+                    if !showsOneOffs { Text(header) }
                 } footer: {
                     quickAddSlot(id: "", key: .all, sectionName: nil,
                                  emptyDay: dayChores.isEmpty, offered: offersQuickAdd)
@@ -318,7 +343,7 @@ struct DayPage: View {
                             ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore)
                         }
                     } header: {
-                        if index == 0 {
+                        if index == 0 && !showsOneOffs {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(header).font(.headline).textCase(nil).foregroundStyle(.primary)
                                 Text(group.title)
@@ -405,9 +430,12 @@ struct DayPage: View {
             quickAdd.updateViewport(span)
         }
         .sheet(item: $quickAddRequest) { request in
-            NewChoreView(prefill: request.prefill) { chore in
+            NewChoreView(prefill: request.prefill, offersOneOff: true) { chore in
                 flashNewChore(chore, proxy: proxy)
             }
+        }
+        .sheet(item: $oneOffSheet) { mode in
+            OneOffEditor(mode: mode)
         }
         .sheet(isPresented: $showLogSheet) {
             LogCompletionSheet(date: date, chores: inScopeChores)

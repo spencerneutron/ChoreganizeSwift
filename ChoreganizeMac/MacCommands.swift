@@ -30,6 +30,9 @@ struct MacCommands: Commands {
             Button("New Chores — Room by Room") { ui.addFlowLens = .byArea }
                 .keyboardShortcut("n", modifiers: .command)
                 .hidden()   // hidden twin just to own ⌘N for the default lens
+            // #128: a one-time task that sits at the top of the Work view.
+            Button("New One-Off…") { ui.newOneOff = true }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             if RoomVisionAvailability.current.isOfferable {
                 Button("Check Off with a Photo…") { ui.photoCheck = MacPhotoRequest() }
                     .keyboardShortcut("k", modifiers: [.command, .shift])

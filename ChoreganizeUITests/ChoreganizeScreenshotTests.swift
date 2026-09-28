@@ -476,4 +476,48 @@ final class ChoreganizeScreenshotTests: XCTestCase {
             snap("check-4-done")
         }
     }
+
+    /// Quick Add (#127) and one-offs (#128): the ghost under the middle section, the
+    /// sheet it opens (chore and one-off modes), and a one-off in its grace period.
+    /// `CHOREGANIZE_QUICKADD_HOLD` keeps the ghost up without a live scroll.
+    @MainActor
+    func testCaptureQuickAddAndOneOffs() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["CHOREGANIZE_LOCAL_ONLY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_UITEST_INMEMORY"] = "1"
+        app.launchEnvironment["CHOREGANIZE_SEED_JSON"] = ProcessInfo.processInfo.environment["CHOREGANIZE_SEED_JSON"]
+            ?? Self.defaultSeedPath
+        app.launchEnvironment["CHOREGANIZE_SEED_ONE_OFFS"] = "Return the library books|Call the plumber"
+        app.launchEnvironment["CHOREGANIZE_QUICKADD_HOLD"] = "1"
+        app.launchArguments += ["-hasSeenOnboarding", "YES", "-activeScope", "solo",
+                                "-workGrouping", "room", "-oneOffPlacement", "inList"]
+        app.launch()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30), "seeded Work rows should render")
+        settle(1.5)
+        snap("quickadd-1-ghost")
+
+        let ghost = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "quickAdd."))
+            .allElementsBoundByIndex.first { $0.isHittable }
+        guard let ghost else { return XCTFail("a ghost should be showing") }
+        ghost.tap()
+        XCTAssertTrue(app.navigationBars["New Chore"].waitForExistence(timeout: 5))
+        settle(0.8)
+        app.typeText("Dust the shelves")
+        snap("quickadd-2-sheet")
+
+        app.segmentedControls["newItem.kind"].buttons["One-off"].tap()
+        settle(0.6)
+        snap("quickadd-3-oneoff")
+        app.buttons["Cancel"].tap()
+        settle(0.8)
+
+        let check = app.buttons.matching(identifier: "oneOff.check.Call the plumber")
+            .allElementsBoundByIndex.first { $0.isHittable }
+        guard let check else { return XCTFail("the one-off should be listed") }
+        check.tap()
+        settle(0.4)
+        snap("oneoff-1-grace")
+        settle(2.5)
+        snap("oneoff-2-gone")
+    }
 }

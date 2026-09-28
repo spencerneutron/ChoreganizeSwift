@@ -30,6 +30,12 @@ struct MacWorkHomeView: View {
                     insertion: .move(edge: direction >= 0 ? .trailing : .leading).combined(with: .opacity),
                     removal: .move(edge: direction >= 0 ? .leading : .trailing).combined(with: .opacity)))
         }
+        // #128 DEBUG A/B: one-offs pinned above the day instead of in its list.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if OneOffPlacement.current == .shelf {
+                OneOffShelf()
+            }
+        }
         .background(Color.compatGroupedBackground.ignoresSafeArea())
         .toolbar {
             // #121: photograph a room to check off today's chores that look done.
