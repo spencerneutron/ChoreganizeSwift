@@ -190,12 +190,6 @@ struct WeekView: View {
                 .animation(.easeInOut, value: idx)
             }
         }
-        // #128 DEBUG A/B: one-offs pinned above the pager instead of in each day's list.
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if OneOffPlacement.current == .shelf {
-                OneOffShelf()
-            }
-        }
     }
 }
 
@@ -305,7 +299,7 @@ struct DayPage: View {
         // One-offs aren't tied to a day, so every upcoming page shows the same ones
         // (past pages are history). Hidden when there are none.
         let scopedOneOffs = Array(oneOffs).inScope(active)
-        let showsOneOffs = !isPast && !scopedOneOffs.isEmpty && OneOffPlacement.current == .inList
+        let showsOneOffs = !isPast && !scopedOneOffs.isEmpty
         let canAddOneOff = OneOffLimit.canAdd(
             existing: scopedOneOffs.count,
             unlimited: OneOffLimit.isUnlimited(household: active, personalUnlimited: oneOffsUnlimitedPersonal))

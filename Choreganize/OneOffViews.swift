@@ -2,60 +2,8 @@ import SwiftUI
 import CoreData
 
 // CG-27 / #128 — the one-offs UI: the first section of each upcoming day's Work
-// list (or, as a DEBUG A/B, a shelf pinned above the day pager), the round
-// checkbox with its grace period and poof, the add/edit sheet, and the buried
-// "Limit one-offs to 3" setting.
-
-// MARK: - DEBUG A/B
-
-/// Where one-offs live on the Work view. In the list is the default (the user's
-/// picture); the pinned shelf is a DEBUG A/B (Hub ▸ Developer, `-oneOffPlacement`).
-enum OneOffPlacement: String, CaseIterable, Identifiable {
-    case inList, shelf
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .inList: "First section of each day (default)"
-        case .shelf:  "Pinned shelf above the days"
-        }
-    }
-
-    static var current: OneOffPlacement {
-        #if DEBUG
-        OneOffPlacement(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.oneOffPlacement) ?? "") ?? .inList
-        #else
-        .inList
-        #endif
-    }
-}
-
-/// How one-offs set themselves apart from chores (DEBUG A/B, `-oneOffLook`).
-enum OneOffLook: String, CaseIterable, Identifiable {
-    case tint, note
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .tint: "Accent tint (default)"
-        case .note: "Sticky note"
-        }
-    }
-
-    /// The card fill behind one-off rows.
-    var fill: Color {
-        switch self {
-        case .tint: Color.accentColor.opacity(0.10)
-        case .note: Color(red: 1.0, green: 0.84, blue: 0.25).opacity(0.22)
-        }
-    }
-
-    /// The header icon's color.
-    var accent: Color {
-        switch self {
-        case .tint: .accentColor
-        case .note: .orange
-        }
-    }
-}
+// list, the round checkbox with its grace period and poof, the add/edit sheet,
+// and the buried "Limit one-offs to 3" setting.
 
 // MARK: - Row
 
@@ -211,33 +159,27 @@ struct OneOffsSection: View {
     let onEdit: (CDOneOff) -> Void
 
     @AppStorage(SettingsKeys.oneOffsExpanded) private var expanded = false
-    #if DEBUG
-    @AppStorage(SettingsKeys.oneOffLook) private var lookRaw = OneOffLook.tint.rawValue
-    private var look: OneOffLook { OneOffLook(rawValue: lookRaw) ?? .tint }
-    #else
-    private let look = OneOffLook.tint
-    #endif
 
     var body: some View {
         let (shown, hidden) = OneOffLimit.collapsed(oneOffs, expanded: expanded)
         Section {
             ForEach(shown, id: \.objectID) { oneOff in
                 OneOffRow(oneOff: oneOff) { onEdit(oneOff) }
-                    .listRowBackground(RowFill(look: look))
+                    .listRowBackground(RowFill())
             }
             if hidden > 0 || (expanded && oneOffs.count > OneOffLimit.count) {
                 Button(hidden > 0 ? "Show all (\(oneOffs.count))" : "Show fewer") {
                     withAnimation { expanded.toggle() }
                 }
                 .font(.subheadline)
-                .listRowBackground(RowFill(look: look))
+                .listRowBackground(RowFill())
             }
         } header: {
             VStack(alignment: .leading, spacing: 4) {
                 if let dateHeader {
                     Text(dateHeader).font(.headline).textCase(nil).foregroundStyle(Color.primary)
                 }
-                OneOffsHeader(look: look, canAdd: canAdd, onAdd: onAdd)
+                OneOffsHeader(canAdd: canAdd, onAdd: onAdd)
             }
         } footer: {
             // The Work list sets no section spacing of its own on upcoming days (the
@@ -246,14 +188,13 @@ struct OneOffsSection: View {
         }
     }
 
-    /// The card fill behind one-off rows: the look's tint over the normal card. The
+    /// The card fill behind one-off rows: an accent tint over the normal card. The
     /// Mac's inset list has no cards, so the band lines up with the row separators.
     private struct RowFill: View {
-        let look: OneOffLook
         var body: some View {
             ZStack {
                 Color.compatCardBackground
-                look.fill
+                Color.accentColor.opacity(0.10)
             }
             #if os(macOS)
             .padding(.horizontal, 12)
@@ -264,7 +205,6 @@ struct OneOffsSection: View {
 
 /// "One-offs" with its pin, and ＋ while the scope is under its limit.
 struct OneOffsHeader: View {
-    let look: OneOffLook
     let canAdd: Bool
     let onAdd: () -> Void
 
@@ -273,7 +213,7 @@ struct OneOffsHeader: View {
             Label {
                 Text("One-offs")
             } icon: {
-                Image(systemName: "pin.fill").foregroundStyle(look.accent)
+                Image(systemName: "pin.fill").foregroundStyle(.tint)
             }
             Spacer()
             if canAdd {
@@ -286,77 +226,6 @@ struct OneOffsHeader: View {
                 .accessibilityLabel("New one-off")
                 .accessibilityIdentifier("oneOff.add")
             }
-        }
-    }
-}
-
-// MARK: - Shelf (DEBUG A/B: pinned above the day pager)
-
-/// The same rows as a floating card pinned above the day pager. Hidden when empty.
-struct OneOffShelf: View {
-    @EnvironmentObject private var model: AppModel
-    @FetchRequest(fetchRequest: oneOffsFetchRequest()) private var oneOffs: FetchedResults<CDOneOff>
-    @FetchRequest(sortDescriptors: []) private var households: FetchedResults<CDHousehold>
-    @AppStorage(SettingsKeys.oneOffsUnlimitedPersonal) private var personalUnlimited = false
-    @AppStorage(SettingsKeys.oneOffsExpanded) private var expanded = false
-    @State private var sheet: OneOffEditor.Mode?
-    #if DEBUG
-    @AppStorage(SettingsKeys.oneOffLook) private var lookRaw = OneOffLook.tint.rawValue
-    private var look: OneOffLook { OneOffLook(rawValue: lookRaw) ?? .tint }
-    #else
-    private let look = OneOffLook.tint
-    #endif
-
-    var body: some View {
-        let scoped = Array(oneOffs).inScope(model.activeHousehold)
-        let unlimited = OneOffLimit.isUnlimited(household: model.activeHousehold, personalUnlimited: personalUnlimited)
-        let (shown, hidden) = OneOffLimit.collapsed(scoped, expanded: expanded)
-        if !scoped.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                OneOffsHeader(look: look, canAdd: OneOffLimit.canAdd(existing: scoped.count, unlimited: unlimited)) {
-                    sheet = .new
-                }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 4)
-                ForEach(Array(shown.enumerated()), id: \.element.objectID) { index, oneOff in
-                    if index > 0 { Divider().padding(.leading, 40) }
-                    OneOffRow(oneOff: oneOff) { sheet = .edit(oneOff) }
-                }
-                if hidden > 0 || (expanded && scoped.count > OneOffLimit.count) {
-                    Divider().padding(.leading, 40)
-                    Button(hidden > 0 ? "Show all (\(scoped.count))" : "Show fewer") {
-                        withAnimation { expanded.toggle() }
-                    }
-                    .font(.subheadline)
-                    .buttonStyle(.borderless)
-                    .padding(.vertical, 8)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(look.fill, in: .rect(cornerRadius: 22, style: .continuous))
-            .shelfGlass()
-            .padding(.horizontal, 32)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .sheet(item: $sheet) { mode in
-                OneOffEditor(mode: mode)
-            }
-        }
-    }
-}
-
-private extension View {
-    /// Liquid Glass on 26+, a material card on 18.
-    @ViewBuilder
-    func shelfGlass() -> some View {
-        if #available(iOS 26.0, macOS 26.0, *) {
-            self.glassEffect(.regular, in: .rect(cornerRadius: 22, style: .continuous))
-        } else {
-            self.background(.regularMaterial, in: .rect(cornerRadius: 22, style: .continuous))
-                .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
         }
     }
 }
@@ -398,7 +267,7 @@ struct OneOffFormFields: View {
     }
 }
 
-/// New or edit one-off sheet: the shelf's ＋, a row tap, and the Mac's
+/// New or edit one-off sheet: the section's ＋, a row tap, and the Mac's
 /// File ▸ New One-Off….
 struct OneOffEditor: View {
     enum Mode: Identifiable {

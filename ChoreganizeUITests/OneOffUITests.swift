@@ -19,7 +19,7 @@ final class OneOffUITests: XCTestCase {
             app.launchEnvironment["CHOREGANIZE_SEED_ONE_OFFS"] = oneOffs.joined(separator: "|")
         }
         app.launchArguments += ["-hasSeenOnboarding", "YES", "-activeScope", "solo",
-                                "-workGrouping", "none", "-oneOffPlacement", "inList",
+                                "-workGrouping", "none",
                                 "-oneOffsUnlimitedPersonal", unlimited ? "YES" : "NO"]
         app.launch()
         return app

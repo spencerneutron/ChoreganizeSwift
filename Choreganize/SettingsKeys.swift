@@ -12,7 +12,4 @@ enum SettingsKeys {
     static let oneOffsUnlimitedPersonal = "oneOffsUnlimitedPersonal"
     /// #128: the one-offs list shows everything instead of 3 + "Show all".
     static let oneOffsExpanded = "oneOffsExpanded"
-    /// DEBUG: where one-offs live and how they look (#128 A/B).
-    static let oneOffPlacement = "oneOffPlacement"
-    static let oneOffLook = "oneOffLook"
 }

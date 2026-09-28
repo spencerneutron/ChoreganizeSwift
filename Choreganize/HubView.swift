@@ -33,9 +33,6 @@ struct HubView: View {
     @AppStorage(SettingsKeys.switcherStyle) private var switcherStyleRaw = SwitcherStyle.morph.rawValue
     /// CG-12 / #95: force the Plus gate on/off to exercise gated UI in the sim.
     @AppStorage(EntitlementStore.debugOverrideKey) private var plusOverride = "default"
-    /// #128 A/B: where one-offs live and how they look.
-    @AppStorage(SettingsKeys.oneOffPlacement) private var oneOffPlacementRaw = OneOffPlacement.inList.rawValue
-    @AppStorage(SettingsKeys.oneOffLook) private var oneOffLookRaw = OneOffLook.tint.rawValue
     #endif
 
     var body: some View {
@@ -165,12 +162,6 @@ struct HubView: View {
                     Picker("View switcher", selection: $switcherStyleRaw) {
                         ForEach(SwitcherStyle.allCases) { Text($0.title).tag($0.rawValue) }
                     }
-                    Picker("One-offs", selection: $oneOffPlacementRaw) {
-                        ForEach(OneOffPlacement.allCases) { Text($0.title).tag($0.rawValue) }
-                    }
-                    Picker("One-off look", selection: $oneOffLookRaw) {
-                        ForEach(OneOffLook.allCases) { Text($0.title).tag($0.rawValue) }
-                    }
                     Picker("Plus override", selection: $plusOverride) {
                         Text("StoreKit").tag("default")
                         Text("Force on").tag("on")
@@ -182,7 +173,7 @@ struct HubView: View {
                 } header: {
                     Text("Developer")
                 } footer: {
-                    Text("A/B the floating Work/Edit/Calendar switcher and one-offs, and force the Plus entitlement to exercise gated UI without a purchase.")
+                    Text("A/B the floating Work/Edit/Calendar switcher, and force the Plus entitlement to exercise gated UI without a purchase.")
                 }
                 #endif
 

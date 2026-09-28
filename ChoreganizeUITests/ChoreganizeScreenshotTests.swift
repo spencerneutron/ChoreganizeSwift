@@ -490,7 +490,7 @@ final class ChoreganizeScreenshotTests: XCTestCase {
         app.launchEnvironment["CHOREGANIZE_SEED_ONE_OFFS"] = "Return the library books|Call the plumber"
         app.launchEnvironment["CHOREGANIZE_QUICKADD_HOLD"] = "1"
         app.launchArguments += ["-hasSeenOnboarding", "YES", "-activeScope", "solo",
-                                "-workGrouping", "room", "-oneOffPlacement", "inList"]
+                                "-workGrouping", "room"]
         app.launch()
         XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30), "seeded Work rows should render")
         settle(1.5)
