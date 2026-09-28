@@ -209,8 +209,11 @@ struct DayPage: View {
     @State private var showLogSheet = false
     /// #107: the check-off-with-a-photo sheet (today only, iOS 27 + Apple Intelligence).
     @State private var showPhotoCheck = false
-    /// The chore a widget deep-link (CG-05) is briefly highlighting on this page.
+    /// The chore a widget deep-link (CG-05) or a Quick Add save is briefly highlighting.
     @State private var highlightedChore: UUID?
+    /// #127: where the Quick Add ghost is; read only by the section slots.
+    @State private var quickAdd = QuickAddTracker()
+    @State private var quickAddRequest: QuickAddRequest?
 
     // Bottom clearances for the floating chrome, scaled with Dynamic Type so larger text
     // still clears it — replaces the old raw 132 / 84 magic numbers. The list reserves more
@@ -243,6 +246,35 @@ struct DayPage: View {
         model.deepLinkChore = nil   // consumed
     }
 
+    /// #127: scrolls to and flashes a chore the Quick Add sheet just saved, once
+    /// the fetch has picked it up.
+    @MainActor
+    private func flashNewChore(_ chore: CDChore, proxy: ScrollViewProxy) {
+        guard let id = chore.id else { return }
+        let objectID = chore.objectID
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            withAnimation { proxy.scrollTo(objectID, anchor: .center) }
+            highlightedChore = id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                withAnimation { if highlightedChore == id { highlightedChore = nil } }
+            }
+        }
+    }
+
+    /// A section's Quick Add slot, or nothing on days that don't offer one.
+    @ViewBuilder
+    private func quickAddSlot(id: String, key: WorkGrouping.Key, sectionName: String?,
+                              emptyDay: Bool, offered: Bool) -> some View {
+        if offered {
+            let prefill = ChorePrefill.make(for: key, on: date)
+            QuickAddSlot(id: id, prefill: prefill, tracker: quickAdd, sectionName: sectionName,
+                         title: emptyDay ? "Add a chore for \(date.formatted(.dateTime.weekday(.wide)))" : "New chore",
+                         pinned: emptyDay) {
+                quickAddRequest = QuickAddRequest(prefill: prefill)
+            }
+        }
+    }
+
     var body: some View {
         let active = model.activeHousehold
         let scopedLocks = Array(lockedDays).inScope(active)
@@ -256,6 +288,8 @@ struct DayPage: View {
         // A Done (unlocked) or Unlock (locked, not past) button floats on every day except a
         // locked PAST day; reserve extra bottom room only when one is shown.
         let hasDayButton = !(isLocked && isPast)
+        let offersQuickAdd = QuickAddRules.offersGhost(on: date, isLocked: isLocked)
+        let bottomClearance = hasDayButton ? bottomClearanceWithButton : bottomClearanceNoButton
 
         ScrollViewReader { proxy in
         List {
@@ -267,10 +301,15 @@ struct DayPage: View {
             // first group's header so it stays visible (WeekView shows no date of its own).
             let groups = grouping == .none ? [] : grouping.sections(for: dayChores)
             if groups.isEmpty {
-                Section(header: Text(header)) {
+                Section {
                     ForEach(dayChores, id: \.objectID) { chore in
                         ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore)
                     }
+                } header: {
+                    Text(header)
+                } footer: {
+                    quickAddSlot(id: "", key: .all, sectionName: nil,
+                                 emptyDay: dayChores.isEmpty, offered: offersQuickAdd)
                 }
             } else {
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
@@ -287,6 +326,9 @@ struct DayPage: View {
                         } else {
                             Text(group.title)
                         }
+                    } footer: {
+                        quickAddSlot(id: group.id, key: group.key, sectionName: group.title,
+                                     emptyDay: false, offered: offersQuickAdd)
                     }
                 }
             }
@@ -335,6 +377,11 @@ struct DayPage: View {
             }
         }
         .compatInsetGroupedList()
+        #if os(iOS)
+        // #127: each section's Quick Add slot is the gap between sections on days
+        // that offer it, so the list adds no spacing of its own there.
+        .listSectionSpacing(offersQuickAdd ? .custom(0) : .default)
+        #endif
         // Inset the rows past the left/right paging chevrons WeekView overlays near the
         // edges. contentMargins REPLACES the default insetGrouped margin (~20pt), so this
         // must exceed it to actually add space — 32 clears the chevrons with a gap.
@@ -344,8 +391,24 @@ struct DayPage: View {
         // the list enough trailing room that its last row rests clear ABOVE them at the end
         // of the scroll, while mid-scroll content still slides UNDER the translucent glass.
         // No TOP margin — the single-container safe area positions the header below the bar.
-        .contentMargins(.bottom, hasDayButton ? bottomClearanceWithButton : bottomClearanceNoButton, for: .scrollContent)
+        .contentMargins(.bottom, bottomClearance, for: .scrollContent)
         .scrollIndicators(.hidden)   // hide the scroll bar; scrolling still works
+        // #127: the ghost shows while this list moves (the pager's horizontal swipes
+        // don't reach here) and targets the slot nearest the visible middle.
+        .onScrollPhaseChange { _, phase in
+            quickAdd.scrollMoved(phase == .interacting || phase == .decelerating)
+        }
+        .onGeometryChange(for: QuickAddRules.Span.self) { proxy in
+            let frame = proxy.frame(in: .global)
+            return QuickAddRules.Span(minY: frame.minY, maxY: frame.maxY - bottomClearance)
+        } action: { span in
+            quickAdd.updateViewport(span)
+        }
+        .sheet(item: $quickAddRequest) { request in
+            NewChoreView(prefill: request.prefill) { chore in
+                flashNewChore(chore, proxy: proxy)
+            }
+        }
         .sheet(isPresented: $showLogSheet) {
             LogCompletionSheet(date: date, chores: inScopeChores)
         }
@@ -398,6 +461,12 @@ struct DayPage: View {
         }
         }
     }
+}
+
+/// #127: a Quick Add ghost tap — opens New Chore with the section's prefill.
+struct QuickAddRequest: Identifiable {
+    let id = UUID()
+    let prefill: ChorePrefill
 }
 
 /// Per-day completion editor for a (locked) past day (#57 Part 2). Past-day row
