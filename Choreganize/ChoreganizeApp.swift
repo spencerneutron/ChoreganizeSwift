@@ -77,11 +77,11 @@ struct ChoreganizeApp: App {
                         }
                     }
                 }
-                // CG-05: widget rows deep-link via the `choreganize://` scheme. Route to
-                // the targeted chore: switch to its scope so it's in view, then hand the
-                // target to the UI via `model.deepLinkChore` — ContentView switches to
-                // Work, WeekView snaps to today, and the day's page scrolls to + flashes
-                // the row (see AppModel.deepLinkChore).
+                // CG-05: widget rows deep-link via the `choreganize://` scheme. The link
+                // becomes `model.deepLinkRequest`; ContentView asks first if Edit holds
+                // unsaved chores, then `openDeepLinkChore` switches to the chore's scope and
+                // hands it to Work, where WeekView snaps to today and the day's page scrolls
+                // to + flashes the row (see AppModel.deepLinkChore).
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }

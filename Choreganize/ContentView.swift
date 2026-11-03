@@ -20,6 +20,13 @@ struct ContentView: View {
     @State private var pendingExit: EditExit?
     @State private var pendingChores = 0
 
+    /// Edit's container for this visit, picked on the way in: the split where the modes are in
+    /// the system tab bar, the stack with the pill. Picked per render, an iPad window crossing
+    /// compact/regular mid-visit (Split View, Stage Manager) swapped it and dropped an open
+    /// flow without asking. Held, the split just collapses to one column, and the stack just
+    /// widens; the next visit picks again.
+    @State private var editUsesSplit: Bool?
+
     /// Ways of leaving Edit that the guard asks about first.
     private enum EditExit: Equatable {
         case mode(AppMode)
@@ -27,8 +34,8 @@ struct ContentView: View {
     }
 
     /// The mode, through the Edit guard: leaving Edit with unsaved chores asks first, as the
-    /// add-flow's own Cancel does (#53). Every way of switching (tab bar, pill, widget link)
-    /// goes through here.
+    /// add-flow's own Cancel does (#53). The tab bar and the pill switch through here; a
+    /// widget link goes through `leave(for:)` too.
     private var guardedMode: Binding<AppMode> {
         Binding(get: { mode }, set: { newMode in if newMode != mode { leave(for: .mode(newMode)) } })
     }
@@ -102,7 +109,7 @@ struct ContentView: View {
             // Work forward if we're in Edit/Calendar. WeekView + DayPage then handle the
             // day reset, scroll, and highlight (see AppModel.deepLinkChore). Nothing changes,
             // not even the scope, until leaving Edit is settled.
-            .onChange(of: model.deepLinkRequest) { _, choreID in
+            .onChange(of: model.deepLinkRequest, initial: true) { _, choreID in
                 guard let choreID else { return }
                 model.deepLinkRequest = nil   // taken, so tapping the same chore again works
                 leave(for: .chore(choreID))
@@ -113,6 +120,7 @@ struct ContentView: View {
                    isPresented: Binding(get: { pendingExit != nil },
                                         set: { if !$0 { pendingExit = nil } })) {
                 Button("Discard", role: .destructive) {
+                    editGuard.removeAll()   // the flows close with Edit; don't wait for their entries
                     if let pendingExit { perform(pendingExit) }
                     pendingExit = nil
                 }
@@ -186,6 +194,9 @@ struct ContentView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)   // "adapts to each platform"
+        .onChange(of: mode, initial: true) { _, newMode in
+            editUsesSplit = newMode == .edit ? (editUsesSplit ?? systemTabs) : nil
+        }
     }
 
     /// A mode's navigation. Where the modes are in the system tab bar (iPad, iPhone Duo), Edit
@@ -199,7 +210,7 @@ struct ContentView: View {
     /// split, which put the pill inside its first column.
     @ViewBuilder
     private func navigation(for mode: AppMode, systemTabs: Bool) -> some View {
-        if mode == .edit && systemTabs {
+        if mode == .edit && (editUsesSplit ?? systemTabs) {
             EditSplit(flowGuard: editGuard) { selection in
                 // The same inset-grouped list as before, not the split view's sidebar style,
                 // and no room held for a large title it doesn't have. While the add-flow in
@@ -225,13 +236,6 @@ struct ContentView: View {
                         .animation(.easeInOut(duration: 0.2), value: editGuard.unsavedChores > 0),
                      systemTabs: systemTabs)
                     .disabled(editGuard.unsavedChores > 0)
-                    // The note is at the top of a list VoiceOver may not be in; say it once.
-                    .onChange(of: editGuard.unsavedChores > 0) { _, locked in
-                        if locked {
-                            AccessibilityNotification.Announcement(
-                                "The list is unavailable until you save or cancel these chores.").post()
-                        }
-                    }
                     .navigationBarTitleDisplayMode(.inline)
                     // Wide enough for the add-flow rows not to wrap; on the open iPhone Duo
                     // this puts the list's edge near the fold.
@@ -719,6 +723,7 @@ private struct EditSplit<Sidebar: View>: View {
     /// The split's shape, read without redrawing it (a redraw during its first layout is one
     /// way the system tucked the list away).
     @State private var shape = SplitShape()
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
@@ -752,7 +757,20 @@ private struct EditSplit<Sidebar: View>: View {
             shape.isPortrait = portrait
             if turned, selection != nil { updateColumns() }
         }
-        .onChange(of: selection) { updateColumns() }
+        .onChange(of: selection) {
+            // Nothing in the detail means no flow is open: don't wait for the closed one's
+            // entry to go.
+            if selection == nil { flowGuard.removeAll() }
+            updateColumns()
+        }
+        // The note is at the top of the list, beside the flow VoiceOver is in; say it once.
+        // Not where the list is out of sight (one column, or tucked away in portrait).
+        .onChange(of: flowGuard.unsavedChores > 0) { _, locked in
+            if locked, sizeClass == .regular, columns == .all {
+                AccessibilityNotification.Announcement(
+                    "The list is unavailable until you save or cancel these chores.").post()
+            }
+        }
         .environment(flowGuard)
     }
 

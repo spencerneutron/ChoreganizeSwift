@@ -115,6 +115,7 @@ struct EditHomeView: View {
                           systemImage: "text.bubble")
             }
             .disabled(!language.isAvailable)
+            .selectionDisabled(!language.isAvailable)
             .accessibilityIdentifier("addflow.describe")
             #else
             Button {
@@ -145,6 +146,7 @@ struct EditHomeView: View {
                           systemImage: "camera.viewfinder")
             }
             .disabled(!vision.isAvailable)
+            .selectionDisabled(!vision.isAvailable)
             .accessibilityIdentifier("addflow.snapRoom")
             #else
             Button {

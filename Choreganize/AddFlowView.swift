@@ -7,10 +7,11 @@ import CoreData
 // are navigation-agnostic (callback-driven) and reused across both lenses.
 
 /// Unsaved work in Edit flows: chores staged (the add-flow) or suggested and kept (Snap a
-/// Room, Describe Chores) but not yet saved. Where a flow sits beside a tappable list (the
-/// two-column Edit on iPad and the open iPhone Duo), the iOS shell reads it to keep that work
-/// from being dropped by a tap elsewhere: it disables the list and asks before leaving Edit.
-/// Nothing provides one on the Mac. Flows report through `guardsUnsavedChores(_:)`.
+/// Room, Describe Chores) but not yet saved. The iOS shell reads it to keep that work from
+/// being dropped by a tap elsewhere: it asks before leaving Edit (the tab bar, the pill, a
+/// widget link), and where a flow sits beside the list (the two-column Edit on iPad and the
+/// open iPhone Duo) it disables the list. Nothing provides one on the Mac. Flows report
+/// through `guardsUnsavedChores(_:)`.
 @Observable
 final class EditFlowGuard {
     /// What each open flow holds, by flow.
@@ -20,6 +21,10 @@ final class EditFlowGuard {
 
     fileprivate func set(_ flow: UUID, staged count: Int) { staged[flow] = count }
     fileprivate func remove(_ flow: UUID) { staged[flow] = nil }
+
+    /// Forgets every flow, for when they're known to be closed (their entries also remove
+    /// themselves, a moment later).
+    func removeAll() { staged = [:] }
 }
 
 extension View {
