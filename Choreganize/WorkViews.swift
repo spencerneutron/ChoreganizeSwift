@@ -146,14 +146,8 @@ struct WeekView: View {
         dates.firstIndex { Calendar.current.isDateInToday($0) } ?? 6
     }
 
-    /// The day at `index`, including one day past either end of `dates`, where a spread
-    /// shows an `EdgePage` rather than a day outside the range.
-    private func date(at index: Int) -> Date {
-        Calendar.current.date(byAdding: .day, value: index, to: dates[0]) ?? dates[0]
-    }
-
-    /// A spread's page: the day, or — one past either end of the range, which a spread can
-    /// reach so every day has a page — a quiet note that there's nothing further.
+    /// A day's page, or — one past either end of the range, which a spread can reach so
+    /// every day has a page — a quiet note that there's nothing further.
     @ViewBuilder
     private func spreadSide(_ index: Int) -> some View {
         if dates.indices.contains(index) {
@@ -175,13 +169,10 @@ struct WeekView: View {
         #endif
     }
 
-    /// Right-page indices of the spreads: every other day, in step with the focused day, so
-    /// a swipe moves two days and the focused day stays on the right. Reaching one past the
-    /// end keeps every day in the range on some spread whichever parity is in step; the
-    /// side that falls outside the range shows an `EdgePage`, never a day the single-page
-    /// view can't reach (opened on the earliest day, the left page is that note).
-    private var spreadRights: [Int] {
-        Array(stride(from: focusIndex % 2, through: dates.count, by: 2))
+    /// Page IDs: each day's index, or in a spread each spread's right-page index (see
+    /// `WeekPager.spreadRights`).
+    private func pageIDs(spread: Bool) -> [Int] {
+        spread ? WeekPager.spreadRights(focus: focusIndex, dayCount: dates.count) : Array(dates.indices)
     }
 
     var body: some View {
@@ -191,50 +182,56 @@ struct WeekView: View {
         // list rests BELOW the top nav controls and ABOVE the home indicator — a full-window
         // page (containerRelativeFrame) otherwise trapped the first rows under the top
         // controls and collided the Done button with the switcher. One container = identical
-        // insets on every page (D2 stays fixed). All iOS 17+.
+        // insets on every page (D2 stays fixed). iOS 18+ (ScrollPosition, scroll geometry).
+        // Horizontally, each page spans the full width — under a side safe-area inset (iPhone
+        // Duo's side bar, a notch in landscape) — and pads its own content clear of it. Pages
+        // narrower than the scroll view left a neighbour's sliver under the bar, which
+        // misaligned paging and made the leading-most page a neighbour. The outer reader
+        // keeps the safe area so it can report the insets; the pager's ignores it.
+        GeometryReader { outer in
+            pager(insets: outer.safeAreaInsets)
+        }
+    }
+
+    private func pager(insets: EdgeInsets) -> some View {
         GeometryReader { geo in
-            let spread = showsSpread(width: geo.size.width)
-            let pageIDs = spread ? spreadRights : Array(dates.indices)
+            let spread = showsSpread(width: geo.size.width - insets.leading - insets.trailing)
+            let pageIDs = pageIDs(spread: spread)
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
                     ForEach(pageIDs, id: \.self) { index in
-                        Group {
-                            if spread {
-                                spreadPage(right: index, in: geo)
-                            } else {
-                                DayPage(date: dates[index])
-                            }
-                        }
-                        // Each page == the safe-area-bounded container: gives the nested
-                        // List its bounded width AND height (it scrolls vertically within).
+                        page(index, spread: spread, insets: insets, in: geo)
+                        // Each page == the safe-area-bounded container vertically: gives the
+                        // nested List its bounded width AND height (it scrolls vertically within).
                         .frame(width: geo.size.width, height: geo.size.height)
                     }
                 }
                 .scrollTargetLayout()
             }
-            // Snap to each page, one per swipe. `.paging` snaps by the scroll view's full
-            // width, but a horizontal ScrollView extends under a side safe-area inset (iPhone
-            // Duo's side bar, a notch in landscape) while each page is only the safe width,
-            // so pages drifted out of alignment there. View alignment matches either way.
+            // Snap to each page, one per swipe.
             .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
             .scrollPosition($position)            // track the focused page (chevrons + deep link)
             .defaultScrollAnchor(.center)         // first layout centers today (the middle page)
             .scrollIndicators(.hidden)
-            // Record the focused day only when a scroll the user made settles. A resize
-            // (opening iPhone Duo, rotating) re-lays the pages out and can briefly report
-            // another page as leading, and a fresh scroll view reports its first position
-            // as settled too; neither must move the focus.
-            .onScrollPhaseChange { oldPhase, phase in
-                if phase == .idle, oldPhase != .idle, let index = position.viewID(type: Int.self) {
-                    focusIndex = index
-                }
+            // The focused page is where a scroll settles, read from the scroll offset. Only a
+            // scroll that ran — a swipe, an animated scroll from VoiceOver, a keyboard or the
+            // code below — moves it: layout passes (first launch, a resize when iPhone Duo
+            // opens or rotates) shift the offset without a scroll phase, and the layout switch
+            // below re-places the pager.
+            .onScrollPhaseChange { oldPhase, phase, context in
+                guard phase == .idle, oldPhase != .idle else { return }
+                focusIndex = pageIDs[WeekPager.pageIndex(offset: context.geometry.contentOffset.x,
+                                                         pageWidth: geo.size.width,
+                                                         pageCount: pageIDs.count)]
             }
-            // Opening or closing iPhone Duo (or resizing an iPad window) switches between one
-            // page and a spread. The page IDs change, so place the scroll view explicitly:
-            // the day that was on screen becomes the spread's right page, and a spread's
-            // right page becomes the single page — the user's eyes stay on the same day.
-            .onChange(of: spread) { _, isSpread in
-                let index = isSpread ? focusIndex : min(focusIndex, dates.count - 1)
+            // A new layout (opening or closing iPhone Duo, rotating, resizing an iPad window)
+            // changes the page width, and may switch between one page and a spread, which
+            // changes the page IDs. Neither keeps the offset on the focused day, so place the
+            // pager explicitly: the day that was on screen stays on screen (as a spread's
+            // right page), and a spread's right page becomes the single page.
+            .onChange(of: PagerLayout(width: geo.size.width, spread: spread)) { _, layout in
+                let index = WeekPager.pageID(switchingToSpread: layout.spread, focus: focusIndex,
+                                             dayCount: dates.count)
                 focusIndex = index
                 position.scrollTo(id: index)
             }
@@ -242,11 +239,14 @@ struct WeekView: View {
             // and the device's rounded corners are never the window's black base.
             .background(Color.compatGroupedBackground.ignoresSafeArea())
             // CG-05: a widget deep-link targets a today chore — snap back to today (the user
-            // may have paged away) so the targeted page is the one that scrolls to it.
+            // may have paged away) so the targeted page is the one that scrolls to it. A
+            // spread already showing today (on either side) stays put.
             .onChange(of: model.deepLinkChore) { _, target in
-                if target != nil, focusIndex != todayIndex {
-                    focusIndex = todayIndex
-                    withAnimation { position.scrollTo(id: todayIndex) }
+                if target != nil,
+                   let landing = WeekPager.deepLinkTarget(today: todayIndex, focus: focusIndex,
+                                                          spread: spread) {
+                    focusIndex = landing
+                    withAnimation { position.scrollTo(id: landing) }
                 }
             }
             .overlay(alignment: .center) {
@@ -262,25 +262,78 @@ struct WeekView: View {
                 .font(.title2)
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 6)
+                .padding(.leading, insets.leading)
+                .padding(.trailing, insets.trailing)
                 .opacity(0.5)
                 .allowsHitTesting(false)
                 .animation(.easeInOut, value: focusIndex)
             }
         }
+        .ignoresSafeArea(.container, edges: .horizontal)
     }
 
-    /// One spread: the day before on the left, the focused day on the right, divided where
-    /// the device folds.
-    private func spreadPage(right index: Int, in geo: GeometryProxy) -> some View {
-        let split = SpreadSplit(in: geo)
-        return HStack(spacing: 0) {
-            spreadSide(index - 1)
-                .frame(width: split.leadingWidth)
-            Color.clear
-                .frame(width: split.gap)
+    /// A page: the focused day, plus — in a spread — the day before it on the left, divided
+    /// where the device folds. The focused day keeps the same place in the view tree in both
+    /// layouts, so switching (opening or closing iPhone Duo, resizing an iPad window) keeps
+    /// its DayPage, with any open sheet, draft and list position, instead of rebuilding it.
+    /// Each side pads its content clear of the side safe-area insets it touches.
+    private func page(_ index: Int, spread: Bool, insets: EdgeInsets, in geo: GeometryProxy) -> some View {
+        HStack(spacing: 0) {
+            if spread {
+                let split = SpreadSplit(in: geo)
+                spreadSide(index - 1)
+                    .safeAreaPadding(.leading, insets.leading)
+                    .frame(width: split.leadingWidth)
+                Color.clear
+                    .frame(width: split.gap)
+            }
             spreadSide(index)
+                .safeAreaPadding(.leading, spread ? 0 : insets.leading)
+                .safeAreaPadding(.trailing, insets.trailing)
                 .frame(maxWidth: .infinity)
         }
+    }
+}
+
+/// The pager's layout: its page width, and whether it shows two-day spreads.
+private struct PagerLayout: Equatable {
+    var width: CGFloat
+    var spread: Bool
+}
+
+/// The Work pager's page arithmetic, kept pure for unit tests. Days are indices into the
+/// pager's range (`0 ..< dayCount`, today in the middle); a two-day spread is identified by
+/// its right page, the focused day.
+enum WeekPager {
+    /// Right-page indices of the spreads: every other day, in step with the focused day, so
+    /// a swipe moves two days and the focused day stays on the right. Reaching one past the
+    /// end keeps every day in the range on some spread whichever parity is in step; the
+    /// side that falls outside the range shows an `EdgePage`, never a day the single-page
+    /// view can't reach (opened on the earliest day, the left page is that note).
+    static func spreadRights(focus: Int, dayCount: Int) -> [Int] {
+        Array(stride(from: focus.isMultiple(of: 2) ? 0 : 1, through: dayCount, by: 2))
+    }
+
+    /// The page to show after switching layout: the focused day becomes a spread's right
+    /// page, and a spread's right page becomes the single page (one past the end, an edge
+    /// note, falls back to the last day, the one that spread showed).
+    static func pageID(switchingToSpread spread: Bool, focus: Int, dayCount: Int) -> Int {
+        spread ? focus : min(focus, dayCount - 1)
+    }
+
+    /// Where a deep link to today lands, or `nil` when today is already on screen.
+    static func deepLinkTarget(today: Int, focus: Int, spread: Bool) -> Int? {
+        guard spread else { return focus == today ? nil : today }
+        if focus == today || focus - 1 == today { return nil }
+        // Stay in step with the current spreads: today on the right if the parity allows,
+        // otherwise on the left of the next spread.
+        return (today - focus).isMultiple(of: 2) ? today : today + 1
+    }
+
+    /// The page at a horizontal scroll offset, measured from the content's leading inset.
+    static func pageIndex(offset: CGFloat, pageWidth: CGFloat, pageCount: Int) -> Int {
+        guard pageWidth > 0, pageCount > 0 else { return 0 }
+        return min(max(Int((offset / pageWidth).rounded()), 0), pageCount - 1)
     }
 }
 
@@ -299,9 +352,11 @@ private struct EdgePage: View {
 }
 
 /// Where a two-day spread divides. On iPhone Duo that's the fold: its division region
-/// (iOS 27.1) is reported even while the device is flat, with zero width, and widens to
-/// cover the curve when the device is partly folded, so each page keeps to one half and
-/// nothing sits in the fold. Elsewhere the spread divides halfway.
+/// (iOS 27.1) is reported even while the device is flat, and covers the curve when the
+/// device is partly folded, so each page keeps to one half and nothing sits in the fold.
+/// The gap follows the region's frame whether or not it's active (Apple: "An inactive
+/// region still has a frame, so you can leave room for it. This keeps your layout from
+/// jumping"). Elsewhere the spread divides halfway.
 private struct SpreadSplit {
     var leadingWidth: CGFloat
     var gap: CGFloat = 0
@@ -309,11 +364,13 @@ private struct SpreadSplit {
     init(in geo: GeometryProxy) {
         leadingWidth = geo.size.width / 2
         #if os(iOS)
+        // Only a fold that runs down the middle of the container splits the spread; one
+        // across it, or off to a side (Split View on the inner display), falls back to halves.
         if #available(iOS 27.1, *),
            let fold = geo.reservedRegions(kind: .division, options: .includeInactive).first,
            fold.frame.minX > geo.size.width / 4, fold.frame.maxX < geo.size.width * 3 / 4 {
             leadingWidth = fold.frame.minX
-            gap = fold.isActive ? fold.frame.width : 0
+            gap = fold.frame.width
         }
         #endif
     }
