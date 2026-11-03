@@ -138,7 +138,7 @@ struct WeekView: View {
     @State private var position = ScrollPosition(id: 6)
     @State private var focusIndex = 6
 
-    /// Narrowest page a two-day spread may use; below twice this, one day fills the width.
+    /// Narrowest content a side of a two-day spread may have; below it, one day fills the width.
     private static let minSpreadPageWidth: CGFloat = 360
 
     /// Index of today within `dates` (today is the middle of the range).
@@ -147,23 +147,29 @@ struct WeekView: View {
     }
 
     /// A day's page, or — one past either end of the range, which a spread can reach so
-    /// every day has a page — a quiet note that there's nothing further.
+    /// every day has a page — a quiet note that there's nothing further. Only the focused
+    /// page handles a widget deep link: a spread's left page may be about to make way for
+    /// the spread that puts today on the right.
     @ViewBuilder
-    private func spreadSide(_ index: Int) -> some View {
+    private func spreadSide(_ index: Int, focused: Bool = true) -> some View {
         if dates.indices.contains(index) {
-            DayPage(date: dates[index])
+            DayPage(date: dates[index], handlesDeepLinks: focused)
         } else {
             EdgePage(isEarlier: index < 0)
         }
     }
 
     /// Two days side by side (the day before | the focused day) where there's room: a
-    /// regular × regular size (iPad, iPhone Duo's inner display) and a container that fits
-    /// two pages. Decided by size class and the container, never the device model.
-    private func showsSpread(width: CGFloat) -> Bool {
+    /// regular × regular size (iPad, iPhone Duo's inner display) and room for both sides'
+    /// content once the fold and any side bar are taken out. Decided by size class and the
+    /// container, never the device model.
+    private func showsSpread(in geo: GeometryProxy, insets: EdgeInsets) -> Bool {
         #if os(iOS)
-        horizontalSizeClass == .regular && verticalSizeClass == .regular
-            && width >= 2 * Self.minSpreadPageWidth
+        guard horizontalSizeClass == .regular, verticalSizeClass == .regular else { return false }
+        let split = SpreadSplit(in: geo)
+        let leading = split.leadingWidth - insets.leading
+        let trailing = geo.size.width - split.leadingWidth - split.gap - insets.trailing
+        return min(leading, trailing) >= Self.minSpreadPageWidth
         #else
         false
         #endif
@@ -195,7 +201,7 @@ struct WeekView: View {
 
     private func pager(insets: EdgeInsets) -> some View {
         GeometryReader { geo in
-            let spread = showsSpread(width: geo.size.width - insets.leading - insets.trailing)
+            let spread = showsSpread(in: geo, insets: insets)
             let pageIDs = pageIDs(spread: spread)
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
@@ -239,12 +245,11 @@ struct WeekView: View {
             // and the device's rounded corners are never the window's black base.
             .background(Color.compatGroupedBackground.ignoresSafeArea())
             // CG-05: a widget deep-link targets a today chore — snap back to today (the user
-            // may have paged away) so the targeted page is the one that scrolls to it. A
-            // spread already showing today (on either side) stays put.
+            // may have paged away) so the targeted page is the one that scrolls to it. In a
+            // spread today lands on the right, the page that stays when iPhone Duo closes.
             .onChange(of: model.deepLinkChore) { _, target in
                 if target != nil,
-                   let landing = WeekPager.deepLinkTarget(today: todayIndex, focus: focusIndex,
-                                                          spread: spread) {
+                   let landing = WeekPager.deepLinkTarget(today: todayIndex, focus: focusIndex) {
                     focusIndex = landing
                     withAnimation { position.scrollTo(id: landing) }
                 }
@@ -264,7 +269,7 @@ struct WeekView: View {
         HStack(spacing: 0) {
             if spread {
                 let split = SpreadSplit(in: geo)
-                spreadSide(index - 1)
+                spreadSide(index - 1, focused: false)
                     .padding(.leading, insets.leading)
                     .frame(width: split.leadingWidth)
                 Color.clear
@@ -304,13 +309,12 @@ enum WeekPager {
         spread ? focus : min(focus, dayCount - 1)
     }
 
-    /// Where a deep link to today lands, or `nil` when today is already on screen.
-    static func deepLinkTarget(today: Int, focus: Int, spread: Bool) -> Int? {
-        guard spread else { return focus == today ? nil : today }
-        if focus == today || focus - 1 == today { return nil }
-        // Stay in step with the current spreads: today on the right if the parity allows,
-        // otherwise on the left of the next spread.
-        return (today - focus).isMultiple(of: 2) ? today : today + 1
+    /// Where a deep link to today lands, or `nil` when today is already the focused page.
+    /// In a spread that's the right page, even when today is showing on the left: the right
+    /// page is the one the outer display keeps when iPhone Duo closes. (The spreads then
+    /// re-step around today.)
+    static func deepLinkTarget(today: Int, focus: Int) -> Int? {
+        focus == today ? nil : today
     }
 
     /// The page at a horizontal scroll offset, measured from the content's leading inset.
@@ -376,6 +380,9 @@ struct DayPage: View {
     @AppStorage(SettingsKeys.oneOffsUnlimitedPersonal) private var oneOffsUnlimitedPersonal = false
     @State private var oneOffSheet: OneOffEditor.Mode?
     var date: Date
+    /// Whether this page acts on a widget deep link (CG-05). False for a two-day spread's
+    /// left page, which is about to make way for the spread with today on the right.
+    var handlesDeepLinks = true
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
     @State private var showLogSheet = false
@@ -407,7 +414,7 @@ struct DayPage: View {
     /// Only today's page acts — the widget links to today's chores; other days ignore it.
     @MainActor
     private func consumeDeepLink(_ target: UUID?, proxy: ScrollViewProxy, in dayChores: [CDChore]) {
-        guard isToday, let target else { return }
+        guard isToday, handlesDeepLinks, let target else { return }
         if let match = dayChores.first(where: { $0.id == target }) {
             withAnimation { proxy.scrollTo(match.objectID, anchor: .center) }
             highlightedChore = target

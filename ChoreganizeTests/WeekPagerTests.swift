@@ -54,23 +54,29 @@ struct WeekPagerTests {
 
     // MARK: Deep links
 
-    @Test func oneDeepLinkSnapsBackToToday() {
-        #expect(WeekPager.deepLinkTarget(today: today, focus: 9, spread: false) == today)
-        #expect(WeekPager.deepLinkTarget(today: today, focus: today, spread: false) == nil)
+    @Test func aDeepLinkSnapsBackToToday() {
+        #expect(WeekPager.deepLinkTarget(today: today, focus: 9) == today)
+        #expect(WeekPager.deepLinkTarget(today: today, focus: today) == nil)
     }
 
-    @Test func aSpreadShowingTodayOnEitherSideStaysPut() {
-        #expect(WeekPager.deepLinkTarget(today: today, focus: today, spread: true) == nil)
-        #expect(WeekPager.deepLinkTarget(today: today, focus: today + 1, spread: true) == nil)
+    /// From any page (including a spread with today on the left, or the edge spread), a
+    /// deep link makes today the focused page: the right page of a spread, the one the
+    /// outer display keeps when iPhone Duo closes.
+    @Test(arguments: 0...13)
+    func aDeepLinkPutsTodayOnTheFocusedPage(focus: Int) {
+        let landing = WeekPager.deepLinkTarget(today: today, focus: focus) ?? focus
+        #expect(landing == today)
+        #expect(WeekPager.spreadRights(focus: landing, dayCount: dayCount).contains(today))
+        #expect(WeekPager.pageID(switchingToSpread: false, focus: landing, dayCount: dayCount) == today)
     }
 
-    @Test func aSpreadAwayFromTodayLandsInStep() {
-        // Same parity: today on the right.
-        #expect(WeekPager.deepLinkTarget(today: today, focus: 10, spread: true) == today)
-        // Other parity: the spread with today on the left, so the spreads don't reshuffle.
-        let landing = WeekPager.deepLinkTarget(today: today, focus: 11, spread: true)
-        #expect(landing == today + 1)
-        #expect(WeekPager.spreadRights(focus: 11, dayCount: dayCount).contains(landing!))
+    // MARK: Closing on the edge spread
+
+    /// The last odd spread is (12 | "No later days"); folding to one page shows day 12.
+    @Test func closingOnTheEdgeSpreadShowsTheLastDay() {
+        let rights = WeekPager.spreadRights(focus: 11, dayCount: dayCount)
+        #expect(rights.last == dayCount)
+        #expect(WeekPager.pageID(switchingToSpread: false, focus: dayCount, dayCount: dayCount) == dayCount - 1)
     }
 
     // MARK: Offsets
