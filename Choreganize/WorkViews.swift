@@ -471,6 +471,12 @@ struct SpreadSplit {
     }
 }
 
+/// Whether a `DayPage` is showing a sheet or an alert (see `DayPage`).
+struct DayPagePresentingKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
 /// Single day page used within the horizontally scrolling week view or as a
 /// standalone view.
 struct DayPage: View {
@@ -704,6 +710,11 @@ struct DayPage: View {
         } action: { span in
             quickAdd.updateViewport(span)
         }
+        // A container that would replace this page (Calendar's two pages as iPhone Duo opens or
+        // closes) waits while it shows a sheet or a question, so the draft in it isn't lost.
+        .preference(key: DayPagePresentingKey.self,
+                    value: quickAddRequest != nil || oneOffSheet != nil || showLogSheet
+                        || showPhotoCheck || showDoneAlert)
         .sheet(item: $quickAddRequest) { request in
             NewChoreView(prefill: request.prefill, offersOneOff: true) { chore in
                 flashNewChore(chore, proxy: proxy)
