@@ -137,6 +137,11 @@ struct WeekView: View {
     // (both backed out). MacWorkHomeView shows one day with explicit navigation instead.
     @State private var position = ScrollPosition(id: 6)
     @State private var focusIndex = 6
+    #if os(iOS)
+    /// The open iPhone Duo's day rail follows the pager through this (see `DayRail`).
+    @State private var rail = DayRailTracker()
+    #endif
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Narrowest content a side of a two-day spread may have; below it, one day fills the width.
     private static let minSpreadPageWidth: CGFloat = 360
@@ -167,12 +172,39 @@ struct WeekView: View {
         #if os(iOS)
         guard horizontalSizeClass == .regular, verticalSizeClass == .regular else { return false }
         let split = SpreadSplit(in: geo)
-        let leading = split.leadingWidth - insets.leading
-        let trailing = geo.size.width - split.leadingWidth - split.gap - insets.trailing
+        let margins = Self.spreadMargins(insets)
+        let leading = split.leadingWidth - margins.leading
+        let trailing = geo.size.width - split.leadingWidth - split.gap - margins.trailing
         return min(leading, trailing) >= Self.minSpreadPageWidth
         #else
         false
         #endif
+    }
+
+    /// A spread's outer margins: beside a side bar (the open iPhone Duo) both pages step in
+    /// by the bar's width, so they sit symmetrically and the side away from the bar gains a
+    /// margin for the day rail.
+    private static func spreadMargins(_ insets: EdgeInsets) -> EdgeInsets {
+        let bar = max(insets.leading, insets.trailing)
+        return EdgeInsets(top: 0, leading: bar, bottom: 0, trailing: bar)
+    }
+
+    /// The two days a spread shows, for VoiceOver.
+    private func spreadDescription(right index: Int) -> String {
+        [index - 1, index]
+            .filter { dates.indices.contains($0) }
+            .map { dates[$0].formatted(.dateTime.weekday(.wide).month(.wide).day()) }
+            .joined(separator: " and ")
+    }
+
+    /// Pages to a spread picked on the day rail (a drag, or VoiceOver's adjust).
+    private func select(spread right: Int) {
+        focusIndex = right
+        if reduceMotion {
+            position.scrollTo(id: right)
+        } else {
+            withAnimation(.snappy) { position.scrollTo(id: right) }
+        }
     }
 
     /// Page IDs: each day's index, or in a spread each spread's right-page index (see
@@ -206,7 +238,7 @@ struct WeekView: View {
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
                     ForEach(pageIDs, id: \.self) { index in
-                        page(index, spread: spread, insets: insets, in: geo)
+                        page(index, spread: spread, insets: spread ? Self.spreadMargins(insets) : insets, in: geo)
                         // Each page == the safe-area-bounded container vertically: gives the
                         // nested List its bounded width AND height (it scrolls vertically within).
                         .frame(width: geo.size.width, height: geo.size.height)
@@ -241,6 +273,24 @@ struct WeekView: View {
                 focusIndex = index
                 position.scrollTo(id: index)
             }
+            #if os(iOS)
+            // The day rail tracks the pager continuously: the fractional spread on screen.
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, x in
+                guard spread, let first = pageIDs.first, geo.size.width > 0 else { return }
+                rail.rightIndex = CGFloat(first) + 2 * x / geo.size.width
+            }
+            // The open iPhone Duo: a spread beside a side bar gets the day rail in the margin
+            // across from the bar.
+            .overlay(alignment: insets.trailing >= insets.leading ? .leading : .trailing) {
+                let bar = max(insets.leading, insets.trailing)
+                if spread, bar > 0 {
+                    DayRail(dayCount: dates.count, tracker: rail, spreadRights: pageIDs,
+                            spreadDescription: { spreadDescription(right: $0) },
+                            onSelect: { select(spread: $0) })
+                        .frame(width: bar)
+                }
+            }
+            #endif
             // Paint the grouped background to the physical edges so the home-indicator band
             // and the device's rounded corners are never the window's black base.
             .background(Color.compatGroupedBackground.ignoresSafeArea())
@@ -263,8 +313,8 @@ struct WeekView: View {
     /// layouts, so switching (opening or closing iPhone Duo, resizing an iPad window) keeps
     /// its DayPage, with any open sheet, draft and list position, instead of rebuilding it.
     /// Each side is padded clear of the side safe-area insets it touches (a side bar, a
-    /// notch), so its list and cards stop short of them; only the plain page background,
-    /// painted by the pager, runs underneath.
+    /// notch) — in a spread, the mirrored `spreadMargins` — so its list and cards stop short
+    /// of them; only the plain page background, painted by the pager, runs underneath.
     private func page(_ index: Int, spread: Bool, insets: EdgeInsets, in geo: GeometryProxy) -> some View {
         HStack(spacing: 0) {
             if spread {
