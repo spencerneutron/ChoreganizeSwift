@@ -70,10 +70,28 @@ struct DayRail: View {
 
     // MARK: Drawing
 
-    /// Blended perceptually: an sRGB blend of amber and periwinkle goes muddy grey midway.
+    /// The rail's gradient, blended perceptually: an sRGB blend of amber and periwinkle goes
+    /// muddy grey midway.
+    private var colors: AnyGradient {
+        Gradient(colors: [RailColors.amber, RailColors.periwinkle]).colorSpace(.perceptual)
+    }
+
     private var gradient: some ShapeStyle {
-        .linearGradient(Gradient(colors: [RailColors.amber, RailColors.periwinkle]).colorSpace(.perceptual),
-                        startPoint: .top, endPoint: .bottom)
+        .linearGradient(colors, startPoint: .top, endPoint: .bottom)
+    }
+
+    /// The pill's rim: the stretch of the rail's gradient where the pill sits, exaggerated
+    /// to twice the pill's span so its two stages read — gold at the top of the rail,
+    /// periwinkle at the bottom. `top`/`bottom` are the pill's ends, as fractions of the
+    /// rail (0 = first tick, 1 = last).
+    private func rim(top: CGFloat, bottom: CGFloat) -> some ShapeStyle {
+        let span = min((bottom - top) * 2, 1)
+        let middle = (top + bottom) / 2
+        let from = min(max(middle - span / 2, 0), 1 - span)
+        // Map the whole gradient (0…1) so the pill's own top and bottom land on from…from+span.
+        return .linearGradient(colors,
+                               startPoint: UnitPoint(x: 0.5, y: -from / span),
+                               endPoint: UnitPoint(x: 0.5, y: (1 - from) / span))
     }
 
     private func skeleton(layout: RailLayout, x: CGFloat) -> some View {
@@ -96,7 +114,10 @@ struct DayRail: View {
         let tracked = (layout.y(fractional: max(right - 1, 0))
                        + layout.y(fractional: min(right, CGFloat(dayCount - 1)))) / 2
         let center = dragY.map { min(max($0, layout.y(0)), layout.y(dayCount - 1)) } ?? tracked
-        return GlassPill(rim: gradient)
+        let railSpan = max(layout.y(dayCount - 1) - layout.y(0), 1)
+        let top = (center - height / 2 - layout.y(0)) / railSpan
+        let bottom = (center + height / 2 - layout.y(0)) / railSpan
+        return GlassPill(rim: rim(top: top, bottom: bottom))
             .frame(width: 26, height: height)
             .position(x: x, y: center)
     }
