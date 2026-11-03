@@ -30,23 +30,29 @@ struct InsightsHomeView: View {
         let scope = model.activeHousehold
         let chores = Array(allChores).inScope(scope)
         let locks = Array(lockedDays).inScope(scope)
-        let dashboard = InsightsDashboard(
+        // Without Plus it's a teaser: the real layout, blurred and redacted, behind the lock
+        // card (placed by the dashboard, so it stays off the fold on iPhone Duo).
+        return InsightsDashboard(
             chores: chores, locks: locks,
-            scopeName: scope != nil ? model.householdName : AppScope.solo.title)
+            scopeName: scope != nil ? model.householdName : AppScope.solo.title,
+            locked: !isPlus)
+    }
+}
 
-        return Group {
-            if isPlus {
-                dashboard
-            } else {
-                // Teaser: the real layout, blurred + redacted, behind the lock
-                // card. Hit-testing off so nothing under the glass is tappable.
-                dashboard
-                    .blur(radius: 8)
-                    .redacted(reason: .placeholder)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                    .overlay { InsightsLockCard() }
-            }
+/// The teaser treatment: the real layout, blurred and redacted, with hit-testing off so
+/// nothing under the lock card's glass is tappable.
+private struct Teaser: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .blur(radius: 8)
+                .redacted(reason: .placeholder)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        } else {
+            content
         }
     }
 }
@@ -80,13 +86,17 @@ private struct InsightsLockCard: View {
 ///
 /// Where two pages fit (iPad, iPhone Duo's inner display; the same rule as Work's two-day
 /// spread), the dashboard opens like a book divided at the fold: the headline (the rates, the
-/// year and streaks) on the right page, the one the outer display shows, so opening iPhone
-/// Duo keeps it where your eyes are; the breakdowns and the share card on the left. Each
-/// page scrolls on its own. Elsewhere it's the single column, in the same order as before.
+/// year, streaks) and the share card on the right page, the one the outer display shows, so
+/// opening iPhone Duo keeps it where your eyes are; the room and frequency breakdowns on the
+/// left. Each page scrolls on its own. Elsewhere it's the single column, in the same order as
+/// before. The right page is the same view in both layouts, as in Work and Calendar, so opening
+/// or closing the Duo keeps its scroll position and the share card's rendered image.
 private struct InsightsDashboard: View {
     let chores: [CDChore]
     let locks: [CDLockedDay]
     let scopeName: String
+    /// Without Plus: blurred and redacted behind the lock card (CG-21 / #103).
+    let locked: Bool
 
     var body: some View {
         // Recomputed per render, same as the calendar grid / Hub streaks — the
@@ -95,42 +105,43 @@ private struct InsightsDashboard: View {
 
         #if os(iOS)
         SpreadReader { spread, margins, geo in
-            if spread {
-                let split = SpreadSplit(in: geo)
-                HStack(spacing: 0) {
-                    page {
-                        breakdowns(stats)
-                        shareSection(stats)
-                    }
-                    .padding(.leading, margins.leading)
-                    .frame(width: split.leadingWidth)
+            let split = SpreadSplit(in: geo)
+            HStack(spacing: 0) {
+                if spread {
+                    page { breakdowns(stats) }
+                        .modifier(Teaser(active: locked))
+                        .padding(.leading, margins.leading)
+                        .frame(width: split.leadingWidth)
                     Color.clear
                         .frame(width: split.gap)
-                    page {
-                        headline(stats)
-                        streaksSection(stats)
-                    }
-                    .padding(.trailing, margins.trailing)
-                    .frame(maxWidth: .infinity)
                 }
-            } else {
-                singleColumn(stats)
-                    .padding(.leading, margins.leading)
-                    .padding(.trailing, margins.trailing)
+                page {
+                    headline(stats)
+                    if !spread { breakdowns(stats) }
+                    streaksSection(stats)
+                    shareSection(stats)
+                }
+                .modifier(Teaser(active: locked))
+                // The lock card sits on this page: centered on both, it straddled the fold.
+                .overlay { if locked { InsightsLockCard() } }
+                .padding(.leading, spread ? 0 : margins.leading)
+                .padding(.trailing, margins.trailing)
+                .frame(maxWidth: .infinity)
+                // VoiceOver reads the headline first, as on one page.
+                .accessibilitySortPriority(1)
             }
+            .accessibilityElement(children: .contain)
         }
         #else
-        singleColumn(stats)
-        #endif
-    }
-
-    private func singleColumn(_ stats: Stats) -> some View {
         page {
             headline(stats)
             breakdowns(stats)
             streaksSection(stats)
             shareSection(stats)
         }
+        .modifier(Teaser(active: locked))
+        .overlay { if locked { InsightsLockCard() } }
+        #endif
     }
 
     /// One scrolling page of sections.
