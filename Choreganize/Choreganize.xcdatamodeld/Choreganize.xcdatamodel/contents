@@ -35,15 +35,24 @@
         <attribute name="createdDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="oneOffsUnlimited" optional="YES" attributeType="Boolean" usesScalarValueType="YES" defaultValueString="NO"/>
         <attribute name="plusEnabled" optional="YES" attributeType="Boolean" usesScalarValueType="YES" defaultValueString="NO"/>
         <relationship name="areas" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDArea" inverseName="household" inverseEntity="CDArea"/>
         <relationship name="chores" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDChore" inverseName="household" inverseEntity="CDChore"/>
         <relationship name="completions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDCompletion" inverseName="household" inverseEntity="CDCompletion"/>
         <relationship name="lockedDays" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDLockedDay" inverseName="household" inverseEntity="CDLockedDay"/>
+        <relationship name="oneOffs" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDOneOff" inverseName="household" inverseEntity="CDOneOff"/>
     </entity>
     <entity name="CDLockedDay" representedClassName="CDLockedDay" syncable="YES" codeGenerationType="class">
         <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <relationship name="household" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDHousehold" inverseName="lockedDays" inverseEntity="CDHousehold"/>
+    </entity>
+    <entity name="CDOneOff" representedClassName="CDOneOff" syncable="YES" codeGenerationType="class">
+        <attribute name="assignee" optional="YES" attributeType="String"/>
+        <attribute name="createdDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="title" optional="YES" attributeType="String"/>
+        <relationship name="household" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDHousehold" inverseName="oneOffs" inverseEntity="CDHousehold"/>
     </entity>
 </model>

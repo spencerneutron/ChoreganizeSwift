@@ -93,6 +93,23 @@ enum JSONImporter {
     }
 
 #if DEBUG
+    /// #128 screenshots and UI tests: `CHOREGANIZE_SEED_ONE_OFFS="Title|Title|…"` adds
+    /// Personal one-offs (oldest first) to a store that has none. Independent of the
+    /// chore seed, so a test can start with one-offs and no chores.
+    private static func seedOneOffsFromEnvironment(stack: CoreDataStack) {
+        guard let titles = ProcessInfo.processInfo.environment["CHOREGANIZE_SEED_ONE_OFFS"],
+              !titles.isEmpty else { return }
+        let ctx = stack.newBackgroundContext()
+        ctx.perform {
+            guard (try? ctx.count(for: oneOffsFetchRequest())) == 0 else { return }
+            for (index, title) in titles.split(separator: "|").enumerated() {
+                CDOneOff.make(in: ctx, title: String(title),
+                              createdDate: Date(timeIntervalSinceNow: Double(index - 100)))
+            }
+            try? ctx.save()
+        }
+    }
+
     /// Debug/screenshot seed. When `CHOREGANIZE_SEED_JSON` points to a
     /// `SavedState` JSON file, import it into an **empty** store so a simulator
     /// launches with a demonstrative dataset. Never compiled into release builds;
@@ -100,6 +117,7 @@ enum JSONImporter {
     /// (`SIMCTL_CHILD_CHOREGANIZE_SEED_JSON=…`). Note: `SavedState` decodes dates
     /// with a bare `JSONDecoder` (Apple reference-date seconds).
     static func seedFromEnvironmentIfNeeded(stack: CoreDataStack = .shared) {
+        seedOneOffsFromEnvironment(stack: stack)
         guard let path = ProcessInfo.processInfo.environment["CHOREGANIZE_SEED_JSON"],
               !path.isEmpty else { return }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
@@ -118,6 +136,7 @@ enum JSONImporter {
             if importState(state, into: ctx) {
                 Log.info("JSONImporter seed: loaded \(state.chores.count) chores / \(state.areas.count) areas from \(URL(fileURLWithPath: path).lastPathComponent)", category: .persistence)
             }
+
         }
     }
 #endif

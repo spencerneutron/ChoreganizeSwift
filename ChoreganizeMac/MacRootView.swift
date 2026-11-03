@@ -103,6 +103,11 @@ struct MacRootView: View {
             MacDescribeChoresSheet(initialText: request.text)
                 .environmentObject(model)
         }
+        .sheet(isPresented: $ui.newOneOff) {
+            OneOffEditor(mode: .new)
+                .environmentObject(model)
+                .frame(minWidth: 420, minHeight: 260)
+        }
         #if DEBUG
         .onAppear { MacDebugSnapshots.openSettings = { openSettings() } }
         #endif

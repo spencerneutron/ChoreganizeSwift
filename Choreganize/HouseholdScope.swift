@@ -20,6 +20,7 @@ extension CDChore: HouseholdScoped {}
 extension CDArea: HouseholdScoped {}
 extension CDCompletion: HouseholdScoped {}
 extension CDLockedDay: HouseholdScoped {}
+extension CDOneOff: HouseholdScoped {}
 
 extension Sequence where Element: NSManagedObject & HouseholdScoped {
     /// The items in the given scope (`nil` household == Solo).

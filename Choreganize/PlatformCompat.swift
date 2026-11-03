@@ -95,6 +95,15 @@ extension Color {
         Color(nsColor: .windowBackgroundColor)
         #endif
     }
+
+    /// A grouped list's card (row) fill.
+    static var compatCardBackground: Color {
+        #if os(iOS)
+        Color(.secondarySystemGroupedBackground)
+        #else
+        Color(nsColor: .controlBackgroundColor)
+        #endif
+    }
 }
 
 /// The success haptic used when an add-flow finishes. Wraps

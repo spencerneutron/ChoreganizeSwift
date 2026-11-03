@@ -19,4 +19,6 @@ final class MacUIState: ObservableObject {
     @Published var photoCheck: MacPhotoRequest?
     /// Presents Describe Chores (#106).
     @Published var describeChores: MacDescribeRequest?
+    /// Presents the new one-off sheet (#128, ⇧⌘N).
+    @Published var newOneOff = false
 }
