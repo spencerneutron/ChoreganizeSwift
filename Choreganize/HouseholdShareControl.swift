@@ -37,7 +37,10 @@ struct HouseholdShareControl: View {
                 Label("Rename Household…", systemImage: "pencil")
             }
         } label: {
-            Image(systemName: menuIcon)
+            // A title as well as the symbol: iPhone Duo's side bar shows the symbol, and
+            // the system uses the title in overflow menus and expanded forms (HIG,
+            // "Designing for iPhone Duo" ▸ Vertical controls).
+            Label("Household Sharing", systemImage: menuIcon)
         }
         .task(id: model.scope) { refresh() }
         // These notifications post on background queues — NSPersistentStoreRemoteChange

@@ -39,7 +39,7 @@ extension OnboardingStep {
               systemImage: "checklist"),
         .init(.modes,
               title: "Three views",
-              message: "Use the bar at the bottom to move between Work (today's checklist), Edit (manage chores & areas), and Calendar (the month at a glance).",
+              message: "Use the view switcher to move between Work (today's checklist), Edit (manage chores & areas), and Calendar (the month at a glance).",
               systemImage: "rectangle.3.group",
               spotlight: .modePicker),
         .init(.scheduling,

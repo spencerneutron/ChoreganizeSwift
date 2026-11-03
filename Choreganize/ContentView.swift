@@ -23,114 +23,27 @@ struct ContentView: View {
         )
     }
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// Whether the modes live in a system `TabView` rather than the floating glass
+    /// switcher (#65). Decided by what the system reports, never by device model (Apple:
+    /// "Don't use userInterfaceIdiom … for layout decisions"):
+    /// - a regular × regular size (iPad, iPhone Duo's inner display), where the tab bar
+    ///   can adapt into a sidebar;
+    /// - or a context where the system lays bars out vertically (iPhone Duo's outer
+    ///   display, and its inner display in landscape), so the modes join that side bar.
+    /// Everywhere else (iPhone in either orientation, a narrow iPad window) keeps the pill.
+    private func usesSystemTabs(barsAreVertical: Bool) -> Bool {
+        (horizontalSizeClass == .regular && verticalSizeClass == .regular) || barsAreVertical
+    }
+
     var body: some View {
-        NavigationStack {
-            VStack {
-                switch mode {
-                case .work:
-                    WorkHomeView()
-                case .edit:
-                    EditHomeView()
-                case .calendar:
-                    CalendarHomeView()
-                case .insights:
-                    InsightsHomeView()
-                }
-            }
-            .toolbar(.visible, for: .automatic)
-            .animation(.easeInOut, value: mode)
-            // Transient app banners (sync paused / not signed in, errors, info) live
-            // in a top safe-area inset — symmetric with the bottom mode switcher, it
-            // reserves its own room and pushes content down rather than overlapping.
-            // The banner queue already existed on AppModel; this surfaces it (CG-06).
-            .safeAreaInset(edge: .top) {
-                if let banner = model.currentBanner {
-                    AppBannerView(banner: banner) { model.dismissBanner() }
-                        .padding(.horizontal, 12)
-                        .padding(.top, 4)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: model.currentBanner)
-            // Freeze the calendar's perfect-day glow (shader + TimelineView) while a full-cover
-            // sheet is up — otherwise it keeps rendering behind the sheet and tanks its framerate
-            // (the Hub opened over the Calendar). Sheets opened from Work/Edit don't mount the
-            // calendar, so this is a no-op there.
-            .environment(\.glowAnimationActive,
-                         !(showingHub || showingLogs || cardStep.wrappedValue != nil))
-            .toolbar {
-                // Solo vs Household scope switch. (CloudKit sharing of the
-                // Household returns in Phase 3.)
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Picker("Scope", selection: Binding(
-                            get: { model.scope },
-                            set: { model.setScope($0) }
-                        )) {
-                            ForEach(AppScope.allCases) { scope in
-                                Label(scope.title, systemImage: scope.systemImage).tag(scope)
-                            }
-                        }
-                        // CG-16 / #98: pick among several households. Switching is
-                        // never gated (a member of two shares must be able to reach
-                        // both); CREATING an extra household is the Plus affordance.
-                        let households = model.allHouseholds
-                        if households.count > 1 {
-                            Section("Households") {
-                                ForEach(households, id: \.objectID) { household in
-                                    Button {
-                                        model.setActiveHousehold(household)
-                                        model.setScope(.household)
-                                    } label: {
-                                        if household == model.resolvedHousehold {
-                                            Label(household.name ?? "Household", systemImage: "checkmark")
-                                        } else {
-                                            Text(household.name ?? "Household")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if entitlements.isPlus {
-                            Button {
-                                newHouseholdName = ""
-                                showNewHousehold = true
-                            } label: {
-                                Label("New Household…", systemImage: "plus")
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: model.scope.systemImage)
-                            Text(model.scope == .household ? model.householdName : model.scope.title)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        // #52: pin the corner control to the leading edge and cap its
-                        // width so it grows/shrinks to the *right* and can never extend
-                        // past the screen bound mid-animation. Disabling the implicit
-                        // resize animation stops the "widen-then-recenter" jump when the
-                        // label changes (scope toggle / household-name edit).
-                        // #58: long household names still truncate at the tail.
-                        .frame(maxWidth: 160, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transaction { $0.disablesAnimations = true }
-                    }
-                    .onboardingAnchor(.scopeSwitch)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    if model.scope == .household {
-                        HouseholdShareControl()
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingHub = true
-                    } label: {
-                        Label("Hub", systemImage: "square.grid.2x2")
-                    }
-                }
-            }
+        VerticalBarReader { barsAreVertical in
+            shell(systemTabs: usesSystemTabs(barsAreVertical: barsAreVertical))
+        }
+            // Presentations are attached once, outside the navigation stack(s): the tab
+            // shell has one stack per tab and must not register four copies of each sheet.
             .alert("Error", isPresented: $showingError, actions: {
                 Button("OK", role: .cancel) { model.lastError = nil }
             }, message: {
@@ -186,41 +99,208 @@ struct ContentView: View {
                 }
                 #endif
             }
-            // #65: the floating mode switcher lives in the bottom safe-area inset — it
-            // reserves its own room and only hit-tests its own frame (no scrim, no
-            // full-screen overlay). Default style is the Menu-backed glass pill; the
-            // system owns expansion + outside-tap dismissal. See
-            // .claude-work/current/liquid-glass-switcher-spec.md.
-            // #65: the switcher floats OVER the content (an overlay, not a safeAreaInset)
-            // so the scroll views run full-bleed underneath and content slides under the
-            // translucent glass. A safeAreaInset would instead reserve an opaque band the
-            // content stops above — the regression we're undoing. Each mode's scroll view
-            // adds bottom contentMargins so its last rows still clear the floating chrome.
-            .overlay(alignment: .bottom) {
-                ZStack {
-                    ModeSwitcher(mode: $mode,
-                                 style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
-                                 onLongPress: { showingLogs = true })
-                        .onboardingAnchor(.modePicker)
-                    // CG-06: the sync status floats as its own glass chip BESIDE the
-                    // switcher (trailing) — never under it, and never via a
-                    // ToolbarItem(.status), which materializes an opaque bottom bar that
-                    // covers content and breaks the switcher's float-over-content design.
-                    // Non-interactive, so it never steals the switcher's touches.
-                    HStack {
-                        Spacer()
-                        SyncStatusIndicator(state: model.syncState)
-                            .allowsHitTesting(false)
-                            .padding(.trailing, 20)
+            .overlayPreferenceValue(SpotlightAnchorsKey.self) { anchors in
+                OnboardingSpotlightOverlay(coordinator: onboarding, anchors: anchors)
+            }
+    }
+
+    @ViewBuilder
+    private func shell(systemTabs: Bool) -> some View {
+        if systemTabs {
+            TabView(selection: $mode) {
+                ForEach(AppMode.allCases) { m in
+                    Tab(m.rawValue, systemImage: m.systemImage, value: m) {
+                        NavigationStack { bars(on: modeView(m)) }
                     }
-                    .animation(.easeInOut(duration: 0.2), value: model.syncState)
                 }
-                .padding(.bottom, 6)
+            }
+            .tabViewStyle(.sidebarAdaptable)   // "adapts to each platform"
+            // CG-06: the sync chip still floats on its own; the system owns the tab bar.
+            .overlay(alignment: .bottomTrailing) {
+                SyncStatusIndicator(state: model.syncState)
+                    .allowsHitTesting(false)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 6)
+                    .animation(.easeInOut(duration: 0.2), value: model.syncState)
+            }
+        } else {
+            NavigationStack {
+                bars(on: modeView(mode))
+                    // #65: the floating mode switcher lives in the bottom safe-area inset — it
+                    // reserves its own room and only hit-tests its own frame (no scrim, no
+                    // full-screen overlay). Default style is the Menu-backed glass pill; the
+                    // system owns expansion + outside-tap dismissal. See
+                    // .claude-work/current/liquid-glass-switcher-spec.md.
+                    // #65: the switcher floats OVER the content (an overlay, not a safeAreaInset)
+                    // so the scroll views run full-bleed underneath and content slides under the
+                    // translucent glass. A safeAreaInset would instead reserve an opaque band the
+                    // content stops above — the regression we're undoing. Each mode's scroll view
+                    // adds bottom contentMargins so its last rows still clear the floating chrome.
+                    .overlay(alignment: .bottom) {
+                        ZStack {
+                            ModeSwitcher(mode: $mode,
+                                         style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
+                                         onLongPress: { showingLogs = true })
+                                .onboardingAnchor(.modePicker)
+                            // CG-06: the sync status floats as its own glass chip BESIDE the
+                            // switcher (trailing) — never under it, and never via a
+                            // ToolbarItem(.status), which materializes an opaque bottom bar that
+                            // covers content and breaks the switcher's float-over-content design.
+                            // Non-interactive, so it never steals the switcher's touches.
+                            HStack {
+                                Spacer()
+                                SyncStatusIndicator(state: model.syncState)
+                                    .allowsHitTesting(false)
+                                    .padding(.trailing, 20)
+                            }
+                            .animation(.easeInOut(duration: 0.2), value: model.syncState)
+                        }
+                        .padding(.bottom, 6)
+                    }
             }
         }
-        .overlayPreferenceValue(SpotlightAnchorsKey.self) { anchors in
-            OnboardingSpotlightOverlay(coordinator: onboarding, anchors: anchors)
+    }
+
+    private func modeView(_ mode: AppMode) -> some View {
+        VStack {
+            switch mode {
+            case .work:
+                WorkHomeView()
+            case .edit:
+                EditHomeView()
+            case .calendar:
+                CalendarHomeView()
+            case .insights:
+                InsightsHomeView()
+            }
         }
+    }
+
+    /// The navigation-bar chrome every mode shares: banners, the scope switch, sharing and
+    /// the Hub. Applied inside each navigation stack (one in the pill shell, one per tab).
+    private func bars(on content: some View) -> some View {
+        VerticalBarReader { isVertical in
+            content
+                .toolbar(.visible, for: .automatic)
+                .animation(.easeInOut, value: mode)
+                // Transient app banners (sync paused / not signed in, errors, info) live
+                // in a top safe-area inset — symmetric with the bottom mode switcher, it
+                // reserves its own room and pushes content down rather than overlapping.
+                // The banner queue already existed on AppModel; this surfaces it (CG-06).
+                .safeAreaInset(edge: .top) {
+                    if let banner = model.currentBanner {
+                        AppBannerView(banner: banner) { model.dismissBanner() }
+                            .padding(.horizontal, 12)
+                            .padding(.top, 4)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.25), value: model.currentBanner)
+                // Freeze the calendar's perfect-day glow (shader + TimelineView) while a full-cover
+                // sheet is up — otherwise it keeps rendering behind the sheet and tanks its framerate
+                // (the Hub opened over the Calendar). Sheets opened from Work/Edit don't mount the
+                // calendar, so this is a no-op there.
+                .environment(\.glowAnimationActive,
+                             !(showingHub || showingLogs || cardStep.wrappedValue != nil))
+                .toolbar {
+                    // Solo vs Household scope switch. (CloudKit sharing of the
+                    // Household returns in Phase 3.)
+                    // Two branches, so the item is rebuilt when the bar axis flips. The system
+                    // places an item on an axis from the content it appears with; swapping only
+                    // the label left the scope menu stranded in a top bar after a rotation.
+                    if isVertical {
+                        ToolbarItem(placement: .topBarLeading) {
+                            scopeMenu(isVertical: true)
+                                .onboardingAnchor(.scopeSwitch)
+                        }
+                    } else {
+                        ToolbarItem(placement: .topBarLeading) {
+                            scopeMenu(isVertical: false)
+                                .onboardingAnchor(.scopeSwitch)
+                        }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        if model.scope == .household {
+                            HouseholdShareControl()
+                        }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showingHub = true
+                        } label: {
+                            Label("Hub", systemImage: "square.grid.2x2")
+                        }
+                    }
+                }
+        }
+    }
+
+    private func scopeMenu(isVertical: Bool) -> some View {
+        Menu {
+            Picker("Scope", selection: Binding(
+                get: { model.scope },
+                set: { model.setScope($0) }
+            )) {
+                ForEach(AppScope.allCases) { scope in
+                    Label(scope.title, systemImage: scope.systemImage).tag(scope)
+                }
+            }
+            // CG-16 / #98: pick among several households. Switching is
+            // never gated (a member of two shares must be able to reach
+            // both); CREATING an extra household is the Plus affordance.
+            let households = model.allHouseholds
+            if households.count > 1 {
+                Section("Households") {
+                    ForEach(households, id: \.objectID) { household in
+                        Button {
+                            model.setActiveHousehold(household)
+                            model.setScope(.household)
+                        } label: {
+                            if household == model.resolvedHousehold {
+                                Label(household.name ?? "Household", systemImage: "checkmark")
+                            } else {
+                                Text(household.name ?? "Household")
+                            }
+                        }
+                    }
+                }
+            }
+            if entitlements.isPlus {
+                Button {
+                    newHouseholdName = ""
+                    showNewHousehold = true
+                } label: {
+                    Label("New Household…", systemImage: "plus")
+                }
+            }
+        } label: {
+            if isVertical {
+                // iPhone Duo's side bar is fixed-width and favors symbols: an icon + text
+                // label would keep a whole horizontal bar alive for this one control. The
+                // title still names the item (menus, overflow, VoiceOver).
+                Label(scopeTitle, systemImage: model.scope.systemImage)
+            } else {
+                HStack(spacing: 4) {
+                    Image(systemName: model.scope.systemImage)
+                    Text(scopeTitle)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                // #52: pin the corner control to the leading edge and cap its
+                // width so it grows/shrinks to the *right* and can never extend
+                // past the screen bound mid-animation. Disabling the implicit
+                // resize animation stops the "widen-then-recenter" jump when the
+                // label changes (scope toggle / household-name edit).
+                // #58: long household names still truncate at the tail.
+                .frame(maxWidth: 160, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .transaction { $0.disablesAnimations = true }
+            }
+        }
+    }
+
+    private var scopeTitle: String {
+        model.scope == .household ? model.householdName : model.scope.title
     }
 }
 

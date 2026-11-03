@@ -26,6 +26,9 @@ struct HubView: View {
     /// CG-12 / #95: live Plus entitlement for the Support section.
     @ObservedObject private var entitlements = EntitlementStore.shared
     @State private var showPaywall = false
+    /// The log viewer. The pill switcher opens it on a long press; the system tab bar
+    /// (iPad, iPhone Duo) can't, so the Version row offers the same long press.
+    @State private var showLogs = false
 
     #if DEBUG
     /// #65 A/B: which floating mode-switcher style to use (toggled in the Developer
@@ -92,6 +95,7 @@ struct HubView: View {
                     if model.scope == .household {
                         LabeledContent("Sharing") {
                             HouseholdShareControl()
+                                .labelStyle(.iconOnly)   // the row already says "Sharing"
                         }
                     }
                 }
@@ -179,6 +183,8 @@ struct HubView: View {
 
                 Section("About") {
                     LabeledContent("Version", value: Self.appVersion)
+                        .contentShape(Rectangle())
+                        .onLongPressGesture(minimumDuration: 0.6) { showLogs = true }
                     // Debug builds only (DataIsolation): which data this run is using.
                     if let dataLabel = DataIsolation.label {
                         LabeledContent("Data", value: dataLabel)
@@ -193,6 +199,9 @@ struct HubView: View {
             }
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
+            }
+            .sheet(isPresented: $showLogs) {
+                LogViewerView()
             }
         }
     }
