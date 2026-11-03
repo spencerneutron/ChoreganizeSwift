@@ -94,8 +94,7 @@ struct HubView: View {
                     }
                     if model.scope == .household {
                         LabeledContent("Sharing") {
-                            HouseholdShareControl()
-                                .labelStyle(.iconOnly)   // the row already says "Sharing"
+                            HouseholdShareControl(iconOnly: true)   // the row already says "Sharing"
                         }
                     }
                 }
@@ -185,6 +184,7 @@ struct HubView: View {
                     LabeledContent("Version", value: Self.appVersion)
                         .contentShape(Rectangle())
                         .onLongPressGesture(minimumDuration: 0.6) { showLogs = true }
+                        .accessibilityAction(named: "Show Logs") { showLogs = true }
                     // Debug builds only (DataIsolation): which data this run is using.
                     if let dataLabel = DataIsolation.label {
                         LabeledContent("Data", value: dataLabel)

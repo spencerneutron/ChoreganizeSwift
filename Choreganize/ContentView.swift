@@ -104,61 +104,24 @@ struct ContentView: View {
             }
     }
 
-    @ViewBuilder
+    /// One `TabView` in every configuration, so the mode views are never rebuilt when the
+    /// system's sizes change: opening or closing iPhone Duo, rotating, resizing an iPad
+    /// window. (Apple: "Keep functionality and the state of elements the same between
+    /// displays.") `systemTabs` only decides who shows the modes: the system tab bar, or
+    /// the floating glass switcher with the tab bar hidden. As with the pill, only the
+    /// selected mode is mounted, so a hidden tab doesn't keep fetching, animating, or
+    /// holding a flow open while the scope changes from another tab.
     private func shell(systemTabs: Bool) -> some View {
-        if systemTabs {
-            TabView(selection: $mode) {
-                ForEach(AppMode.allCases) { m in
-                    Tab(m.rawValue, systemImage: m.systemImage, value: m) {
-                        NavigationStack { bars(on: modeView(m)) }
+        TabView(selection: $mode) {
+            ForEach(AppMode.allCases) { m in
+                Tab(m.rawValue, systemImage: m.systemImage, value: m) {
+                    if m == mode {
+                        NavigationStack { bars(on: modeView(m), systemTabs: systemTabs) }
                     }
                 }
             }
-            .tabViewStyle(.sidebarAdaptable)   // "adapts to each platform"
-            // CG-06: the sync chip still floats on its own; the system owns the tab bar.
-            .overlay(alignment: .bottomTrailing) {
-                SyncStatusIndicator(state: model.syncState)
-                    .allowsHitTesting(false)
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 6)
-                    .animation(.easeInOut(duration: 0.2), value: model.syncState)
-            }
-        } else {
-            NavigationStack {
-                bars(on: modeView(mode))
-                    // #65: the floating mode switcher lives in the bottom safe-area inset — it
-                    // reserves its own room and only hit-tests its own frame (no scrim, no
-                    // full-screen overlay). Default style is the Menu-backed glass pill; the
-                    // system owns expansion + outside-tap dismissal. See
-                    // .claude-work/current/liquid-glass-switcher-spec.md.
-                    // #65: the switcher floats OVER the content (an overlay, not a safeAreaInset)
-                    // so the scroll views run full-bleed underneath and content slides under the
-                    // translucent glass. A safeAreaInset would instead reserve an opaque band the
-                    // content stops above — the regression we're undoing. Each mode's scroll view
-                    // adds bottom contentMargins so its last rows still clear the floating chrome.
-                    .overlay(alignment: .bottom) {
-                        ZStack {
-                            ModeSwitcher(mode: $mode,
-                                         style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
-                                         onLongPress: { showingLogs = true })
-                                .onboardingAnchor(.modePicker)
-                            // CG-06: the sync status floats as its own glass chip BESIDE the
-                            // switcher (trailing) — never under it, and never via a
-                            // ToolbarItem(.status), which materializes an opaque bottom bar that
-                            // covers content and breaks the switcher's float-over-content design.
-                            // Non-interactive, so it never steals the switcher's touches.
-                            HStack {
-                                Spacer()
-                                SyncStatusIndicator(state: model.syncState)
-                                    .allowsHitTesting(false)
-                                    .padding(.trailing, 20)
-                            }
-                            .animation(.easeInOut(duration: 0.2), value: model.syncState)
-                        }
-                        .padding(.bottom, 6)
-                    }
-            }
         }
+        .tabViewStyle(.sidebarAdaptable)   // "adapts to each platform"
     }
 
     private func modeView(_ mode: AppMode) -> some View {
@@ -176,9 +139,10 @@ struct ContentView: View {
         }
     }
 
-    /// The navigation-bar chrome every mode shares: banners, the scope switch, sharing and
-    /// the Hub. Applied inside each navigation stack (one in the pill shell, one per tab).
-    private func bars(on content: some View) -> some View {
+    /// The chrome every mode shares: banners, the scope switch, sharing, the Hub, and the
+    /// mode switcher itself (system tab bar, or the floating pill). Applied to the root of
+    /// the selected tab's navigation stack.
+    private func bars(on content: some View, systemTabs: Bool) -> some View {
         VerticalBarReader { isVertical in
             content
                 .toolbar(.visible, for: .automatic)
@@ -230,6 +194,50 @@ struct ContentView: View {
                         } label: {
                             Label("Hub", systemImage: "square.grid.2x2")
                         }
+                    }
+                }
+                .toolbar(systemTabs ? .automatic : .hidden, for: .tabBar)
+                // #65: the floating mode switcher lives in the bottom safe-area inset — it
+                // reserves its own room and only hit-tests its own frame (no scrim, no
+                // full-screen overlay). Default style is the Menu-backed glass pill; the
+                // system owns expansion + outside-tap dismissal. See
+                // .claude-work/current/liquid-glass-switcher-spec.md.
+                // #65: the switcher floats OVER the content (an overlay, not a safeAreaInset)
+                // so the scroll views run full-bleed underneath and content slides under the
+                // translucent glass. A safeAreaInset would instead reserve an opaque band the
+                // content stops above — the regression we're undoing. Each mode's scroll view
+                // adds bottom contentMargins so its last rows still clear the floating chrome.
+                .overlay(alignment: .bottom) {
+                    if !systemTabs {
+                        ZStack {
+                            ModeSwitcher(mode: $mode,
+                                         style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
+                                         onLongPress: { showingLogs = true })
+                                .onboardingAnchor(.modePicker)
+                            // CG-06: the sync status floats as its own glass chip BESIDE the
+                            // switcher (trailing) — never under it, and never via a
+                            // ToolbarItem(.status), which materializes an opaque bottom bar that
+                            // covers content and breaks the switcher's float-over-content design.
+                            // Non-interactive, so it never steals the switcher's touches.
+                            HStack {
+                                Spacer()
+                                SyncStatusIndicator(state: model.syncState)
+                                    .allowsHitTesting(false)
+                                    .padding(.trailing, 20)
+                            }
+                            .animation(.easeInOut(duration: 0.2), value: model.syncState)
+                        }
+                        .padding(.bottom, 6)
+                    }
+                }
+                // CG-06 with the system tab bar: the chip floats in the content's own corner,
+                // inside the safe area, so it never covers the tab bar or iPhone Duo's side bar.
+                .overlay(alignment: .bottomTrailing) {
+                    if systemTabs {
+                        SyncStatusIndicator(state: model.syncState)
+                            .allowsHitTesting(false)
+                            .padding(12)
+                            .animation(.easeInOut(duration: 0.2), value: model.syncState)
                     }
                 }
         }
