@@ -157,7 +157,11 @@ struct WeekView: View {
                 }
                 .scrollTargetLayout()
             }
-            .scrollTargetBehavior(.paging)       // container-width snap == the old paged feel
+            // Snap to each day page, one per swipe. `.paging` snaps by the scroll view's full
+            // width, but a horizontal ScrollView extends under a side safe-area inset (iPhone
+            // Duo's side bar, a notch in landscape) while each page is only the safe width,
+            // so pages drifted out of alignment there. View alignment matches either way.
+            .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
             .scrollPosition(id: $currentIndex)    // track the centered day (chevrons + deep link)
             .defaultScrollAnchor(.center)         // first layout centers today (the middle page)
             .scrollIndicators(.hidden)
