@@ -6,6 +6,15 @@ import CoreData
 // the ambient NavigationStack). Engine lives in AddFlow.swift; the step subviews below
 // are navigation-agnostic (callback-driven) and reused across both lenses.
 
+/// Unsaved work in an Edit flow: chores staged in the add-flow but not yet saved. Where the
+/// flow sits beside a tappable list (the two-column Edit on iPad and the open iPhone Duo),
+/// the iOS shell reads it to keep that work from being dropped by a tap elsewhere: it
+/// disables the list and asks before leaving Edit. Nothing provides one on the Mac.
+@Observable
+final class EditFlowGuard {
+    var unsavedChores = 0
+}
+
 /// The guided add-flow, pushed in-tab from `EditHomeView`. One shell for both lenses,
 /// parameterized by `AddFlowGrouping` (the swappable grouping key). Steps advance in
 /// place; the system back button cancels the flow (drafts are uncommitted until
@@ -16,6 +25,7 @@ struct AddFlowFlowView: View {
     @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
+    @Environment(EditFlowGuard.self) private var flowGuard: EditFlowGuard?
     @StateObject private var flow: AddFlowModel
     @State private var step: Step = .pickGroup
     @State private var showDiscardConfirm = false
@@ -45,10 +55,19 @@ struct AddFlowFlowView: View {
         // With staged drafts uncommitted, replace the system back button (which would pop
         // and silently discard them) with a Cancel that confirms first (#53).
         .navigationBarBackButtonHidden(flow.draftCount > 0)
+        .onChange(of: flow.draftCount, initial: true) { _, count in flowGuard?.unsavedChores = count }
+        .onDisappear { flowGuard?.unsavedChores = 0 }
         .toolbar {
             if flow.draftCount > 0 {
                 ToolbarItem(placement: .compatLeading) {
                     Button("Cancel") { showDiscardConfirm = true }
+                        // On the button, so where it shows as a popover (iPad, the open
+                        // iPhone Duo) it points at Cancel rather than the middle of the step.
+                        .confirmationDialog("Discard \(flow.draftCount) unsaved chore\(flow.draftCount == 1 ? "" : "s")?",
+                                            isPresented: $showDiscardConfirm, titleVisibility: .visible) {
+                            Button("Discard", role: .destructive) { dismiss() }
+                            Button("Keep Editing", role: .cancel) {}
+                        }
                 }
             }
             // Jump to Review from the group picker after looping back with drafts staged.
@@ -57,11 +76,6 @@ struct AddFlowFlowView: View {
                     Button("Review") { advance(to: .review) }
                 }
             }
-        }
-        .confirmationDialog("Discard \(flow.draftCount) unsaved chore\(flow.draftCount == 1 ? "" : "s")?",
-                            isPresented: $showDiscardConfirm, titleVisibility: .visible) {
-            Button("Discard", role: .destructive) { dismiss() }
-            Button("Keep Editing", role: .cancel) {}
         }
     }
 

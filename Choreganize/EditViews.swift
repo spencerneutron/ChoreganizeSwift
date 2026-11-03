@@ -7,7 +7,10 @@ struct EditHomeView: View {
             Section {
                 ForEach(AddFlowGrouping.allCases) { lens in
                     NavigationLink {
-                        AddFlowFlowView(grouping: lens)
+                        // Each lens is its own flow: where the list sits beside its detail
+                        // (iPad, the open iPhone Duo), picking the other lens replaces the
+                        // detail in place, and without this it kept the first lens's steps.
+                        AddFlowFlowView(grouping: lens).id(lens)
                     } label: {
                         lensLabel(lens.title,
                                   subtitle: lens == .byArea

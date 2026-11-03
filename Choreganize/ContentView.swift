@@ -13,6 +13,27 @@ struct ContentView: View {
     /// CG-16 / #98: multiple households — creation is the Plus affordance.
     @ObservedObject private var entitlements = EntitlementStore.shared
     @State private var showNewHousehold = false
+    /// Edit's split view opens on its list where it collapses to one column.
+    @State private var editColumn = NavigationSplitViewColumn.sidebar
+    /// Chores staged in an Edit flow and not yet saved (see `EditFlowGuard`).
+    @State private var editGuard = EditFlowGuard()
+    /// A mode the user asked for while leaving Edit would drop staged chores.
+    @State private var pendingMode: AppMode?
+
+    /// The mode, through the Edit guard: leaving Edit with staged chores asks first, as the
+    /// add-flow's own Cancel does (#53). Every way of switching (tab bar, pill, widget link)
+    /// goes through here.
+    private var guardedMode: Binding<AppMode> {
+        Binding(get: { mode }, set: { switchMode(to: $0) })
+    }
+
+    private func switchMode(to newMode: AppMode) {
+        if newMode != mode, mode == .edit, editGuard.unsavedChores > 0 {
+            pendingMode = newMode
+        } else {
+            mode = newMode
+        }
+    }
     @State private var newHouseholdName = ""
 
     /// Card steps present as a sheet; spotlight steps use the overlay instead.
@@ -64,7 +85,21 @@ struct ContentView: View {
             // Work forward if we're in Edit/Calendar. WeekView + DayPage then handle the
             // day reset, scroll, and highlight (see AppModel.deepLinkChore).
             .onChange(of: model.deepLinkChore) { _, target in
-                if target != nil { mode = .work }
+                if target != nil { switchMode(to: .work) }
+            }
+            // An alert, not a confirmation dialog: nothing on screen anchors this choice (a
+            // dialog became a popover pointing at the middle of a wide window).
+            .alert("Discard \(editGuard.unsavedChores) unsaved chore\(editGuard.unsavedChores == 1 ? "" : "s")?",
+                   isPresented: Binding(get: { pendingMode != nil },
+                                        set: { if !$0 { pendingMode = nil } })) {
+                Button("Discard", role: .destructive) {
+                    editGuard.unsavedChores = 0
+                    if let pendingMode { mode = pendingMode }
+                    pendingMode = nil
+                }
+                Button("Keep Editing", role: .cancel) { pendingMode = nil }
+            } message: {
+                Text("They haven't been saved yet.")
             }
             .sheet(isPresented: $showingHub, onDismiss: { onboarding.playPendingIfNeeded() }) {
                 HubView()
@@ -112,12 +147,12 @@ struct ContentView: View {
     /// selected mode is mounted, so a hidden tab doesn't keep fetching, animating, or
     /// holding a flow open while the scope changes from another tab.
     private func shell(systemTabs: Bool) -> some View {
-        TabView(selection: $mode) {
+        TabView(selection: guardedMode) {
             ForEach(AppMode.allCases) { m in
                 Tab(m.rawValue, systemImage: m.systemImage, value: m) {
                     Group {
                         if m == mode {
-                            NavigationStack { bars(on: modeView(m), systemTabs: systemTabs) }
+                            navigation(for: m, systemTabs: systemTabs)
                         } else {
                             Color.clear
                         }
@@ -132,6 +167,54 @@ struct ContentView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)   // "adapts to each platform"
+    }
+
+    /// A mode's navigation. Edit is a list and its detail: a system split view that shows
+    /// both side by side where there's room (iPad, iPhone Duo's inner display) and collapses
+    /// to the familiar pushed list elsewhere (iPhone, the Duo's outer display). It's a split
+    /// view in every size, so opening or closing the Duo keeps the Edit tab instead of
+    /// rebuilding it. (Apple: a split view "expands on the inner display and collapses to a
+    /// single pane on the outer display", and adapts its columns to the fold.)
+    @ViewBuilder
+    private func navigation(for mode: AppMode, systemTabs: Bool) -> some View {
+        if mode == .edit {
+            NavigationSplitView(preferredCompactColumn: $editColumn) {
+                // The same inset-grouped list as before, not the split view's sidebar style,
+                // and no room held for a large title it doesn't have. While the add-flow in
+                // the detail has staged chores, the list (and its bar: scope, sharing, Hub)
+                // waits until it's saved or cancelled, so a tap here can't drop them.
+                // The note sits above the list, pushing it down: at the bottom it covered the
+                // last rows, which a short list doesn't scroll clear of.
+                bars(on: modeView(mode).listStyle(.insetGrouped)
+                        .safeAreaInset(edge: .top) {
+                            if editGuard.unsavedChores > 0 {
+                                Text("Save or cancel the chores you're adding to choose something else.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(12)
+                                    .frame(maxWidth: .infinity)
+                                    .background(.regularMaterial, in: .rect(cornerRadius: 12))
+                                    .padding(.horizontal)
+                                    .padding(.top, 4)
+                                    .transition(.opacity)
+                            }
+                        }
+                        .animation(.easeInOut(duration: 0.2), value: editGuard.unsavedChores > 0),
+                     systemTabs: systemTabs)
+                    .disabled(editGuard.unsavedChores > 0)
+                    .navigationBarTitleDisplayMode(.inline)
+                    // Wide enough for the add-flow rows not to wrap; on the open iPhone Duo
+                    // this puts the list's edge near the fold.
+                    .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 480)
+            } detail: {
+                ContentUnavailableView("Add or Manage Chores", systemImage: mode.systemImage,
+                                       description: Text("Choose a way to add chores, or a list to manage."))
+            }
+            .environment(editGuard)
+        } else {
+            NavigationStack { bars(on: modeView(mode), systemTabs: systemTabs) }
+        }
     }
 
     private func modeView(_ mode: AppMode) -> some View {
@@ -219,7 +302,7 @@ struct ContentView: View {
                 .overlay(alignment: .bottom) {
                     if !systemTabs {
                         ZStack {
-                            ModeSwitcher(mode: $mode,
+                            ModeSwitcher(mode: guardedMode,
                                          style: SwitcherStyle(rawValue: switcherStyleRaw) ?? .menu,
                                          onLongPress: { showingLogs = true })
                                 .onboardingAnchor(.modePicker)
