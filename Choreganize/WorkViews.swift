@@ -143,9 +143,6 @@ struct WeekView: View {
     #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Narrowest content a side of a two-day spread may have; below it, one day fills the width.
-    private static let minSpreadPageWidth: CGFloat = 360
-
     /// Index of today within `dates` (today is the middle of the range).
     private var todayIndex: Int {
         dates.firstIndex { Calendar.current.isDateInToday($0) } ?? 6
@@ -170,25 +167,11 @@ struct WeekView: View {
     /// container, never the device model.
     private func showsSpread(in geo: GeometryProxy, insets: EdgeInsets, sideBar: Bool) -> Bool {
         #if os(iOS)
-        guard horizontalSizeClass == .regular, verticalSizeClass == .regular else { return false }
-        let split = SpreadSplit(in: geo)
-        let margins = Self.spreadMargins(insets, sideBar: sideBar)
-        let leading = split.leadingWidth - margins.leading
-        let trailing = geo.size.width - split.leadingWidth - split.gap - margins.trailing
-        return min(leading, trailing) >= Self.minSpreadPageWidth
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+            && SpreadLayout.fits(in: geo, insets: insets, sideBar: sideBar)
         #else
         false
         #endif
-    }
-
-    /// A spread's outer margins: beside the system's side bar (the open iPhone Duo, where it
-    /// reports vertical bars) both pages step in by the bar's width, so they sit
-    /// symmetrically and the side away from the bar gains a margin for the day rail. Any
-    /// other horizontal inset (a notch, an iPad sidebar) is just padded clear of.
-    private static func spreadMargins(_ insets: EdgeInsets, sideBar: Bool) -> EdgeInsets {
-        guard sideBar else { return EdgeInsets(top: 0, leading: insets.leading, bottom: 0, trailing: insets.trailing) }
-        let bar = max(insets.leading, insets.trailing)
-        return EdgeInsets(top: 0, leading: bar, bottom: 0, trailing: bar)
     }
 
     /// The day rail never grows wider than this, whatever the inset beside it.
@@ -252,7 +235,7 @@ struct WeekView: View {
                 LazyHStack(spacing: 0) {
                     ForEach(pageIDs, id: \.self) { index in
                         page(index, spread: spread,
-                             insets: spread ? Self.spreadMargins(insets, sideBar: sideBar) : insets, in: geo)
+                             insets: spread ? SpreadLayout.margins(insets, sideBar: sideBar) : insets, in: geo)
                         // Each page == the safe-area-bounded container vertically: gives the
                         // nested List its bounded width AND height (it scrolls vertically within).
                         .frame(width: geo.size.width, height: geo.size.height)
@@ -332,7 +315,7 @@ struct WeekView: View {
     /// layouts, so switching (opening or closing iPhone Duo, resizing an iPad window) keeps
     /// its DayPage, with any open sheet, draft and list position, instead of rebuilding it.
     /// Each side is padded clear of the side safe-area insets it touches (a side bar, a
-    /// notch) — in a spread, the mirrored `spreadMargins` — so its list and cards stop short
+    /// notch) — in a spread, the mirrored `SpreadLayout.margins` — so its list and cards stop short
     /// of them; only the plain page background, painted by the pager, runs underneath.
     private func page(_ index: Int, spread: Bool, insets: EdgeInsets, in geo: GeometryProxy) -> some View {
         HStack(spacing: 0) {
@@ -407,13 +390,69 @@ private struct EdgePage: View {
     }
 }
 
+/// The two-page layout Work and Calendar share on a wide, regular × regular container (iPad,
+/// iPhone Duo's inner display): the rule for when it fits, its outer margins, and (with
+/// `SpreadSplit`) where it divides.
+enum SpreadLayout {
+    /// Narrowest content a side of a two-page spread may have; below it, one page fills the width.
+    static let minPageWidth: CGFloat = 360
+
+    /// Whether both sides get at least `minPageWidth` once the fold and the margins are taken
+    /// out. The caller checks the size classes.
+    static func fits(in geo: GeometryProxy, insets: EdgeInsets, sideBar: Bool) -> Bool {
+        let split = SpreadSplit(in: geo)
+        let margins = margins(insets, sideBar: sideBar)
+        let leading = split.leadingWidth - margins.leading
+        let trailing = geo.size.width - split.leadingWidth - split.gap - margins.trailing
+        return min(leading, trailing) >= minPageWidth
+    }
+
+    /// A spread's outer margins: beside the system's side bar (the open iPhone Duo, where it
+    /// reports vertical bars) both pages step in by the bar's width, so they sit
+    /// symmetrically about the fold and the side away from the bar gains a margin (Work's day
+    /// rail). Any other horizontal inset (a notch, an iPad sidebar) is just padded clear of.
+    static func margins(_ insets: EdgeInsets, sideBar: Bool) -> EdgeInsets {
+        guard sideBar else { return EdgeInsets(top: 0, leading: insets.leading, bottom: 0, trailing: insets.trailing) }
+        let bar = max(insets.leading, insets.trailing)
+        return EdgeInsets(top: 0, leading: bar, bottom: 0, trailing: bar)
+    }
+}
+
+#if os(iOS)
+/// Hands `content` whether two pages fit here by `SpreadLayout`'s rule (and the size classes),
+/// the margins its pages take, and the full-width container. As in Work's pager, the outer
+/// reader keeps the safe area to report the insets, and the inner one spans the full width so
+/// each page can pad itself clear of a side bar or notch.
+struct SpreadReader<Content: View>: View {
+    @ViewBuilder let content: (_ spread: Bool, _ margins: EdgeInsets, _ geo: GeometryProxy) -> Content
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    var body: some View {
+        GeometryReader { outer in
+            VerticalBarReader { sideBar in
+                GeometryReader { geo in
+                    let spread = horizontalSizeClass == .regular && verticalSizeClass == .regular
+                        && SpreadLayout.fits(in: geo, insets: outer.safeAreaInsets, sideBar: sideBar)
+                    content(spread,
+                            spread ? SpreadLayout.margins(outer.safeAreaInsets, sideBar: sideBar)
+                                   : outer.safeAreaInsets,
+                            geo)
+                }
+                .ignoresSafeArea(.container, edges: .horizontal)
+            }
+        }
+    }
+}
+#endif
+
 /// Where a two-day spread divides. On iPhone Duo that's the fold: its division region
 /// (iOS 27.1) is reported even while the device is flat, and covers the curve when the
 /// device is partly folded, so each page keeps to one half and nothing sits in the fold.
 /// The gap follows the region's frame whether or not it's active (Apple: "An inactive
 /// region still has a frame, so you can leave room for it. This keeps your layout from
 /// jumping"). Elsewhere the spread divides halfway.
-private struct SpreadSplit {
+struct SpreadSplit {
     var leadingWidth: CGFloat
     var gap: CGFloat = 0
 

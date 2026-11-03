@@ -86,6 +86,15 @@ extension View {
 }
 
 extension Color {
+    /// The plain backdrop: `systemBackground` on iOS, the window background on macOS.
+    static var compatBackground: Color {
+        #if os(iOS)
+        Color(.systemBackground)
+        #else
+        Color(nsColor: .windowBackgroundColor)
+        #endif
+    }
+
     /// Grouped-list backdrop: `systemGroupedBackground` on iOS, the window
     /// background on macOS (grouped grays don't exist in AppKit).
     static var compatGroupedBackground: Color {
