@@ -168,11 +168,11 @@ struct WeekView: View {
     /// regular × regular size (iPad, iPhone Duo's inner display) and room for both sides'
     /// content once the fold and any side bar are taken out. Decided by size class and the
     /// container, never the device model.
-    private func showsSpread(in geo: GeometryProxy, insets: EdgeInsets) -> Bool {
+    private func showsSpread(in geo: GeometryProxy, insets: EdgeInsets, sideBar: Bool) -> Bool {
         #if os(iOS)
         guard horizontalSizeClass == .regular, verticalSizeClass == .regular else { return false }
         let split = SpreadSplit(in: geo)
-        let margins = Self.spreadMargins(insets)
+        let margins = Self.spreadMargins(insets, sideBar: sideBar)
         let leading = split.leadingWidth - margins.leading
         let trailing = geo.size.width - split.leadingWidth - split.gap - margins.trailing
         return min(leading, trailing) >= Self.minSpreadPageWidth
@@ -181,13 +181,18 @@ struct WeekView: View {
         #endif
     }
 
-    /// A spread's outer margins: beside a side bar (the open iPhone Duo) both pages step in
-    /// by the bar's width, so they sit symmetrically and the side away from the bar gains a
-    /// margin for the day rail.
-    private static func spreadMargins(_ insets: EdgeInsets) -> EdgeInsets {
+    /// A spread's outer margins: beside the system's side bar (the open iPhone Duo, where it
+    /// reports vertical bars) both pages step in by the bar's width, so they sit
+    /// symmetrically and the side away from the bar gains a margin for the day rail. Any
+    /// other horizontal inset (a notch, an iPad sidebar) is just padded clear of.
+    private static func spreadMargins(_ insets: EdgeInsets, sideBar: Bool) -> EdgeInsets {
+        guard sideBar else { return EdgeInsets(top: 0, leading: insets.leading, bottom: 0, trailing: insets.trailing) }
         let bar = max(insets.leading, insets.trailing)
         return EdgeInsets(top: 0, leading: bar, bottom: 0, trailing: bar)
     }
+
+    /// The day rail never grows wider than this, whatever the inset beside it.
+    private static let maxRailWidth: CGFloat = 88
 
     /// The two days a spread shows, for VoiceOver.
     private func spreadDescription(right index: Int) -> String {
@@ -227,18 +232,27 @@ struct WeekView: View {
         // misaligned paging and made the leading-most page a neighbour. The outer reader
         // keeps the safe area so it can report the insets; the pager's ignores it.
         GeometryReader { outer in
-            pager(insets: outer.safeAreaInsets)
+            #if os(iOS)
+            VerticalBarReader { barsAreVertical in
+                pager(insets: outer.safeAreaInsets, sideBar: barsAreVertical)
+            }
+            #else
+            pager(insets: outer.safeAreaInsets, sideBar: false)
+            #endif
         }
     }
 
-    private func pager(insets: EdgeInsets) -> some View {
+    /// `sideBar`: the system lays bars out vertically here (iPhone Duo), so a horizontal
+    /// inset is its side bar.
+    private func pager(insets: EdgeInsets, sideBar: Bool) -> some View {
         GeometryReader { geo in
-            let spread = showsSpread(in: geo, insets: insets)
+            let spread = showsSpread(in: geo, insets: insets, sideBar: sideBar)
             let pageIDs = pageIDs(spread: spread)
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
                     ForEach(pageIDs, id: \.self) { index in
-                        page(index, spread: spread, insets: spread ? Self.spreadMargins(insets) : insets, in: geo)
+                        page(index, spread: spread,
+                             insets: spread ? Self.spreadMargins(insets, sideBar: sideBar) : insets, in: geo)
                         // Each page == the safe-area-bounded container vertically: gives the
                         // nested List its bounded width AND height (it scrolls vertically within).
                         .frame(width: geo.size.width, height: geo.size.height)
@@ -272,21 +286,26 @@ struct WeekView: View {
                                              dayCount: dates.count)
                 focusIndex = index
                 position.scrollTo(id: index)
+                #if os(iOS)
+                if layout.spread { rail.rightIndex = CGFloat(index) }
+                #endif
             }
             #if os(iOS)
             // The day rail tracks the pager continuously: the fractional spread on screen.
             .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, x in
-                guard spread, let first = pageIDs.first, geo.size.width > 0 else { return }
-                rail.rightIndex = CGFloat(first) + 2 * x / geo.size.width
+                guard spread, let first = pageIDs.first else { return }
+                rail.rightIndex = DayRailMath.rightIndex(firstRight: first, offset: x, pageWidth: geo.size.width)
             }
             // The open iPhone Duo: a spread beside a side bar gets the day rail in the margin
             // across from the bar.
             .overlay(alignment: insets.trailing >= insets.leading ? .leading : .trailing) {
                 let bar = max(insets.leading, insets.trailing)
-                if spread, bar > 0 {
+                if spread, sideBar, bar > 0 {
                     DayRail(dayCount: dates.count, tracker: rail, spreadRights: pageIDs,
+                            focusedRight: focusIndex,
                             spreadDescription: { spreadDescription(right: $0) },
                             onSelect: { select(spread: $0) })
+                        .frame(width: min(bar, Self.maxRailWidth))
                         .frame(width: bar)
                 }
             }
