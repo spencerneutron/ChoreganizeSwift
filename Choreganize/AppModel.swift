@@ -71,6 +71,24 @@ final class AppModel: ObservableObject {
     /// mounted *in response* to the link and still see the pending target.
     @Published var deepLinkChore: UUID?
 
+    /// A widget link's chore, before anything changes (iOS). `ContentView` decides whether it
+    /// can leave the current screen (Edit may hold unsaved chores and ask first), then calls
+    /// `openDeepLinkChore(_:)`. Until then the scope stays put.
+    @Published var deepLinkRequest: UUID?
+
+    /// Opens a chore from a widget link: switches the scope so the chore is on today's page,
+    /// then hands it to the Work view through `deepLinkChore`.
+    func openDeepLinkChore(_ choreID: UUID) {
+        let request = NSFetchRequest<CDChore>(entityName: "CDChore")
+        request.fetchLimit = 1
+        request.predicate = NSPredicate(format: "id == %@", choreID as CVarArg)
+        if let chore = try? CoreDataStack.shared.viewContext.fetch(request).first {
+            let targetScope: AppScope = chore.household == nil ? .solo : .household
+            if scope != targetScope { setScope(targetScope) }
+        }
+        deepLinkChore = choreID
+    }
+
     // MARK: - Personal→Household migration (CG-11 / #64)
     /// Presents the migration picker sheet (set from the household menu, or by
     /// the one-time offer banner after a share is created/accepted).

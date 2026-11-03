@@ -6,13 +6,59 @@ import CoreData
 // the ambient NavigationStack). Engine lives in AddFlow.swift; the step subviews below
 // are navigation-agnostic (callback-driven) and reused across both lenses.
 
-/// Unsaved work in an Edit flow: chores staged in the add-flow but not yet saved. Where the
-/// flow sits beside a tappable list (the two-column Edit on iPad and the open iPhone Duo),
-/// the iOS shell reads it to keep that work from being dropped by a tap elsewhere: it
-/// disables the list and asks before leaving Edit. Nothing provides one on the Mac.
+/// Unsaved work in Edit flows: chores staged (the add-flow) or suggested and kept (Snap a
+/// Room, Describe Chores) but not yet saved. Where a flow sits beside a tappable list (the
+/// two-column Edit on iPad and the open iPhone Duo), the iOS shell reads it to keep that work
+/// from being dropped by a tap elsewhere: it disables the list and asks before leaving Edit.
+/// Nothing provides one on the Mac. Flows report through `guardsUnsavedChores(_:)`.
 @Observable
 final class EditFlowGuard {
-    var unsavedChores = 0
+    /// What each open flow holds, by flow.
+    private var staged: [UUID: Int] = [:]
+
+    var unsavedChores: Int { staged.values.reduce(0, +) }
+
+    fileprivate func set(_ flow: UUID, staged count: Int) { staged[flow] = count }
+    fileprivate func remove(_ flow: UUID) { staged[flow] = nil }
+}
+
+extension View {
+    /// Reports `staged` unsaved chores to the Edit guard for as long as this flow exists.
+    func guardsUnsavedChores(_ staged: Int) -> some View {
+        modifier(UnsavedChoresReporter(staged: staged))
+    }
+}
+
+private struct UnsavedChoresReporter: ViewModifier {
+    let staged: Int
+    @Environment(EditFlowGuard.self) private var flowGuard: EditFlowGuard?
+    @State private var entry = GuardEntry()
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { entry.report(staged, to: flowGuard) }
+            .onChange(of: staged) { _, count in entry.report(count, to: flowGuard) }
+    }
+}
+
+/// A flow's entry in the guard, kept for the flow's whole life: it lives in the flow's state,
+/// so it goes when the flow does and takes the entry with it. Appearances aren't a reliable
+/// signal here: a refused tab switch, or the split view moving a column, can end and restart
+/// them while the flow and its chores live on.
+private final class GuardEntry {
+    private let id = UUID()
+    private weak var flowGuard: EditFlowGuard?
+
+    func report(_ staged: Int, to flowGuard: EditFlowGuard?) {
+        self.flowGuard = flowGuard
+        flowGuard?.set(id, staged: staged)
+    }
+
+    deinit {
+        // After the update that removed the flow, not during it.
+        let id = id, flowGuard = flowGuard
+        DispatchQueue.main.async { [weak flowGuard] in flowGuard?.remove(id) }
+    }
 }
 
 /// The guided add-flow, pushed in-tab from `EditHomeView`. One shell for both lenses,
@@ -25,7 +71,6 @@ struct AddFlowFlowView: View {
     @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
-    @Environment(EditFlowGuard.self) private var flowGuard: EditFlowGuard?
     @StateObject private var flow: AddFlowModel
     @State private var step: Step = .pickGroup
     @State private var showDiscardConfirm = false
@@ -55,19 +100,16 @@ struct AddFlowFlowView: View {
         // With staged drafts uncommitted, replace the system back button (which would pop
         // and silently discard them) with a Cancel that confirms first (#53).
         .navigationBarBackButtonHidden(flow.draftCount > 0)
-        .onChange(of: flow.draftCount, initial: true) { _, count in flowGuard?.unsavedChores = count }
-        .onDisappear { flowGuard?.unsavedChores = 0 }
+        .guardsUnsavedChores(flow.draftCount)
         .toolbar {
             if flow.draftCount > 0 {
                 ToolbarItem(placement: .compatLeading) {
                     Button("Cancel") { showDiscardConfirm = true }
+                        #if os(iOS)
                         // On the button, so where it shows as a popover (iPad, the open
                         // iPhone Duo) it points at Cancel rather than the middle of the step.
-                        .confirmationDialog("Discard \(flow.draftCount) unsaved chore\(flow.draftCount == 1 ? "" : "s")?",
-                                            isPresented: $showDiscardConfirm, titleVisibility: .visible) {
-                            Button("Discard", role: .destructive) { dismiss() }
-                            Button("Keep Editing", role: .cancel) {}
-                        }
+                        .modifier(discardConfirmation)
+                        #endif
                 }
             }
             // Jump to Review from the group picker after looping back with drafts staged.
@@ -77,6 +119,14 @@ struct AddFlowFlowView: View {
                 }
             }
         }
+        #if os(macOS)
+        .modifier(discardConfirmation)
+        #endif
+    }
+
+    /// Cancel's "discard the staged chores?" question.
+    private var discardConfirmation: DiscardConfirmation {
+        DiscardConfirmation(count: flow.draftCount, isPresented: $showDiscardConfirm) { dismiss() }
     }
 
     @ViewBuilder private var stepView: some View {
@@ -105,6 +155,20 @@ struct AddFlowFlowView: View {
         flow.commit(in: context, household: model.activeHousehold)
         successHaptic.success()
         dismiss()
+    }
+}
+
+private struct DiscardConfirmation: ViewModifier {
+    let count: Int
+    @Binding var isPresented: Bool
+    let onDiscard: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog("Discard \(count) unsaved chore\(count == 1 ? "" : "s")?",
+                                   isPresented: $isPresented, titleVisibility: .visible) {
+            Button("Discard", role: .destructive, action: onDiscard)
+            Button("Keep Editing", role: .cancel) {}
+        }
     }
 }
 

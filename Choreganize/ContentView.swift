@@ -13,25 +13,42 @@ struct ContentView: View {
     /// CG-16 / #98: multiple households — creation is the Plus affordance.
     @ObservedObject private var entitlements = EntitlementStore.shared
     @State private var showNewHousehold = false
-    /// Edit's split view opens on its list where it collapses to one column.
-    @State private var editColumn = NavigationSplitViewColumn.sidebar
     /// Chores staged in an Edit flow and not yet saved (see `EditFlowGuard`).
     @State private var editGuard = EditFlowGuard()
-    /// A mode the user asked for while leaving Edit would drop staged chores.
-    @State private var pendingMode: AppMode?
+    /// Where the user asked to go while leaving Edit would drop unsaved chores, and how many
+    /// (kept for the question's wording while it closes).
+    @State private var pendingExit: EditExit?
+    @State private var pendingChores = 0
 
-    /// The mode, through the Edit guard: leaving Edit with staged chores asks first, as the
+    /// Ways of leaving Edit that the guard asks about first.
+    private enum EditExit: Equatable {
+        case mode(AppMode)
+        case chore(UUID)   // a widget link: switches the scope and shows the chore on Work
+    }
+
+    /// The mode, through the Edit guard: leaving Edit with unsaved chores asks first, as the
     /// add-flow's own Cancel does (#53). Every way of switching (tab bar, pill, widget link)
     /// goes through here.
     private var guardedMode: Binding<AppMode> {
-        Binding(get: { mode }, set: { switchMode(to: $0) })
+        Binding(get: { mode }, set: { newMode in if newMode != mode { leave(for: .mode(newMode)) } })
     }
 
-    private func switchMode(to newMode: AppMode) {
-        if newMode != mode, mode == .edit, editGuard.unsavedChores > 0 {
-            pendingMode = newMode
+    private func leave(for exit: EditExit) {
+        if mode == .edit, editGuard.unsavedChores > 0 {
+            pendingChores = editGuard.unsavedChores
+            pendingExit = exit
         } else {
+            perform(exit)
+        }
+    }
+
+    private func perform(_ exit: EditExit) {
+        switch exit {
+        case .mode(let newMode):
             mode = newMode
+        case .chore(let choreID):
+            model.openDeepLinkChore(choreID)
+            mode = .work
         }
     }
     @State private var newHouseholdName = ""
@@ -83,23 +100,25 @@ struct ContentView: View {
             }
             // CG-05: a widget deep-link points at a chore on the Work surface, so bring
             // Work forward if we're in Edit/Calendar. WeekView + DayPage then handle the
-            // day reset, scroll, and highlight (see AppModel.deepLinkChore).
-            .onChange(of: model.deepLinkChore) { _, target in
-                if target != nil { switchMode(to: .work) }
+            // day reset, scroll, and highlight (see AppModel.deepLinkChore). Nothing changes,
+            // not even the scope, until leaving Edit is settled.
+            .onChange(of: model.deepLinkRequest) { _, choreID in
+                guard let choreID else { return }
+                model.deepLinkRequest = nil   // taken, so tapping the same chore again works
+                leave(for: .chore(choreID))
             }
             // An alert, not a confirmation dialog: nothing on screen anchors this choice (a
             // dialog became a popover pointing at the middle of a wide window).
-            .alert("Discard \(editGuard.unsavedChores) unsaved chore\(editGuard.unsavedChores == 1 ? "" : "s")?",
-                   isPresented: Binding(get: { pendingMode != nil },
-                                        set: { if !$0 { pendingMode = nil } })) {
+            .alert(pendingChores == 1 ? "Discard 1 unsaved chore?" : "Discard \(pendingChores) unsaved chores?",
+                   isPresented: Binding(get: { pendingExit != nil },
+                                        set: { if !$0 { pendingExit = nil } })) {
                 Button("Discard", role: .destructive) {
-                    editGuard.unsavedChores = 0
-                    if let pendingMode { mode = pendingMode }
-                    pendingMode = nil
+                    if let pendingExit { perform(pendingExit) }
+                    pendingExit = nil
                 }
-                Button("Keep Editing", role: .cancel) { pendingMode = nil }
+                Button("Keep Editing", role: .cancel) { pendingExit = nil }
             } message: {
-                Text("They haven't been saved yet.")
+                Text(pendingChores == 1 ? "It hasn't been saved yet." : "They haven't been saved yet.")
             }
             .sheet(isPresented: $showingHub, onDismiss: { onboarding.playPendingIfNeeded() }) {
                 HubView()
@@ -169,23 +188,26 @@ struct ContentView: View {
         .tabViewStyle(.sidebarAdaptable)   // "adapts to each platform"
     }
 
-    /// A mode's navigation. Edit is a list and its detail: a system split view that shows
-    /// both side by side where there's room (iPad, iPhone Duo's inner display) and collapses
-    /// to the familiar pushed list elsewhere (iPhone, the Duo's outer display). It's a split
-    /// view in every size, so opening or closing the Duo keeps the Edit tab instead of
-    /// rebuilding it. (Apple: a split view "expands on the inner display and collapses to a
-    /// single pane on the outer display", and adapts its columns to the fold.)
+    /// A mode's navigation. Where the modes are in the system tab bar (iPad, iPhone Duo), Edit
+    /// is a list and its detail: a system split view that shows both side by side where
+    /// there's room (iPad, the Duo's inner display) and collapses to the pushed list on the
+    /// Duo's outer display. It's a split view in every size there, so opening or closing the
+    /// Duo keeps the Edit tab instead of rebuilding it. (Apple: a split view "expands on the
+    /// inner display and collapses to a single pane on the outer display", and adapts its
+    /// columns to the fold.) With the floating pill (iPhone, a narrow iPad window), Edit is
+    /// the pushed list it always was: a Plus or Pro Max in landscape is wide enough for a
+    /// split, which put the pill inside its first column.
     @ViewBuilder
     private func navigation(for mode: AppMode, systemTabs: Bool) -> some View {
-        if mode == .edit {
-            NavigationSplitView(preferredCompactColumn: $editColumn) {
+        if mode == .edit && systemTabs {
+            EditSplit(flowGuard: editGuard) { selection in
                 // The same inset-grouped list as before, not the split view's sidebar style,
                 // and no room held for a large title it doesn't have. While the add-flow in
                 // the detail has staged chores, the list (and its bar: scope, sharing, Hub)
                 // waits until it's saved or cancelled, so a tap here can't drop them.
                 // The note sits above the list, pushing it down: at the bottom it covered the
                 // last rows, which a short list doesn't scroll clear of.
-                bars(on: modeView(mode).listStyle(.insetGrouped)
+                bars(on: EditHomeView(selection: selection).listStyle(.insetGrouped)
                         .safeAreaInset(edge: .top) {
                             if editGuard.unsavedChores > 0 {
                                 Text("Save or cancel the chores you're adding to choose something else.")
@@ -203,17 +225,23 @@ struct ContentView: View {
                         .animation(.easeInOut(duration: 0.2), value: editGuard.unsavedChores > 0),
                      systemTabs: systemTabs)
                     .disabled(editGuard.unsavedChores > 0)
+                    // The note is at the top of a list VoiceOver may not be in; say it once.
+                    .onChange(of: editGuard.unsavedChores > 0) { _, locked in
+                        if locked {
+                            AccessibilityNotification.Announcement(
+                                "The list is unavailable until you save or cancel these chores.").post()
+                        }
+                    }
                     .navigationBarTitleDisplayMode(.inline)
                     // Wide enough for the add-flow rows not to wrap; on the open iPhone Duo
                     // this puts the list's edge near the fold.
                     .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 480)
-            } detail: {
-                ContentUnavailableView("Add or Manage Chores", systemImage: mode.systemImage,
-                                       description: Text("Choose a way to add chores, or a list to manage."))
             }
-            .environment(editGuard)
         } else {
+            // Edit's flows still report to the guard here, so a widget link asks before
+            // dropping their unsaved chores.
             NavigationStack { bars(on: modeView(mode), systemTabs: systemTabs) }
+                .environment(editGuard)
         }
     }
 
@@ -670,3 +698,73 @@ private struct LegacyMorph: View {
         .environment(\.managedObjectContext, PreviewStack.context)
 }
 #endif
+
+/// The Edit tab where the modes are in the system tab bar: the Edit list and its detail in a
+/// system split view. The list's selection drives the detail, which has its own stack so a
+/// list there (Areas) can push. The split owns the selection, so each visit to Edit starts on
+/// the list (only the selected mode is mounted). (Apple: "selecting an item in the view's
+/// primary pane displays the item's contents in the secondary pane.")
+private struct EditSplit<Sidebar: View>: View {
+    let flowGuard: EditFlowGuard
+    @ViewBuilder let sidebar: (Binding<EditDestination?>) -> Sidebar
+
+    @State private var selection: EditDestination?
+    /// Both columns while nothing is chosen, and always in landscape, where the list sits
+    /// beside the detail. Taller than wide (a portrait iPad, the Duo held upright) the list
+    /// sits over the detail, so once a row is chosen it steps aside; the sidebar button
+    /// brings it back. Left to the system, portrait opened Edit on the empty detail with the
+    /// list, and its scope, sharing and Hub controls, tucked away, and it still does on some
+    /// launches, so the empty detail offers the list too.
+    @State private var columns = NavigationSplitViewVisibility.all
+    /// The split's shape, read without redrawing it (a redraw during its first layout is one
+    /// way the system tucked the list away).
+    @State private var shape = SplitShape()
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: $columns) {
+            sidebar($selection)
+        } detail: {
+            NavigationStack {
+                if let selection {
+                    // Its own identity per row: two lenses are the same view type, and
+                    // switching between them kept the first one's steps.
+                    selection.view.id(selection)
+                } else {
+                    ContentUnavailableView {
+                        Label("Add or Manage Chores", systemImage: AppMode.edit.systemImage)
+                    } description: {
+                        Text("Choose a way to add chores, or a list to manage.")
+                    } actions: {
+                        if columns == .detailOnly {
+                            Button("Show List") { withAnimation { columns = .all } }
+                        }
+                    }
+                }
+            }
+        }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            // Only a new width can mean the device turned: the keyboard coming up shortens the
+            // split, and read as landscape, which brought the list back over the flow.
+            guard size.width != shape.width else { return }
+            shape.width = size.width
+            let portrait = size.height > size.width
+            let turned = shape.isPortrait != portrait
+            shape.isPortrait = portrait
+            if turned, selection != nil { updateColumns() }
+        }
+        .onChange(of: selection) { updateColumns() }
+        .environment(flowGuard)
+    }
+
+    private func updateColumns() {
+        let wanted: NavigationSplitViewVisibility = shape.isPortrait && selection != nil ? .detailOnly : .all
+        if columns != wanted { columns = wanted }
+    }
+}
+
+/// Edit's split's width and whether it's taller than wide, kept by reference so reading them
+/// doesn't redraw.
+private final class SplitShape {
+    var width: CGFloat = 0
+    var isPortrait = false
+}

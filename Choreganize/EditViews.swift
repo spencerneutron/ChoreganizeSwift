@@ -1,17 +1,39 @@
 import SwiftUI
 import CoreData
 
+/// Where a row on the Edit list leads. On iOS the list is the sidebar of a split view and
+/// these drive its detail column; on the Mac (and in previews) the rows push them.
+enum EditDestination: Hashable {
+    case lens(AddFlowGrouping)
+    case snapRoom
+    case describe
+    case chores
+    case areas
+
+    @ViewBuilder var view: some View {
+        switch self {
+        case .lens(let lens): AddFlowFlowView(grouping: lens)
+        case .chores: ChoreListView()
+        case .areas: AreaListView()
+        #if os(iOS)
+        case .snapRoom: RoomSnapFlowView()
+        case .describe: DescribeChoresFlowView()
+        #else
+        case .snapRoom, .describe: EmptyView()   // the Mac opens these as sheets
+        #endif
+        }
+    }
+}
+
 struct EditHomeView: View {
+    /// The split view's selection (iOS). Without one, the rows push their destinations.
+    var selection: Binding<EditDestination?>? = nil
+
     var body: some View {
-        List {
+        List(selection: selection) {
             Section {
                 ForEach(AddFlowGrouping.allCases) { lens in
-                    NavigationLink {
-                        // Each lens is its own flow: where the list sits beside its detail
-                        // (iPad, the open iPhone Duo), picking the other lens replaces the
-                        // detail in place, and without this it kept the first lens's steps.
-                        AddFlowFlowView(grouping: lens).id(lens)
-                    } label: {
+                    link(to: .lens(lens)) {
                         lensLabel(lens.title,
                                   subtitle: lens == .byArea
                                       ? "Pick a room, then add its chores."
@@ -29,13 +51,24 @@ struct EditHomeView: View {
             }
 
             Section("Manage") {
-                NavigationLink("Chores") { ChoreListView() }
-                NavigationLink("Areas") { AreaListView() }
+                link(to: .chores) { Text("Chores") }
+                link(to: .areas) { Text("Areas") }
             }
         }
         // Float-over-content (#65): clear the floating mode switcher so the last row isn't
         // hidden behind it.
         .contentMargins(.bottom, 100, for: .scrollContent)
+    }
+
+    /// A row that selects `destination` in the split view, or pushes it where there's none.
+    @ViewBuilder
+    private func link<Label: View>(to destination: EditDestination,
+                                   @ViewBuilder label: () -> Label) -> some View {
+        if selection != nil {
+            NavigationLink(value: destination, label: label)
+        } else {
+            NavigationLink(destination: { destination.view }, label: label)
+        }
     }
 
     private func lensLabel(_ title: String, subtitle: String, systemImage: String) -> some View {
@@ -76,9 +109,7 @@ struct EditHomeView: View {
         let language = RoomVisionAvailability.describeChores
         if language.isOfferable {
             #if os(iOS)
-            NavigationLink {
-                DescribeChoresFlowView()
-            } label: {
+            link(to: .describe) {
                 lensLabel("Describe Chores",
                           subtitle: language.hint ?? "Type or say what needs doing, and when.",
                           systemImage: "text.bubble")
@@ -108,9 +139,7 @@ struct EditHomeView: View {
         let vision = RoomVisionAvailability.current
         if vision.isOfferable {
             #if os(iOS)
-            NavigationLink {
-                RoomSnapFlowView()
-            } label: {
+            link(to: .snapRoom) {
                 lensLabel("Snap a Room",
                           subtitle: vision.hint ?? "Take a photo of a room to get chore ideas.",
                           systemImage: "camera.viewfinder")
