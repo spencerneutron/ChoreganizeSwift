@@ -112,17 +112,22 @@ struct ContentView: View {
     /// selected mode is mounted, so a hidden tab doesn't keep fetching, animating, or
     /// holding a flow open while the scope changes from another tab.
     private func shell(systemTabs: Bool) -> some View {
-        // With the pill, the TabView holds just the current mode's tab and its (hidden) bar
-        // never shows: a tab bar hidden by a mode's view came back as soon as the pill
-        // switched to another tab. The current mode's tab is in both sets, so switching
-        // between the pill and the tab bar keeps it.
         TabView(selection: $mode) {
-            ForEach(systemTabs ? AppMode.allCases : [mode]) { m in
+            ForEach(AppMode.allCases) { m in
                 Tab(m.rawValue, systemImage: m.systemImage, value: m) {
-                    if m == mode {
-                        NavigationStack { bars(on: modeView(m), systemTabs: systemTabs) }
-                            .toolbar(systemTabs ? .automatic : .hidden, for: .tabBar)
+                    Group {
+                        if m == mode {
+                            NavigationStack { bars(on: modeView(m), systemTabs: systemTabs) }
+                        } else {
+                            Color.clear
+                        }
                     }
+                    // Every tab carries the bar's visibility, mounted or not (a placeholder
+                    // stands in for the modes not on screen): set only on the open mode's view,
+                    // the hidden bar came back as soon as the pill switched to another tab. The
+                    // four tabs never change, so switching between the pill and the tab bar
+                    // (an iPad window crossing compact/regular) keeps the open mode.
+                    .toolbar(systemTabs ? .automatic : .hidden, for: .tabBar)
                 }
             }
         }
