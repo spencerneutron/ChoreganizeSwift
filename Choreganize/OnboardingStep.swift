@@ -57,7 +57,7 @@ extension OnboardingStep {
               systemImage: "square.and.arrow.up"),
         .init(.finishDay,
               title: "Finish the day",
-              message: "Tap Done to wrap up a day. Past days lock automatically so your history stays accurate — but feel free to work ahead!",
+              message: "Tap Done to wrap up a day, and swipe sideways to move between days. Past days lock automatically so your history stays accurate — but feel free to work ahead!",
               systemImage: "checkmark.seal",
               spotlight: .doneButton),
     ]

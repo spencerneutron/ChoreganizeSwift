@@ -210,7 +210,7 @@ struct WeekView: View {
             }
             // Snap to each page, one per swipe.
             .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
-            .scrollPosition($position)            // track the focused page (chevrons + deep link)
+            .scrollPosition($position)            // place the pager (layout switches, deep link)
             .defaultScrollAnchor(.center)         // first layout centers today (the middle page)
             .scrollIndicators(.hidden)
             // The focused page is where a scroll settles, read from the scroll offset. Only a
@@ -249,25 +249,6 @@ struct WeekView: View {
                     withAnimation { position.scrollTo(id: landing) }
                 }
             }
-            .overlay(alignment: .center) {
-                HStack {
-                    if let first = pageIDs.first, focusIndex > first {
-                        Image(systemName: "chevron.left")
-                    }
-                    Spacer()
-                    if let last = pageIDs.last, focusIndex < last {
-                        Image(systemName: "chevron.right")
-                    }
-                }
-                .font(.title2)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.leading, insets.leading)
-                .padding(.trailing, insets.trailing)
-                .opacity(0.5)
-                .allowsHitTesting(false)
-                .animation(.easeInOut, value: focusIndex)
-            }
         }
         .ignoresSafeArea(.container, edges: .horizontal)
     }
@@ -276,20 +257,22 @@ struct WeekView: View {
     /// where the device folds. The focused day keeps the same place in the view tree in both
     /// layouts, so switching (opening or closing iPhone Duo, resizing an iPad window) keeps
     /// its DayPage, with any open sheet, draft and list position, instead of rebuilding it.
-    /// Each side pads its content clear of the side safe-area insets it touches.
+    /// Each side is padded clear of the side safe-area insets it touches (a side bar, a
+    /// notch), so its list and cards stop short of them; only the plain page background,
+    /// painted by the pager, runs underneath.
     private func page(_ index: Int, spread: Bool, insets: EdgeInsets, in geo: GeometryProxy) -> some View {
         HStack(spacing: 0) {
             if spread {
                 let split = SpreadSplit(in: geo)
                 spreadSide(index - 1)
-                    .safeAreaPadding(.leading, insets.leading)
+                    .padding(.leading, insets.leading)
                     .frame(width: split.leadingWidth)
                 Color.clear
                     .frame(width: split.gap)
             }
             spreadSide(index)
-                .safeAreaPadding(.leading, spread ? 0 : insets.leading)
-                .safeAreaPadding(.trailing, insets.trailing)
+                .padding(.leading, spread ? 0 : insets.leading)
+                .padding(.trailing, insets.trailing)
                 .frame(maxWidth: .infinity)
         }
     }
@@ -584,9 +567,9 @@ struct DayPage: View {
         // that offer it, so the list adds no spacing of its own there.
         .listSectionSpacing(offersQuickAdd ? .custom(0) : .default)
         #endif
-        // Inset the rows past the left/right paging chevrons WeekView overlays near the
-        // edges. contentMargins REPLACES the default insetGrouped margin (~20pt), so this
-        // must exceed it to actually add space — 32 clears the chevrons with a gap.
+        // Wider than the default insetGrouped margin (~20pt): contentMargins REPLACES it.
+        // 32 first cleared WeekView's paging chevrons (since removed) and is kept so the
+        // cards don't shift; revisit with the day-paging review.
         // (Tunable: one number; the list background still spans full-width, no edge strip.)
         .contentMargins(.horizontal, 32, for: .scrollContent)
         // Float-over-content (#65): the switcher + Done button float at the bottom, so give
