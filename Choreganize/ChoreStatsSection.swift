@@ -78,3 +78,37 @@ struct ChoreStatsSection: View {
         return "\(name) · \(top.count) of \(top.attributed)"
     }
 }
+
+/// CG-28 / #129 — a room's stats, in its editor: how often its chores are done on their
+/// due days, and which one misses most. Plus, like the Insights tab's room breakdown.
+struct AreaStatsSection: View {
+    /// The room's chores, as saved.
+    var chores: [CDChore]
+    var household: CDHousehold?
+    @ObservedObject private var entitlements = EntitlementStore.shared
+
+    private var plusUnlocked: Bool { Entitlements.isPlus(for: household) }
+
+    var body: some View {
+        Section {
+            if plusUnlocked {
+                let stats = InsightsMath.roomStats(chores: chores)
+                LabeledContent("On time", value: ChoreStatsSection.onTimeText(stats.onTime))
+                if let worst = stats.mostMissed {
+                    LabeledContent("Most missed", value: "\(worst.name) · \(worst.missed) of \(worst.due)")
+                }
+            } else {
+                LockedValueRow(label: "On time", value: "Plus")
+                LockedValueRow(label: "Most missed", value: "Plus")
+            }
+        } header: {
+            Text("Stats")
+        } footer: {
+            if plusUnlocked {
+                Text("On time counts the days its chores were due in the last 30 days that they were done that day.")
+            } else {
+                Text("Room stats require Choreganize Plus (\(PlatformText.plusLocation)).")
+            }
+        }
+    }
+}

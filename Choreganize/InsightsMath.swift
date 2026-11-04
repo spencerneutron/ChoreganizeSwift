@@ -357,4 +357,52 @@ enum InsightsMath {
         return ChoreStats(lastDone: days.last, typicalGapDays: typicalGap, onTime: onTime,
                           onTimeWindowDays: windowDays, topCompleter: topCompleter)
     }
+
+    // MARK: - One room's stats (CG-28 / #129)
+
+    /// A room's numbers, for its editor (Plus, like the Insights tab's room breakdown):
+    /// how often its chores are done on their due days, and which chore misses most.
+    nonisolated struct RoomStats: Equatable {
+        /// Due days of the room's chores in the window that were done that day. Today
+        /// counts only once done, as for one chore.
+        var onTime: WindowStats
+        var mostMissed: Missed?
+
+        nonisolated struct Missed: Equatable {
+            var name: String
+            /// Past due days it wasn't done.
+            var missed: Int
+            var due: Int
+        }
+    }
+
+    nonisolated static func roomStats(chores: [CDChore], lastDays days: Int = 30,
+                                      today: Date = Date(),
+                                      calendar cal: Calendar = .current) -> RoomStats {
+        let todayStart = cal.startOfDay(for: today)
+        var onTime = WindowStats(due: 0, completed: 0)
+        var perChore: [NSManagedObjectID: (chore: CDChore, due: Int, missed: Int)] = [:]
+        if days > 0, let start = cal.date(byAdding: .day, value: -(days - 1), to: todayStart) {
+            for (day, dayChores) in choresByDay(chores: chores, from: start, to: todayStart, calendar: cal) {
+                for chore in dayChores where chore.existedOn(day, calendar: cal) {
+                    let done = chore.isCompleted(on: day)
+                    if day == todayStart && !done { continue }   // today isn't over yet
+                    onTime.due += 1
+                    if done { onTime.completed += 1 }
+                    var entry = perChore[chore.objectID] ?? (chore, 0, 0)
+                    entry.due += 1
+                    if !done { entry.missed += 1 }
+                    perChore[chore.objectID] = entry
+                }
+            }
+        }
+        let worst = perChore.values
+            .filter { $0.missed > 0 }
+            .max { a, b in
+                a.missed != b.missed ? a.missed < b.missed
+                    : (a.chore.name ?? "").localizedStandardCompare(b.chore.name ?? "") == .orderedDescending
+            }
+        return RoomStats(onTime: onTime,
+                         mostMissed: worst.map { .init(name: $0.chore.name ?? "Untitled", missed: $0.missed, due: $0.due) })
+    }
 }

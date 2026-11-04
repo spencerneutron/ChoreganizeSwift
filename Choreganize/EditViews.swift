@@ -739,6 +739,7 @@ struct EditAreaView: View {
         NavigationStack {
             Form {
                 AreaFormFields(name: $name, description: $detail)
+                AreaStatsSection(chores: allChores.filter { $0.area == area }, household: area.household)
                 let available = allChores.inScope(area.household).filter { $0.area == nil || $0.area == area }
                 Section(header: Text("Chores")) {
                     ForEach(available, id: \.objectID) { chore in

@@ -127,4 +127,39 @@ struct ChoreStatsTests {
             #expect(stats.topCompleter == nil)
         }
     }
+
+    @Test func roomStatsCountsItsChoresAndFindsTheMostMissed() throws {
+        let ctx = makeContext()
+        try ctx.performAndWait {
+            // Both due on 5 days including today (created 4 days ago).
+            let dishes = CDChore.make(in: ctx, name: "Dishes", isDaily: true, createdDate: day(-4))
+            let mop = CDChore.make(in: ctx, name: "Mop", isDaily: true, createdDate: day(-4))
+            let bins = CDChore.make(in: ctx, name: "Bins", isDaily: true, createdDate: day(-4))
+            for offset in [-4, -3, -2, -1, 0] { dishes.recordCompletion(on: day(offset), by: nil, in: ctx) }
+            mop.recordCompletion(on: day(-4), by: nil, in: ctx)
+            bins.recordCompletion(on: day(-4), by: nil, in: ctx)
+            try ctx.save()
+
+            let stats = InsightsMath.roomStats(chores: [dishes, mop, bins], today: today)
+
+            // Dishes 5 of 5 (today done); Mop and Bins 1 of 4 each (today still open).
+            #expect(stats.onTime == InsightsMath.WindowStats(due: 13, completed: 7))
+            // Mop and Bins tie on 3 missed: the first by name wins.
+            #expect(stats.mostMissed == .init(name: "Bins", missed: 3, due: 4))
+        }
+    }
+
+    @Test func aRoomWithNothingMissedHasNoMostMissed() throws {
+        let ctx = makeContext()
+        try ctx.performAndWait {
+            let dishes = CDChore.make(in: ctx, name: "Dishes", isDaily: true, createdDate: day(-2))
+            for offset in [-2, -1] { dishes.recordCompletion(on: day(offset), by: nil, in: ctx) }
+            try ctx.save()
+
+            let stats = InsightsMath.roomStats(chores: [dishes], today: today)
+
+            #expect(stats.onTime == InsightsMath.WindowStats(due: 2, completed: 2))
+            #expect(stats.mostMissed == nil)
+        }
+    }
 }
