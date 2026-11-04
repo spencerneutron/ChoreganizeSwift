@@ -571,6 +571,13 @@ struct DayPage: View {
     var body: some View {
         let active = model.activeHousehold
         let scopedLocks = Array(lockedDays).inScope(active)
+        let finishDayConfirmation = FinishDayConfirmation(isPresented: $showDoneAlert) {
+            DayLock.lock(date, existing: scopedLocks, household: active, in: context)
+            withAnimation { showConfirmation = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                withAnimation { showConfirmation = false }
+            }
+        }
         let inScopeChores = Array(chores).inScope(active)
         let dayChores = Scheduling.chores(inScopeChores, for: date)
         let isLocked = DayLock.isLocked(date, in: scopedLocks)
@@ -681,10 +688,20 @@ struct DayPage: View {
                         Button {
                             showDoneAlert = true
                         } label: {
+                            // Row-wide, so its dialog's popover centres on the row and keeps
+                            // clear of the fold on the open iPhone Duo.
                             Label("Finish Day", systemImage: "flag.checkered")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                         }
                         .accessibilityIdentifier("finishDayButton")
                         .onboardingAnchor(.doneButton)
+                        #if os(iOS)
+                        // On the row: where it shows as a popover (iPad, the open iPhone Duo)
+                        // it grows from Finish Day on its own page. An alert is placed by the
+                        // system, which on the part-folded Duo can be the other half.
+                        .modifier(finishDayConfirmation)
+                        #endif
                     }
                 }
             }
@@ -752,18 +769,9 @@ struct DayPage: View {
             PhotoCheckView(date: date, chores: incompleteChores)
         }
         #endif
-        .alert("Finish day?", isPresented: $showDoneAlert) {
-            Button("Confirm") {
-                DayLock.lock(date, existing: scopedLocks, household: active, in: context)
-                withAnimation { showConfirmation = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation { showConfirmation = false }
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Any incomplete chores will remain unfinished.")
-        }
+        #if os(macOS)
+        .modifier(finishDayConfirmation)
+        #endif
         .overlay(alignment: .center) {
             if showConfirmation {
                 Image(systemName: "checkmark.circle.fill")
@@ -782,6 +790,23 @@ struct DayPage: View {
         .onAppear {
             consumeDeepLink(model.deepLinkChore, proxy: proxy, in: dayChores)
         }
+        }
+    }
+}
+
+/// "Finish day?" — a confirmation dialog, which the HIG prefers to an alert for choices
+/// about an action the person started ("Use an action sheet — not an alert — to offer
+/// choices related to an intentional action").
+private struct FinishDayConfirmation: ViewModifier {
+    @Binding var isPresented: Bool
+    let onFinish: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog("Finish day?", isPresented: $isPresented, titleVisibility: .visible) {
+            Button("Finish Day", action: onFinish)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Any incomplete chores will remain unfinished.")
         }
     }
 }
