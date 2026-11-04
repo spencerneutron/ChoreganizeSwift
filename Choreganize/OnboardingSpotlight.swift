@@ -103,7 +103,7 @@ struct OnboardingCalloutCard: View {
         VStack(spacing: 12) {
             Label(step.title, systemImage: step.systemImage)
                 .font(.headline)
-            Text(step.message)
+            step.message
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

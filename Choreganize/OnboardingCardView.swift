@@ -18,7 +18,7 @@ struct OnboardingCardView: View {
             Text(step.title)
                 .font(.title.bold())
                 .multilineTextAlignment(.center)
-            Text(step.message)
+            step.message
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
