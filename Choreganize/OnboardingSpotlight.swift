@@ -32,11 +32,14 @@ struct OnboardingSpotlightOverlay: View {
 
     var body: some View {
         if let step = coordinator.current, step.spotlight != nil {
-            #if os(iOS)
-            VerticalBarReader { sideBar in overlay(for: step, sideBar: sideBar) }
-            #else
-            overlay(for: step, sideBar: false)
-            #endif
+            Group {
+                #if os(iOS)
+                VerticalBarReader { sideBar in overlay(for: step, sideBar: sideBar) }
+                #else
+                overlay(for: step, sideBar: false)
+                #endif
+            }
+            .transition(.opacity)
         }
     }
 
@@ -52,12 +55,12 @@ struct OnboardingSpotlightOverlay: View {
                     } else {
                         Color.clear.contentShape(Rectangle())   // still capture taps
                     }
-                    callout(step: step, rect: rect, in: proxy, insets: outer.safeAreaInsets)
+                    callout(step: step, rect: rect, in: proxy, insets: outer.safeAreaInsets,
+                            sideBar: sideBar)
                 }
             }
             .ignoresSafeArea()
         }
-        .transition(.opacity)
     }
 
     private func resolvedRect(for step: OnboardingStep, in proxy: GeometryProxy, sideBar: Bool) -> CGRect? {
@@ -75,16 +78,17 @@ struct OnboardingSpotlightOverlay: View {
 
     @ViewBuilder
     private func callout(step: OnboardingStep, rect: CGRect?, in proxy: GeometryProxy,
-                         insets: EdgeInsets) -> some View {
+                         insets: EdgeInsets, sideBar: Bool) -> some View {
         let size = proxy.size
-        let column = calloutColumn(for: rect, in: proxy, insets: insets)
+        let column = calloutColumn(for: rect, in: proxy, insets: insets, sideBar: sideBar)
         let card = OnboardingCalloutCard(
             step: step,
             hasNext: coordinator.hasNext,
             onNext: { withAnimation { coordinator.advance() } },
             onSkip: { withAnimation { coordinator.finish() } }
         )
-        .frame(maxWidth: min(360, column.upperBound - column.lowerBound - 40))
+        .frame(maxWidth: max(0, min(360, column.upperBound - column.lowerBound - 40)))
+        .accessibilityAddTraits(.isModal)
 
         if let rect {
             let placeBelow = rect.midY < size.height / 2
@@ -95,10 +99,12 @@ struct OnboardingSpotlightOverlay: View {
         } else {
             let safeHeight = max(0, size.height - insets.top - insets.bottom)
             let alignment = Self.unanchoredAlignment(for: step.spotlight)
-            // The safe area here stops at the status bar; a top bar's row (the iPad tab bar,
-            // the scope menu) sits inside it, so a top callout clears one more bar height.
+            // The safe area here is the screen's, outside the tab view: a top bar's row (the
+            // iPad tab bar, the scope menu) and a bottom tab bar (the iPhone Duo upright) sit
+            // inside it, so the callout clears one more bar height. A side bar is in it.
             card.padding(.vertical, 16)
                 .padding(.top, alignment == .top ? 52 : 0)
+                .padding(.bottom, alignment == .bottom && !sideBar ? 60 : 0)
                 .frame(width: column.upperBound - column.lowerBound, height: safeHeight,
                        alignment: alignment)
                 .position(x: (column.lowerBound + column.upperBound) / 2,
@@ -108,7 +114,8 @@ struct OnboardingSpotlightOverlay: View {
 
     /// Where the system puts a control that has no anchor: the mode tabs at the foot of
     /// the iPhone Duo's side bar or tab bar and at the top on iPad, the scope menu at
-    /// the top.
+    /// the top. By idiom, unlike the shell's layout rules, because the size classes are
+    /// the same for the iPad's top tab bar and the upright Duo's bottom one.
     private static func unanchoredAlignment(for target: OnboardingStep.Spotlight?) -> Alignment {
         switch target {
         case .modePicker:
@@ -124,15 +131,18 @@ struct OnboardingSpotlightOverlay: View {
 
     /// The horizontal strip the callout is centred in. Where the device folds (iPhone
     /// Duo) it keeps to one page so it never lies across the fold: the target's page, or
-    /// with no target the right page, the one the outer display shows. It stays clear of
-    /// a side bar or notch. Elsewhere it's the whole width, as before.
+    /// with no target the page by the side bar (the control is in it), else the right
+    /// page, the one the outer display shows. It stays clear of a side bar or notch.
+    /// Elsewhere it's the whole width, as before.
     private func calloutColumn(for rect: CGRect?, in proxy: GeometryProxy,
-                               insets: EdgeInsets) -> ClosedRange<CGFloat> {
+                               insets: EdgeInsets, sideBar: Bool) -> ClosedRange<CGFloat> {
         var minX = insets.leading
         var maxX = proxy.size.width - insets.trailing
         let split = SpreadSplit(in: proxy)
         if split.gap > 0 {
-            if let rect, rect.midX < split.leadingWidth {
+            let leadingPage = rect.map { $0.midX < split.leadingWidth }
+                ?? (sideBar && insets.leading > insets.trailing)
+            if leadingPage {
                 maxX = min(maxX, split.leadingWidth)
             } else {
                 minX = max(minX, split.leadingWidth + split.gap)
