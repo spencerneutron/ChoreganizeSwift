@@ -443,4 +443,75 @@ enum InsightsMath {
         return RoomStats(onTime: onTime,
                          mostMissed: worst.map { .init(name: $0.chore.name ?? "Untitled", missed: $0.missed, due: $0.due) })
     }
+
+    // MARK: - Household members (CG-28 / #129)
+
+    /// One completion, reduced to what the member stats need, so it can be read off a
+    /// background context and summarised anywhere.
+    nonisolated struct MemberCompletion: Equatable, Sendable {
+        /// The chore's id, so a chore recorded twice on one day (a sync duplicate) counts once.
+        var choreID: UUID?
+        /// `CDCompletion.completedBy`; nil when it doesn't say who did it.
+        var completedBy: String?
+        var date: Date
+    }
+
+    /// A member's recent chores, for Hub ▸ Household (Plus). Meant to encourage, not keep
+    /// score: a count and a run of days, never a rank or a share of the total.
+    nonisolated struct MemberStats: Equatable, Identifiable, Sendable {
+        /// A `CDCompletion.completedBy` id.
+        var id: String
+        /// Chores they did in the window.
+        var choresDone: Int
+        /// Days in a row, up to today, with at least one chore. Today doesn't break it
+        /// before it's done: the run then counts back from yesterday.
+        var streak: Int
+    }
+
+    nonisolated struct MembersSummary: Equatable, Sendable {
+        /// Members with at least one chore in the window, by id.
+        var members: [MemberStats]
+        /// Chores done in the window by anyone, including ones that don't say who.
+        var total: Int
+        var windowDays: Int
+    }
+
+    nonisolated static let memberWindowDays = 30
+    /// How far back a member's run can reach: the history Hub ▸ Household loads.
+    nonisolated static let memberHistoryDays = 365
+
+    nonisolated static func membersSummary(_ completions: [MemberCompletion],
+                                           lastDays days: Int = memberWindowDays,
+                                           today: Date = Date(),
+                                           calendar cal: Calendar = .current) -> MembersSummary {
+        struct ChoreDay: Hashable { var chore: UUID?; var day: Date }
+        let todayStart = cal.startOfDay(for: today)
+        let start = cal.date(byAdding: .day, value: -(max(days, 1) - 1), to: todayStart) ?? todayStart
+
+        var everyone = Set<ChoreDay>()
+        var inWindow: [String: Set<ChoreDay>] = [:]
+        var activeDays: [String: Set<Date>] = [:]
+        for completion in completions {
+            let day = cal.startOfDay(for: completion.date)
+            guard day <= todayStart else { continue }
+            if let id = completion.completedBy { activeDays[id, default: []].insert(day) }
+            guard day >= start else { continue }
+            let key = ChoreDay(chore: completion.choreID, day: day)
+            everyone.insert(key)
+            if let id = completion.completedBy { inWindow[id, default: []].insert(key) }
+        }
+
+        let members = inWindow.map { id, done -> MemberStats in
+            let active = activeDays[id] ?? []
+            var day = active.contains(todayStart) ? todayStart : cal.date(byAdding: .day, value: -1, to: todayStart)
+            var streak = 0
+            while let d = day, active.contains(d) {
+                streak += 1
+                day = cal.date(byAdding: .day, value: -1, to: d)
+            }
+            return MemberStats(id: id, choresDone: done.count, streak: streak)
+        }
+        .sorted { $0.id < $1.id }
+        return MembersSummary(members: members, total: everyone.count, windowDays: days)
+    }
 }

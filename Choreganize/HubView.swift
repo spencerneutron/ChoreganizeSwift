@@ -26,6 +26,9 @@ struct HubView: View {
     /// CG-12 / #95: live Plus entitlement for the Support section.
     @ObservedObject private var entitlements = EntitlementStore.shared
     @State private var showPaywall = false
+    /// CG-28 / #129: who's been helping, loaded off the main thread for the household.
+    @State private var members: InsightsMath.MembersSummary?
+    @ObservedObject private var directory = CompleterDirectory.shared
     /// The log viewer. The pill switcher opens it on a long press; the system tab bar
     /// (iPad, iPhone Duo) can't, so the Version row offers the same long press.
     @State private var showLogs = false
@@ -83,7 +86,7 @@ struct HubView: View {
                     Text("Shown next to chores you complete when you share a household. Stored only on this device until then.")
                 }
 
-                Section("Household") {
+                Section {
                     Picker("Data", selection: Binding(
                         get: { model.scope },
                         set: { model.setScope($0) }
@@ -96,6 +99,15 @@ struct HubView: View {
                         LabeledContent("Sharing") {
                             HouseholdShareControl(iconOnly: true)   // the row already says "Sharing"
                         }
+                        if let members = sharedMembers {
+                            HouseholdMemberRows(summary: members, isPlus: Entitlements.isPlus(for: model.activeHousehold))
+                        }
+                    }
+                } header: {
+                    Text("Household")
+                } footer: {
+                    if let members = sharedMembers {
+                        HouseholdMemberFooter(summary: members, isPlus: Entitlements.isPlus(for: model.activeHousehold))
                     }
                 }
 
@@ -192,6 +204,9 @@ struct HubView: View {
                 }
             }
             .navigationTitle("Hub")
+            .task(id: model.activeHousehold?.objectID) {
+                members = await HouseholdMembers.summary(for: model.activeHousehold)
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -204,6 +219,13 @@ struct HubView: View {
                 LogViewerView()
             }
         }
+    }
+
+    /// The household's member stats, when there's more than one person to show.
+    private var sharedMembers: InsightsMath.MembersSummary? {
+        guard model.scope == .household, let members,
+              HouseholdMembers.isShared(members, participantIDs: directory.namesByID.keys) else { return nil }
+        return members
     }
 
     private static var appVersion: String {

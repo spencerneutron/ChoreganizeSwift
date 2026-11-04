@@ -54,6 +54,10 @@ private struct GeneralSettingsPane: View {
     @EnvironmentObject private var model: AppModel
     @AppStorage(SettingsKeys.displayName) private var displayName: String = ""
     @AppStorage(SettingsKeys.workGrouping) private var workGrouping: String = WorkGrouping.none.rawValue
+    /// CG-28 / #129: who's been helping, as in Hub ▸ Household on iPhone and iPad.
+    @State private var members: InsightsMath.MembersSummary?
+    @ObservedObject private var directory = CompleterDirectory.shared
+    @ObservedObject private var entitlements = EntitlementStore.shared
 
     var body: some View {
         Form {
@@ -79,11 +83,25 @@ private struct GeneralSettingsPane: View {
                      : "Group each day's tasks by frequency or by room. The one-off limit applies to everyone in the household.")
             }
 
+            if let members, HouseholdMembers.isShared(members, participantIDs: directory.namesByID.keys) {
+                let isPlus = Entitlements.isPlus(for: model.activeHousehold)
+                Section {
+                    HouseholdMemberRows(summary: members, isPlus: isPlus)
+                } header: {
+                    Text("Household")
+                } footer: {
+                    HouseholdMemberFooter(summary: members, isPlus: isPlus)
+                }
+            }
+
             Section("About") {
                 LabeledContent("Version", value: Self.appVersion)
             }
         }
         .formStyle(.grouped)
+        .task(id: model.activeHousehold?.objectID) {
+            members = await HouseholdMembers.summary(for: model.activeHousehold)
+        }
     }
 
     private static var appVersion: String {

@@ -250,4 +250,93 @@ struct ChoreStatsTests {
             #expect(stats.mostMissed == nil)
         }
     }
+
+    // MARK: - Household members
+
+    private func done(_ chore: UUID?, by member: String?, _ offset: Int) -> InsightsMath.MemberCompletion {
+        .init(choreID: chore, completedBy: member, date: day(offset))
+    }
+
+    @Test func membersCountTheirChoresInTheWindowOnce() {
+        let dishes = UUID(), mop = UUID()
+        let summary = InsightsMath.membersSummary([
+            done(dishes, by: "sam", 0),
+            done(dishes, by: "sam", 0),     // a sync duplicate: once
+            done(mop, by: "sam", -29),      // the window's first day
+            done(mop, by: "sam", -30),      // just outside it
+            done(mop, by: "sam", 1),        // ahead of today: ignored
+            done(mop, by: "alex", -3),
+            done(dishes, by: nil, -1),      // doesn't say who: only in the total
+        ], today: today)
+
+        #expect(summary.members.map(\.id) == ["alex", "sam"])
+        #expect(summary.members.first { $0.id == "sam" }?.choresDone == 2)
+        #expect(summary.members.first { $0.id == "alex" }?.choresDone == 1)
+        #expect(summary.total == 4)
+        #expect(summary.windowDays == 30)
+    }
+
+    @Test func aMembersRunCountsBackFromTodayOrYesterday() {
+        let chore = UUID()
+        let summary = InsightsMath.membersSummary(
+            // Sam: today and the 2 days before, then a gap. Alex: yesterday and the day
+            // before, not yet today. Pat: 3 days ago only.
+            [0, -1, -2, -4].map { done(chore, by: "sam", $0) }
+            + [-1, -2].map { done(chore, by: "alex", $0) }
+            + [done(chore, by: "pat", -3)],
+            today: today)
+
+        let streaks = Dictionary(uniqueKeysWithValues: summary.members.map { ($0.id, $0.streak) })
+        #expect(streaks == ["sam": 3, "alex": 2, "pat": 0])
+    }
+
+    @Test func aRunCanReachPastTheWindow() {
+        let chore = UUID()
+        let summary = InsightsMath.membersSummary((-39...0).map { done(chore, by: "sam", $0) }, today: today)
+
+        #expect(summary.members.first?.choresDone == 30)
+        #expect(summary.members.first?.streak == 40)
+    }
+
+    @Test func membersWithNothingInTheWindowAreLeftOut() {
+        let summary = InsightsMath.membersSummary([done(UUID(), by: "sam", -45)], today: today)
+
+        #expect(summary.members.isEmpty)
+        #expect(summary.total == 0)
+    }
+
+    @Test func memberRowsPutYouFirstThenNamesThenEveryoneElse() {
+        let summary = InsightsMath.MembersSummary(members: [
+            .init(id: "a", choresDone: 3, streak: 2),
+            .init(id: "b", choresDone: 5, streak: 0),
+            .init(id: "c", choresDone: 1, streak: 1),
+            .init(id: "me", choresDone: 2, streak: 4),
+            .init(id: "x", choresDone: 4, streak: 3),
+            .init(id: "y", choresDone: 6, streak: 5),
+        ], total: 21, windowDays: 30)
+
+        let rows = HouseholdMembers.rows(summary, names: ["a": "Sam", "b": "Alex", "c": "pat"], me: "me")
+
+        #expect(rows.map(\.name) == ["You", "Alex", "pat", "Sam", "Other members"])
+        #expect(rows.last?.choresDone == 10)
+        #expect(rows.last?.streak == nil)
+
+        let one = HouseholdMembers.rows(.init(members: [.init(id: "x", choresDone: 4, streak: 3)],
+                                              total: 4, windowDays: 30),
+                                        names: [:], me: "me")
+        #expect(one == [.init(id: "x", name: "A household member", choresDone: 4, streak: 3)])
+    }
+
+    @Test func membersShowOnlyWithMoreThanOnePerson() {
+        let justMe = InsightsMath.MembersSummary(members: [.init(id: "me", choresDone: 2, streak: 1)],
+                                                 total: 2, windowDays: 30)
+        #expect(!HouseholdMembers.isShared(justMe, participantIDs: []))
+        #expect(!HouseholdMembers.isShared(justMe, participantIDs: ["me"]))
+        #expect(HouseholdMembers.isShared(justMe, participantIDs: ["me", "sam"]))
+
+        let two = InsightsMath.MembersSummary(members: [.init(id: "me", choresDone: 2, streak: 1),
+                                                        .init(id: "sam", choresDone: 1, streak: 1)],
+                                              total: 3, windowDays: 30)
+        #expect(HouseholdMembers.isShared(two, participantIDs: []))
+    }
 }
