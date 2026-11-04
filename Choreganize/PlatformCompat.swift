@@ -180,13 +180,17 @@ enum SystemSettingsOpener {
 
 /// Copy that names platform-specific places in the app.
 enum PlatformText {
+    /// The Hub button's symbol. The button shows only this icon, so copy that sends people
+    /// to the Hub puts the icon beside the name: "Hub" alone doesn't say which button it is.
+    static let hubSymbol = "square.grid.2x2"
+
     /// Where Choreganize Plus is bought, for "Requires Choreganize Plus (…)" copy:
     /// the Hub on iPhone and iPad, Settings on the Mac (which has no Hub).
-    static var plusLocation: String {
+    static var plusLocation: Text {
         #if os(macOS)
-        return "Settings ▸ Plus"
+        Text("Settings ▸ Plus")
         #else
-        return "Hub ▸ Get Choreganize Plus"
+        Text("\(Image(systemName: hubSymbol)) Hub ▸ Get Choreganize Plus")
         #endif
     }
 }

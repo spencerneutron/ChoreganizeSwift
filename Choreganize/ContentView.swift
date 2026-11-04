@@ -317,7 +317,7 @@ struct ContentView: View {
                         Button {
                             showingHub = true
                         } label: {
-                            Label("Hub", systemImage: "square.grid.2x2")
+                            Label("Hub", systemImage: PlatformText.hubSymbol)
                         }
                     }
                 }
