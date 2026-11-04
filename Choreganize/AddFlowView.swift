@@ -306,17 +306,19 @@ private struct AddChoresStep: View {
                 // "Done" was ambiguous (done with this chore vs done with the group);
                 // "Room/Day Complete" reads as finishing the group.
                 Button(doneLabel) { finishAdding() }
+                    // Guard against finishing with a typed-but-unadded chore — easy to miss
+                    // the Add control the first time, and the text would otherwise be
+                    // silently dropped (#54). On the button, so where the dialog shows as a
+                    // popover (regular width: iPad, the open iPhone Duo) it grows from it.
+                    .confirmationDialog("\u{201C}\(trimmedName)\u{201D} hasn't been added yet",
+                                        isPresented: $showUnaddedConfirm, titleVisibility: .visible) {
+                        Button("Add & Finish") { addChore(); onDone() }
+                        Button("Discard", role: .destructive) { name = ""; onDone() }
+                        Button("Keep Editing", role: .cancel) { nameFocused = true }
+                    } message: {
+                        Text("Tap Add to stage it, or discard it before finishing.")
+                    }
             }
-        }
-        // Guard against finishing with a typed-but-unadded chore — easy to miss the Add
-        // control the first time, and the text would otherwise be silently dropped (#54).
-        .confirmationDialog("\u{201C}\(trimmedName)\u{201D} hasn't been added yet",
-                            isPresented: $showUnaddedConfirm, titleVisibility: .visible) {
-            Button("Add & Finish") { addChore(); onDone() }
-            Button("Discard", role: .destructive) { name = ""; onDone() }
-            Button("Keep Editing", role: .cancel) { nameFocused = true }
-        } message: {
-            Text("Tap Add to stage it, or discard it before finishing.")
         }
     }
 
