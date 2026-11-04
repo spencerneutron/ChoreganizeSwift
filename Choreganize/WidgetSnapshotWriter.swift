@@ -34,6 +34,9 @@ enum WidgetSnapshotWriter {
 enum WidgetSnapshotBuilder {
     static func snapshot(from chores: [CDChore], on date: Date, scopeLabel: String) -> ChoreWidgetSnapshot {
         let due = Scheduling.chores(chores, for: date)
+        // Open chores first, since the widget lists what still needs doing and can
+        // only show so many; then the done ones. By name within each, as in the Work
+        // view. (The fetch has no order, so the rows used to shuffle between updates.)
         let items: [ChoreWidgetSnapshot.Item] = due.compactMap { chore in
             // Carry the chore's STABLE synced UUID (not the Core Data objectID URI,
             // which isn't stable across store reloads and can't be resolved by
@@ -44,6 +47,7 @@ enum WidgetSnapshotBuilder {
                 name: chore.name ?? "Untitled",
                 isDone: chore.isCompleted(on: date))
         }
+        .sorted { ($0.isDone ? 1 : 0, $0.name) < ($1.isDone ? 1 : 0, $1.name) }
         return ChoreWidgetSnapshot(
             date: Calendar.current.startOfDay(for: date),
             scopeLabel: scopeLabel,

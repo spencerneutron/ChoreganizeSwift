@@ -48,9 +48,10 @@ struct TodayChoresWidget: Widget {
         }
         .configurationDisplayName("Today's Chores")
         .description("See what still needs doing today.")
-        // Home-screen checklist (small/medium) + Lock Screen "remaining today"
+        // Home-screen checklist (small/medium/large) + Lock Screen "remaining today"
         // accessories (circular/rectangular). CG-04.
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge,
+                            .accessoryCircular, .accessoryRectangular])
     }
 }
 

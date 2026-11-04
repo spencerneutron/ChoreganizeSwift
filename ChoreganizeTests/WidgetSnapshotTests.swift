@@ -47,6 +47,24 @@ struct WidgetSnapshotTests {
         }
     }
 
+    @Test func snapshotListsOpenChoresFirstThenByName() throws {
+        let ctx = makeContext()
+        try ctx.performAndWait {
+            for name in ["Trash", "Dishes", "Plants", "Beds"] {
+                CDChore.make(in: ctx, name: name, isDaily: true)
+            }
+            try ctx.save()
+            let chores = try ctx.fetch(NSFetchRequest<CDChore>(entityName: "CDChore"))
+            for chore in chores where ["Dishes", "Beds"].contains(chore.name) {
+                chore.recordCompletion(on: Date(), in: ctx)
+            }
+
+            let snap = WidgetSnapshotBuilder.snapshot(from: chores, on: Date(), scopeLabel: "Personal")
+
+            #expect(snap.items.map { $0.name } == ["Plants", "Trash", "Beds", "Dishes"])
+        }
+    }
+
     @Test func emptyChoresGivesEmptySnapshot() {
         let snap = WidgetSnapshotBuilder.snapshot(from: [], on: Date(), scopeLabel: "Household")
         #expect(snap.items.isEmpty)
