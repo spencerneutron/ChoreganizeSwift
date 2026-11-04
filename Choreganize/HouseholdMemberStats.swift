@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreData
+import CloudKit
 
 /// CG-28 / #129 — who's been helping: each household member's chores in the last 30 days
 /// and their run of days, in Hub ▸ Household (Settings ▸ General on the Mac). Plus, like
@@ -15,11 +16,24 @@ enum HouseholdMembers {
         var streak: Int?
     }
 
+    /// A summary and the household it's for, so a slow load never shows under another.
+    struct Loaded: Equatable {
+        var householdID: NSManagedObjectID
+        var summary: InsightsMath.MembersSummary
+    }
+
+    /// What to show for `householdID`: nothing while it loads, or for a household only you use.
+    static func shown(_ loaded: Loaded?, for householdID: NSManagedObjectID?,
+                      participantIDs: some Collection<String>) -> InsightsMath.MembersSummary? {
+        guard let loaded, let householdID, loaded.householdID == householdID,
+              isShared(loaded.summary, participantIDs: participantIDs) else { return nil }
+        return loaded.summary
+    }
+
     /// The household's completions over the last `memberHistoryDays`, summarised off the
     /// main thread.
-    static func summary(for household: CDHousehold?, stack: CoreDataStack = .shared,
+    static func summary(for householdID: NSManagedObjectID, stack: CoreDataStack = .shared,
                         today: Date = Date()) async -> InsightsMath.MembersSummary? {
-        guard let householdID = household?.objectID else { return nil }
         let cal = Calendar.current
         guard let since = cal.date(byAdding: .day, value: -(InsightsMath.memberHistoryDays - 1),
                                    to: cal.startOfDay(for: today)) else { return nil }
@@ -39,7 +53,11 @@ enum HouseholdMembers {
     /// Whether there's more than one person to show: the share's participants, or
     /// whoever did the household's chores lately. A household only you use shows nothing.
     static func isShared(_ summary: InsightsMath.MembersSummary, participantIDs: some Collection<String>) -> Bool {
-        Set(participantIDs).union(summary.members.map(\.id)).count >= 2
+        // CloudKit's placeholder for "you" isn't another person (it stands in for your own
+        // id until that's known).
+        Set(participantIDs).union(summary.members.map(\.id))
+            .subtracting([CKCurrentUserDefaultName])
+            .count >= 2
     }
 
     /// The rows in display order: you, then members by name, then anyone the household
@@ -130,7 +148,52 @@ struct HouseholdMemberFooter: View {
         } else if summary.total == 0 {
             Text("No chores done in the last \(summary.windowDays) days yet.")
         } else {
-            Text("Together, \(HouseholdMembers.choresText(summary.total)) in the last \(summary.windowDays) days. \(Image(systemName: "flame.fill")) counts days in a row with at least one.")
+            let together = "Together, \(HouseholdMembers.choresText(summary.total)) in the last \(summary.windowDays) days."
+            if summary.members.contains(where: { $0.streak >= 2 }) {
+                Text("\(together) \(Image(systemName: "flame.fill")) counts days in a row with at least one.")
+                    .accessibilityLabel("\(together) The flame counts days in a row with at least one.")
+            } else {
+                Text(together)
+            }
         }
+    }
+}
+
+extension View {
+    /// Loads the household's member stats into `loaded` and keeps them current while the
+    /// view is up: when the household changes, after saves (synced completions included),
+    /// and when the day turns over.
+    func loadsHouseholdMembers(for householdID: NSManagedObjectID?,
+                               into loaded: Binding<HouseholdMembers.Loaded?>) -> some View {
+        modifier(HouseholdMembersLoader(householdID: householdID, loaded: loaded))
+    }
+}
+
+private struct HouseholdMembersLoader: ViewModifier {
+    var householdID: NSManagedObjectID?
+    @Binding var loaded: HouseholdMembers.Loaded?
+    @State private var reloads = 0
+
+    private struct Key: Equatable {
+        var householdID: NSManagedObjectID?
+        var reloads: Int
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: Key(householdID: householdID, reloads: reloads)) {
+                guard let householdID else { loaded = nil; return }
+                // A burst of saves (a sync import) loads once: each one cancels the wait.
+                if loaded?.householdID == householdID {
+                    guard (try? await Task.sleep(for: .milliseconds(500))) != nil else { return }
+                }
+                let summary = await HouseholdMembers.summary(for: householdID)
+                guard !Task.isCancelled, let summary else { return }
+                loaded = .init(householdID: householdID, summary: summary)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSManagedObjectContext.didSaveObjectsNotification)
+                .receive(on: RunLoop.main)) { _ in reloads += 1 }
+            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+                .receive(on: RunLoop.main)) { _ in reloads += 1 }
     }
 }

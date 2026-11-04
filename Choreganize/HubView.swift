@@ -27,7 +27,7 @@ struct HubView: View {
     @ObservedObject private var entitlements = EntitlementStore.shared
     @State private var showPaywall = false
     /// CG-28 / #129: who's been helping, loaded off the main thread for the household.
-    @State private var members: InsightsMath.MembersSummary?
+    @State private var members: HouseholdMembers.Loaded?
     @ObservedObject private var directory = CompleterDirectory.shared
     /// The log viewer. The pill switcher opens it on a long press; the system tab bar
     /// (iPad, iPhone Duo) can't, so the Version row offers the same long press.
@@ -204,9 +204,7 @@ struct HubView: View {
                 }
             }
             .navigationTitle("Hub")
-            .task(id: model.activeHousehold?.objectID) {
-                members = await HouseholdMembers.summary(for: model.activeHousehold)
-            }
+            .loadsHouseholdMembers(for: model.activeHousehold?.objectID, into: $members)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -223,9 +221,8 @@ struct HubView: View {
 
     /// The household's member stats, when there's more than one person to show.
     private var sharedMembers: InsightsMath.MembersSummary? {
-        guard model.scope == .household, let members,
-              HouseholdMembers.isShared(members, participantIDs: directory.namesByID.keys) else { return nil }
-        return members
+        HouseholdMembers.shown(members, for: model.activeHousehold?.objectID,
+                               participantIDs: directory.namesByID.keys)
     }
 
     private static var appVersion: String {

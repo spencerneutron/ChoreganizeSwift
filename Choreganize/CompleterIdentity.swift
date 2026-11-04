@@ -135,8 +135,18 @@ final class CompleterDirectory: ObservableObject {
                     if let h = try? ctx.fetch(request).first { householdID = h.objectID }
                 }
             }
+            // No household or no share: nobody to name, so drop names left from one that
+            // was shared (they also decide whether Hub ▸ Household lists members). A failed
+            // fetch keeps what's there.
             guard let householdID,
-                  let share = (try? stack.container.fetchShares(matching: [householdID]))?[householdID] else { return }
+                  let shares = try? stack.container.fetchShares(matching: [householdID]) else {
+                if householdID == nil { await MainActor.run { CompleterDirectory.shared.namesByID = [:] } }
+                return
+            }
+            guard let share = shares[householdID] else {
+                await MainActor.run { CompleterDirectory.shared.namesByID = [:] }
+                return
+            }
             var names: [String: String] = [:]
             let me = CompleterIdentity.cachedID
             for participant in share.participants {

@@ -305,6 +305,7 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.set(household.id?.uuidString, forKey: Self.activeHouseholdKey)
         refreshHouseholdName()
         syncHouseholdPlusStamp()
+        CompleterDirectory.shared.refresh()   // names follow the household
     }
 
     /// CG-16 / #98: creates an additional household and makes it active (Plus).

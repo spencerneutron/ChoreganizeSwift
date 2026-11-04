@@ -266,14 +266,39 @@ struct ChoreStatsTests {
             done(mop, by: "sam", -30),      // just outside it
             done(mop, by: "sam", 1),        // ahead of today: ignored
             done(mop, by: "alex", -3),
-            done(dishes, by: nil, -1),      // doesn't say who: only in the total
+            done(dishes, by: nil, -1),      // doesn't say who: left out
         ], today: today)
 
         #expect(summary.members.map(\.id) == ["alex", "sam"])
         #expect(summary.members.first { $0.id == "sam" }?.choresDone == 2)
         #expect(summary.members.first { $0.id == "alex" }?.choresDone == 1)
-        #expect(summary.total == 4)
+        #expect(summary.total == 3)
         #expect(summary.windowDays == 30)
+    }
+
+    @Test func theTotalMatchesTheRowsWhenTwoTickTheSameChore() {
+        let dishes = UUID()
+        // Both ticked it before either synced.
+        let summary = InsightsMath.membersSummary([done(dishes, by: "sam", 0), done(dishes, by: "alex", 0)],
+                                                  today: today)
+
+        #expect(summary.members.map(\.choresDone) == [1, 1])
+        #expect(summary.total == 2)
+    }
+
+    @Test func aRunSurvivesAClockChangeAtMidnight() throws {
+        // Chile moved its clocks from 00:00 to 01:00 on Sunday 7 September 2025, so that day
+        // starts at 01:00.
+        var santiago = Calendar(identifier: .gregorian)
+        santiago.timeZone = try #require(TimeZone(identifier: "America/Santiago"))
+        let noon = { (day: Int) in santiago.date(from: DateComponents(year: 2025, month: 9, day: day, hour: 12))! }
+        let chore = UUID()
+        let summary = InsightsMath.membersSummary(
+            (5...8).map { InsightsMath.MemberCompletion(choreID: chore, completedBy: "sam", date: noon($0)) },
+            today: noon(8), calendar: santiago)
+
+        #expect(summary.members.first?.streak == 4)
+        #expect(summary.members.first?.choresDone == 4)
     }
 
     @Test func aMembersRunCountsBackFromTodayOrYesterday() {
@@ -313,7 +338,7 @@ struct ChoreStatsTests {
             .init(id: "me", choresDone: 2, streak: 4),
             .init(id: "x", choresDone: 4, streak: 3),
             .init(id: "y", choresDone: 6, streak: 5),
-        ], total: 21, windowDays: 30)
+        ], windowDays: 30)
 
         let rows = HouseholdMembers.rows(summary, names: ["a": "Sam", "b": "Alex", "c": "pat"], me: "me")
 
@@ -322,21 +347,39 @@ struct ChoreStatsTests {
         #expect(rows.last?.streak == nil)
 
         let one = HouseholdMembers.rows(.init(members: [.init(id: "x", choresDone: 4, streak: 3)],
-                                              total: 4, windowDays: 30),
+                                              windowDays: 30),
                                         names: [:], me: "me")
         #expect(one == [.init(id: "x", name: "A household member", choresDone: 4, streak: 3)])
     }
 
     @Test func membersShowOnlyWithMoreThanOnePerson() {
         let justMe = InsightsMath.MembersSummary(members: [.init(id: "me", choresDone: 2, streak: 1)],
-                                                 total: 2, windowDays: 30)
+                                                 windowDays: 30)
         #expect(!HouseholdMembers.isShared(justMe, participantIDs: []))
         #expect(!HouseholdMembers.isShared(justMe, participantIDs: ["me"]))
         #expect(HouseholdMembers.isShared(justMe, participantIDs: ["me", "sam"]))
 
         let two = InsightsMath.MembersSummary(members: [.init(id: "me", choresDone: 2, streak: 1),
                                                         .init(id: "sam", choresDone: 1, streak: 1)],
-                                              total: 3, windowDays: 30)
+                                              windowDays: 30)
         #expect(HouseholdMembers.isShared(two, participantIDs: []))
+
+        // CloudKit's stand-in for your own id isn't a second person.
+        #expect(!HouseholdMembers.isShared(justMe, participantIDs: ["__defaultOwner__"]))
+    }
+
+    @Test func membersShowOnlyForTheHouseholdTheyWereLoadedFor() {
+        let ctx = makeContext()
+        ctx.performAndWait {
+            let home = CDHousehold(context: ctx), cabin = CDHousehold(context: ctx)
+            let summary = InsightsMath.MembersSummary(members: [.init(id: "me", choresDone: 2, streak: 1),
+                                                                .init(id: "sam", choresDone: 1, streak: 1)],
+                                                      windowDays: 30)
+            let loaded = HouseholdMembers.Loaded(householdID: home.objectID, summary: summary)
+
+            #expect(HouseholdMembers.shown(loaded, for: home.objectID, participantIDs: []) == summary)
+            #expect(HouseholdMembers.shown(loaded, for: cabin.objectID, participantIDs: []) == nil)
+            #expect(HouseholdMembers.shown(loaded, for: nil, participantIDs: []) == nil)
+        }
     }
 }

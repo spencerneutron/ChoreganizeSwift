@@ -471,8 +471,9 @@ enum InsightsMath {
     nonisolated struct MembersSummary: Equatable, Sendable {
         /// Members with at least one chore in the window, by id.
         var members: [MemberStats]
-        /// Chores done in the window by anyone, including ones that don't say who.
-        var total: Int
+        /// The members' chores added up, so it matches the rows. Completions that don't say
+        /// who did them (moved Personal history, a fresh install's first ticks) aren't in it.
+        var total: Int { members.reduce(0) { $0 + $1.choresDone } }
         var windowDays: Int
     }
 
@@ -485,33 +486,36 @@ enum InsightsMath {
                                            today: Date = Date(),
                                            calendar cal: Calendar = .current) -> MembersSummary {
         struct ChoreDay: Hashable { var chore: UUID?; var day: Date }
+        // The day before, as a start of day: where a clock change falls at midnight, a day
+        // starts at 01:00 or twice, and stepping back 24 hours misses it.
+        func dayBefore(_ day: Date) -> Date? {
+            cal.date(byAdding: .day, value: -1, to: day).map { cal.startOfDay(for: $0) }
+        }
         let todayStart = cal.startOfDay(for: today)
-        let start = cal.date(byAdding: .day, value: -(max(days, 1) - 1), to: todayStart) ?? todayStart
+        var start = todayStart
+        for _ in 1..<max(days, 1) { start = dayBefore(start) ?? start }
 
-        var everyone = Set<ChoreDay>()
         var inWindow: [String: Set<ChoreDay>] = [:]
         var activeDays: [String: Set<Date>] = [:]
         for completion in completions {
+            guard let id = completion.completedBy else { continue }
             let day = cal.startOfDay(for: completion.date)
             guard day <= todayStart else { continue }
-            if let id = completion.completedBy { activeDays[id, default: []].insert(day) }
-            guard day >= start else { continue }
-            let key = ChoreDay(chore: completion.choreID, day: day)
-            everyone.insert(key)
-            if let id = completion.completedBy { inWindow[id, default: []].insert(key) }
+            activeDays[id, default: []].insert(day)
+            if day >= start { inWindow[id, default: []].insert(ChoreDay(chore: completion.choreID, day: day)) }
         }
 
         let members = inWindow.map { id, done -> MemberStats in
             let active = activeDays[id] ?? []
-            var day = active.contains(todayStart) ? todayStart : cal.date(byAdding: .day, value: -1, to: todayStart)
+            var day = active.contains(todayStart) ? todayStart : dayBefore(todayStart)
             var streak = 0
             while let d = day, active.contains(d) {
                 streak += 1
-                day = cal.date(byAdding: .day, value: -1, to: d)
+                day = dayBefore(d)
             }
             return MemberStats(id: id, choresDone: done.count, streak: streak)
         }
         .sorted { $0.id < $1.id }
-        return MembersSummary(members: members, total: everyone.count, windowDays: days)
+        return MembersSummary(members: members, windowDays: days)
     }
 }
