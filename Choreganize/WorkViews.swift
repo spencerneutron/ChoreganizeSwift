@@ -580,6 +580,7 @@ struct DayPage: View {
         let incompleteChores = dayChores.filter { !$0.isCompleted(on: date) }
         let finishDay = {
             DayLock.lock(date, existing: scopedLocks, household: active, in: context)
+            AccessibilityNotification.Announcement("Day finished").post()
             withAnimation { showConfirmation = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 withAnimation { showConfirmation = false }
@@ -588,9 +589,13 @@ struct DayPage: View {
         let finishDayConfirmation = FinishDayConfirmation(openCount: incompleteChores.count,
                                                           isPresented: $showDoneAlert,
                                                           onFinish: finishDay)
-        // Every day but a locked past one offers Finish Day (unlocked) or Unlock Day
-        // (locked, not past) in its actions.
-        let hasDayButton = !(isLocked && isPast)
+        // An unlocked day with chores offers Finish Day, and a locked day that isn't past
+        // offers Unlock Day. An empty day has nothing to finish, and locking it would only
+        // hide its Quick Add prompt.
+        let showsFinish = !isLocked && !dayChores.isEmpty
+        let showsUnlock = isLocked && !isPast
+        // Finishing asks first only while chores are open.
+        let asksBeforeFinishing = showsFinish && !incompleteChores.isEmpty
         let offersQuickAdd = QuickAddRules.offersGhost(on: date, isLocked: isLocked)
         let bottomClearance = clearsModeSwitcher ? switcherClearance : tabBarClearance
         // One-offs aren't tied to a day, so every upcoming page shows the same ones
@@ -652,7 +657,7 @@ struct DayPage: View {
             // The day's actions. Finish Day and Unlock Day are rows here, last, on every
             // platform: a floating Done covered whichever row sat under it, and it's an
             // occasional action that didn't earn a permanent spot over the list.
-            if hasDayButton {
+            if showsFinish || showsUnlock {
                 Section {
                     // CG-08 — one tap to complete every visible incomplete chore for the
                     // day. Only on an unlocked day (locked days have disabled toggles),
@@ -680,25 +685,28 @@ struct DayPage: View {
                         }
                         #endif
                     }
-                    if isLocked {
+                    if showsUnlock {
                         Button {
                             DayLock.unlock(date, existing: scopedLocks, in: context)
                         } label: {
                             Label("Unlock Day", systemImage: "lock.open")
                         }
                         .accessibilityIdentifier("unlockDayButton")
-                    } else {
+                    } else if showsFinish {
                         Button {
                             // Asks only when finishing would leave chores open; with
                             // everything done it just finishes (Unlock Day undoes it).
-                            if incompleteChores.isEmpty { finishDay() } else { showDoneAlert = true }
+                            if asksBeforeFinishing { showDoneAlert = true } else { finishDay() }
                         } label: {
-                            // Row-wide, so its dialog's popover centres on the row and keeps
-                            // clear of the fold on the open iPhone Duo.
                             Label("Finish Day", systemImage: "flag.checkered")
+                                #if os(iOS)
+                                // Row-wide, so its dialog's popover centres on the row and keeps
+                                // clear of the fold on the open iPhone Duo.
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
+                                #endif
                         }
+                        .accessibilityHint("Locks the day")
                         .accessibilityIdentifier("finishDayButton")
                         .onboardingAnchor(.doneButton)
                         #if os(iOS)
@@ -744,12 +752,20 @@ struct DayPage: View {
         .scrollIndicators(.hidden)   // hide the scroll bar; scrolling still works
         // #127: the ghost shows while this list moves (the pager's horizontal swipes
         // don't reach here) and targets the slot nearest the visible middle.
+        // The question hangs off Finish Day: close it if the row goes (another member
+        // finished the day, midnight passed) or the open chores get done elsewhere, so it
+        // doesn't linger or come back on its own.
+        .onChange(of: asksBeforeFinishing) { _, asks in
+            if !asks { showDoneAlert = false }
+        }
         .onScrollPhaseChange { _, phase in
             quickAdd.scrollMoved(phase == .interacting || phase == .decelerating)
         }
         .onGeometryChange(for: QuickAddRules.Span.self) { proxy in
             let frame = proxy.frame(in: .global)
-            return QuickAddRules.Span(minY: frame.minY, maxY: frame.maxY - bottomClearance)
+            // In tab layouts a bottom tab bar (the upright iPhone Duo) is a safe-area inset.
+            let bottom = clearsModeSwitcher ? bottomClearance : bottomClearance + proxy.safeAreaInsets.bottom
+            return QuickAddRules.Span(minY: frame.minY, maxY: frame.maxY - bottom)
         } action: { span in
             quickAdd.updateViewport(span)
         }
@@ -816,7 +832,8 @@ private struct FinishDayConfirmation: ViewModifier {
             Button("Finish Anyway", action: onFinish)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Finishing locks the day, and \(openCount == 1 ? "it" : "they")'ll stay unfinished.")
+            Text(openCount == 1 ? "Finishing locks the day, and that chore stays undone."
+                                : "Finishing locks the day, and those chores stay undone.")
         }
     }
 }
