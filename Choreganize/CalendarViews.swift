@@ -8,6 +8,12 @@ struct CalendarHomeView: View {
     @FetchRequest(fetchRequest: displayChoresFetchRequest()) private var allChores: FetchedResults<CDChore>
     @FetchRequest(sortDescriptors: [SortDescriptor(\CDLockedDay.date)]) private var lockedDays: FetchedResults<CDLockedDay>
     @State private var month: Date = Date()
+    /// The day on the left page where the month and a day show side by side; today at first.
+    @State private var selectedDay = Calendar.current.startOfDay(for: Date())
+    /// Today, to move the selection on with it at midnight.
+    @State private var today = Calendar.current.startOfDay(for: Date())
+    /// The left page is showing a sheet or a question; it stays mounted until that's done.
+    @State private var dayPagePresenting = false
     /// One shared device-motion source; the glow bars' specular sweep tracks roll (#57 fast-follow).
     /// Held as plain `@State` (not `@StateObject`) so its 30 Hz `roll` updates DON'T re-render the
     /// whole calendar — the bars read `roll` per-frame via their own `TimelineView`.
@@ -38,13 +44,13 @@ struct CalendarHomeView: View {
 
     /// Days in the visible grid that earn the glow — used to conduct one specular sweep across a
     /// run of consecutive perfect days.
-    private func perfectDays(scopedLocks: [CDLockedDay]) -> Set<Date> {
+    private func perfectDays(scopedLocks: [CDLockedDay], byDate: [Date: [CDChore]]) -> Set<Date> {
         let today = calendar.startOfDay(for: Date())
         var set: Set<Date> = []
         for case let date? in days {
             let day = calendar.startOfDay(for: date)
             let p = CalendarMarks.progress(
-                choresByDate[day] ?? [], on: date,
+                byDate[day] ?? [], on: date,
                 mode: CalendarMarks.mode(for: date),
                 daysAgo: calendar.dateComponents([.day], from: day, to: today).day ?? 0,
                 locked: DayLock.isLocked(date, in: scopedLocks))
@@ -54,8 +60,114 @@ struct CalendarHomeView: View {
     }
 
     var body: some View {
+        layout
+            .compatNavigationBarVisibility(.hidden)
+            // Drive device-motion at the calendar level (one source for all glow bars). Stop it when
+            // the calendar isn't visible OR is covered by a sheet (no point sampling behind the Hub).
+            // No-op where motion is unavailable (Simulator).
+            .onAppear { if glowActive { tilt.start() } }
+            .onDisappear { tilt.stop() }
+            .onChange(of: glowActive) { _, active in active ? tilt.start() : tilt.stop() }
+            // Past midnight, a selection that was today moves on to the new today.
+            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+                .receive(on: RunLoop.main)) { _ in
+                let newToday = calendar.startOfDay(for: Date())
+                if selectedDay == today { selectedDay = newToday }
+                today = newToday
+            }
+    }
+
+    /// The month alone, or — where two pages fit (iPad, iPhone Duo's inner display), by the
+    /// same rule as Work's two-day spread — the selected day on the left page and the month on
+    /// the right, divided where the device folds. The month keeps the right page, the one the
+    /// outer display shows, so opening or closing iPhone Duo leaves it where your eyes are, and
+    /// keeps its place in the view tree in both layouts. A 7-column grid across the whole inner
+    /// display put its middle column on the fold (Apple: prefer even column counts there).
+    @ViewBuilder private var layout: some View {
+        #if os(iOS)
+        SpreadReader { spread, margins, geo in
+            pages(spread: spread, insets: margins, in: geo)
+        }
+        #else
+        monthPage(spread: false)
+        #endif
+    }
+
+    #if os(iOS)
+    private func pages(spread: Bool, insets: EdgeInsets, in geo: GeometryProxy) -> some View {
+        let split = SpreadSplit(in: geo)
+        return HStack(spacing: 0) {
+            // Kept, out of sight, while it shows a sheet or a question after the pages fold
+            // back to one (iPhone Duo closing): removing it would close the sheet and lose
+            // what's in it. It goes once that's done.
+            if spread || dayPagePresenting {
+                // Its own page per day: a sheet or list position from one day doesn't carry
+                // to the next. Work handles widget links, so this page doesn't.
+                DayPage(date: selectedDay, handlesDeepLinks: false)
+                    .id(selectedDay)
+                    .onPreferenceChange(DayPagePresentingKey.self) { dayPagePresenting = $0 }
+                    .padding(.leading, insets.leading)
+                    .frame(width: spread ? split.leadingWidth : 0)
+                    .clipped()
+                    // The day's grouped background runs from the edge to the fold (and under
+                    // the bottom safe area): one page of the book, not a card in a margin.
+                    .background(Color.compatGroupedBackground.ignoresSafeArea())
+                    .opacity(spread ? 1 : 0)
+                    .accessibilityHidden(!spread)
+            }
+            if spread {
+                Color.clear
+                    .frame(width: split.gap)
+            }
+            monthPage(spread: spread)
+                .padding(.leading, spread ? 0 : insets.leading)
+                .padding(.trailing, insets.trailing)
+                .frame(maxWidth: .infinity)
+        }
+    }
+    #endif
+
+    /// The month: its header, the weekday row and the days. In a spread the rows fill the page,
+    /// like a wall calendar, and a tap shows that day on the left page; on its own, a tap
+    /// pushes the day as before.
+    private func monthPage(spread: Bool) -> some View {
         let scopedLocks = Array(lockedDays).inScope(model.activeHousehold)
-        let streaks = CalendarStreaks.slots(for: perfectDays(scopedLocks: scopedLocks))
+        let byDate = choresByDate   // once: each day's lookup used to recompute the month
+        let streaks = CalendarStreaks.slots(for: perfectDays(scopedLocks: scopedLocks, byDate: byDate))
+        let columns = Array(repeating: GridItem(.flexible()), count: 7)
+        let days = self.days
+
+        @ViewBuilder func dayGrid(cellHeight: CGFloat) -> some View {
+            LazyVGrid(columns: columns, spacing: CalendarGridMetrics.rowSpacing) {
+                ForEach(Array(days.enumerated()), id: \.offset) { _, date in
+                    if let date {
+                        let day = calendar.startOfDay(for: date)
+                        let cell = DayCell(date: date,
+                                           chores: byDate[day] ?? [],
+                                           isLocked: DayLock.isLocked(date, in: scopedLocks),
+                                           tilt: tilt,
+                                           streak: streaks[day] ?? (slot: 0, count: 1),
+                                           minHeight: cellHeight,
+                                           selection: !spread ? .none
+                                               : day == selectedDay ? .selected : .unselected)
+                        if spread {
+                            Button { selectedDay = day } label: { cell }
+                                .buttonStyle(.plain)
+                                .accessibilityAddTraits(day == selectedDay ? .isSelected : [])
+                                .accessibilityHint("Shows this day beside the month.")
+                        } else {
+                            NavigationLink {
+                                CalendarDayDestination(date: date, selectedDay: $selectedDay)
+                            } label: { cell }
+                        }
+                    } else {
+                        Color.clear
+                            .frame(minHeight: cellHeight)
+                    }
+                }
+            }
+        }
+
         return VStack {
             HStack {
                 Button(action: { month = calendar.date(byAdding: .month, value: -1, to: month)! }) {
@@ -73,40 +185,79 @@ struct CalendarHomeView: View {
             .padding(.horizontal)
             .animation(.easeInOut, value: month)
 
-            let columns = Array(repeating: GridItem(.flexible()), count: 7)
-            LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(calendar.shortWeekdaySymbols, id: \.self) { day in
-                    Text(day)
-                        .font(.caption)
-                        .frame(maxWidth: .infinity)
-                }
-                ForEach(Array(days.enumerated()), id: \.offset) { _, date in
-                    if let date {
-                        NavigationLink(destination:
-                            DayPage(date: date)
-                                .compatNavigationBarVisibility(.visible)
-                        ) {
-                            DayCell(date: date,
-                                    chores: choresByDate[calendar.startOfDay(for: date)] ?? [],
-                                    isLocked: DayLock.isLocked(date, in: scopedLocks),
-                                    tilt: tilt,
-                                    streak: streaks[calendar.startOfDay(for: date)] ?? (slot: 0, count: 1))
-                        }
-                    } else {
-                        Color.clear
-                            .frame(minHeight: 46)
+            VStack(spacing: CalendarGridMetrics.rowSpacing) {
+                LazyVGrid(columns: columns, spacing: CalendarGridMetrics.rowSpacing) {
+                    ForEach(calendar.shortWeekdaySymbols, id: \.self) { day in
+                        Text(day)
+                            .font(.caption)
+                            .frame(maxWidth: .infinity)
                     }
                 }
-            }.frame(maxHeight: .infinity, alignment: .top)
-                .padding(.horizontal)
+                if spread {
+                    GeometryReader { grid in
+                        // Scrolls only if large text outgrows the page.
+                        ScrollView {
+                            dayGrid(cellHeight: CalendarGridMetrics.cellHeight(
+                                available: grid.size.height, rows: days.count / 7))
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                    }
+                } else {
+                    dayGrid(cellHeight: CalendarGridMetrics.minimumCellHeight)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal)
         }
-        .compatNavigationBarVisibility(.hidden)
-        // Drive device-motion at the calendar level (one source for all glow bars). Stop it when
-        // the calendar isn't visible OR is covered by a sheet (no point sampling behind the Hub).
-        // No-op where motion is unavailable (Simulator).
-        .onAppear { if glowActive { tilt.start() } }
-        .onDisappear { tilt.stop() }
-        .onChange(of: glowActive) { _, active in active ? tilt.start() : tilt.stop() }
+    }
+}
+
+/// A day pushed from the month where it stands alone. If two pages come to fit (iPhone Duo
+/// opening or turning sideways, an iPad window widening), the day moves into the page beside
+/// the month instead of covering both. It checks for itself: the month underneath isn't
+/// laid out again while it's covered. While the day shows a sheet or a question it stays put,
+/// and moves once that's done, so nothing typed in it is lost.
+private struct CalendarDayDestination: View {
+    let date: Date
+    @Binding var selectedDay: Date
+    @Environment(\.dismiss) private var dismiss
+    @State private var twoPagesFit = false
+    @State private var presenting = false
+
+    var body: some View {
+        DayPage(date: date)
+            .compatNavigationBarVisibility(.visible)
+            .onPreferenceChange(DayPagePresentingKey.self) { presenting = $0; moveIfReady() }
+            #if os(iOS)
+            .background {
+                SpreadReader { spread, _, _ in
+                    Color.clear.onChange(of: spread) { _, fits in
+                        twoPagesFit = fits
+                        moveIfReady()
+                    }
+                }
+            }
+            #endif
+    }
+
+    private func moveIfReady() {
+        guard twoPagesFit, !presenting else { return }
+        selectedDay = Calendar.current.startOfDay(for: date)
+        dismiss()
+    }
+}
+
+/// The month grid's row arithmetic, kept pure for unit tests.
+enum CalendarGridMetrics {
+    static let rowSpacing: CGFloat = 8
+    /// A day cell's height on its own (iPhone), and the floor when rows fill a page.
+    static let minimumCellHeight: CGFloat = 46
+
+    /// The height that lets `rows` rows fill `available` points, never below the minimum.
+    static func cellHeight(available: CGFloat, rows: Int) -> CGFloat {
+        guard rows > 0 else { return minimumCellHeight }
+        let fill = (available - rowSpacing * CGFloat(rows - 1)) / CGFloat(rows)
+        return max(minimumCellHeight, fill.rounded(.down))
     }
 }
 
@@ -274,6 +425,25 @@ private struct DayCell: View {
     var tilt: TiltProvider
     /// This day's place in a run of consecutive perfect days (slot 0 of 1 when not in a streak).
     var streak: (slot: Int, count: Int) = (0, 1)
+    var minHeight: CGFloat = CalendarGridMetrics.minimumCellHeight
+    /// Whether this day is the one showing beside the month (two-page layout only).
+    var selection: Selection = .none
+
+    enum Selection { case none, selected, unselected }
+
+    /// As in Apple's Calendar month view: the chosen day's number sits in a solid circle,
+    /// today's in a tinted one while it's the chosen day (and always where nothing is chosen),
+    /// and once another day is chosen today is just tinted text, so only one day is circled.
+    private var number: (circle: AnyShapeStyle?, text: AnyShapeStyle) {
+        switch (selection, isToday) {
+        case (.none, true), (.selected, true): (AnyShapeStyle(.tint), AnyShapeStyle(Color.white))
+        case (.selected, false): (AnyShapeStyle(Color.primary), AnyShapeStyle(Color.compatBackground))
+        case (.unselected, true): (nil, AnyShapeStyle(.tint))
+        // `Color.primary`, not the hierarchical `.primary`: inside a link's label that one
+        // takes the link's tint, and the numbers turned blue.
+        default: (nil, AnyShapeStyle(Color.primary))
+        }
+    }
 
     private var cal: Calendar { Calendar.current }
     private var dayNumber: Int { cal.component(.day, from: date) }
@@ -299,13 +469,16 @@ private struct DayCell: View {
         let p = CalendarMarks.progress(chores, on: date, mode: mode, daysAgo: daysAgo, locked: isLocked)
         return VStack(alignment: .leading, spacing: 4) {
             Text(String(dayNumber))
-                .fontWeight(isToday ? .bold : .regular)
-                .foregroundStyle(isToday ? Color.white : Color.primary)
+                .fontWeight(isToday || selection == .selected ? .bold : .regular)
+                .foregroundStyle(number.text)
                 .padding(5)
-                .background { if isToday { Circle().fill(.tint) } }
+                .background { if let circle = number.circle { Circle().fill(circle) } }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer(minLength: 0)
+            // The compact phone cell keeps its marks at its foot. Where rows fill a page (the
+            // two-page layout) the marks sit under the number, as events do in a tall cell of
+            // Apple's Calendar, rather than a page-row away from it.
+            if selection == .none { Spacer(minLength: 0) }
 
             if p.earnsGlow {
                 // A settled, fully-completed day (any past day, or today once locked):
@@ -324,10 +497,12 @@ private struct DayCell: View {
                     }
                 }
             }
+
+            if selection != .none { Spacer(minLength: 0) }
         }
         .padding(4)
         .frame(maxWidth: .infinity)
-        .frame(minHeight: 46)
+        .frame(minHeight: minHeight)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary(p))

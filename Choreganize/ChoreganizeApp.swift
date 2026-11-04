@@ -77,36 +77,26 @@ struct ChoreganizeApp: App {
                         }
                     }
                 }
-                // CG-05: widget rows deep-link via the `choreganize://` scheme. Route to
-                // the targeted chore: switch to its scope so it's in view, then hand the
-                // target to the UI via `model.deepLinkChore` — ContentView switches to
-                // Work, WeekView snaps to today, and the day's page scrolls to + flashes
-                // the row (see AppModel.deepLinkChore).
+                // CG-05: widget rows deep-link via the `choreganize://` scheme. The link
+                // becomes `model.deepLinkRequest`; ContentView asks first if Edit holds
+                // unsaved chores, then `openDeepLinkChore` switches to the chore's scope and
+                // hands it to Work, where WeekView snaps to today and the day's page scrolls
+                // to + flashes the row (see AppModel.deepLinkChore).
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
         }
     }
 
-    /// Resolves a `choreganize://` URL and routes to the targeted chore. Switches the
-    /// active scope so a Household chore tapped from the widget is actually on screen,
-    /// then sets `model.deepLinkChore` for the Work view to scroll to + highlight.
+    /// Resolves a `choreganize://` URL and asks to open the targeted chore. `ContentView`
+    /// takes it from there: it may first need to ask before leaving unsaved chores in Edit,
+    /// and only then switches the scope and shows the chore (`AppModel.openDeepLinkChore`).
     @MainActor
     private func handleDeepLink(_ url: URL) {
         // `nil` outer means "not our URL"; inner `nil` means "ours, but not chore-specific"
         // (a plain open — the app foregrounds wherever it was, nothing more to do).
         guard let resolved = WidgetDeepLink.choreID(from: url) else { return }
         guard let choreID = resolved else { return }
-
-        // Align the active scope with the chore so it's visible on today's DayPage.
-        let context = CoreDataStack.shared.viewContext
-        let request = NSFetchRequest<CDChore>(entityName: "CDChore")
-        request.fetchLimit = 1
-        request.predicate = NSPredicate(format: "id == %@", choreID as CVarArg)
-        if let chore = try? context.fetch(request).first {
-            let targetScope: AppScope = chore.household == nil ? .solo : .household
-            if model.scope != targetScope { model.setScope(targetScope) }
-        }
-        model.deepLinkChore = choreID
+        model.deepLinkRequest = choreID
     }
 }

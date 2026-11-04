@@ -17,14 +17,15 @@ struct OnboardingStep: Identifiable, Equatable {
 
     let id: ID
     let title: String
-    let message: String
+    /// Built from a localized key, so the copy can show a symbol inline.
+    let message: Text
     let systemImage: String
     let spotlight: Spotlight?
 
-    init(_ id: ID, title: String, message: String, systemImage: String, spotlight: Spotlight? = nil) {
+    init(_ id: ID, title: String, message: LocalizedStringKey, systemImage: String, spotlight: Spotlight? = nil) {
         self.id = id
         self.title = title
-        self.message = message
+        self.message = Text(message)
         self.systemImage = systemImage
         self.spotlight = spotlight
     }
@@ -35,11 +36,11 @@ extension OnboardingStep {
     static let all: [OnboardingStep] = [
         .init(.welcome,
               title: "Welcome to Choreganize",
-              message: "Organize your household's chores and share them with the people you live with. Here's a quick tour — you can replay any of it later from Support.",
+              message: "Organize your household's chores and share them with the people you live with. Here's a quick tour — you can replay any of it later from \(Image(systemName: PlatformText.hubSymbol)) Hub ▸ Learn the app.",
               systemImage: "checklist"),
         .init(.modes,
-              title: "Three views",
-              message: "Use the bar at the bottom to move between Work (today's checklist), Edit (manage chores & areas), and Calendar (the month at a glance).",
+              title: "Four views",
+              message: "Move between Work (today's checklist), Edit (manage chores & areas), Calendar (the month at a glance), and Insights (how you're keeping up, with Choreganize Plus).",
               systemImage: "rectangle.3.group",
               spotlight: .modePicker),
         .init(.scheduling,
@@ -57,8 +58,8 @@ extension OnboardingStep {
               systemImage: "square.and.arrow.up"),
         .init(.finishDay,
               title: "Finish the day",
-              message: "Tap Done to wrap up a day. Past days lock automatically so your history stays accurate — but feel free to work ahead!",
-              systemImage: "checkmark.seal",
+              message: "Tap Finish Day, at the end of a day's list, to wrap it up, and swipe sideways to move between days. Past days lock automatically so your history stays accurate — but feel free to work ahead!",
+              systemImage: "flag.checkered",
               spotlight: .doneButton),
     ]
 

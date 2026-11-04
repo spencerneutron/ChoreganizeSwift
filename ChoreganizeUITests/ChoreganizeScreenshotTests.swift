@@ -68,7 +68,23 @@ final class ChoreganizeScreenshotTests: XCTestCase {
     @MainActor
     private func selectMode(_ app: XCUIApplication, _ title: String) {
         let pill = app.buttons["modeSwitcherCollapsed"]
-        XCTAssertTrue(pill.waitForExistence(timeout: 10), "mode switcher pill should exist")
+        // iPad and iPhone Duo show the modes in the system tab bar instead of the pill.
+        let tab = app.tabBars.buttons[title]
+        let deadline = Date().addingTimeInterval(10)
+        while !pill.exists && !tab.exists && Date() < deadline {
+            _ = pill.waitForExistence(timeout: 0.5)
+        }
+        if !pill.exists {
+            // The iPad tab bar can list a mode twice (tab bar and sidebar); tap the one on screen.
+            let candidates = tab.exists ? [tab] : app.buttons.matching(identifier: title).allElementsBoundByIndex
+                + app.buttons.matching(NSPredicate(format: "label == %@", title)).allElementsBoundByIndex
+            guard let target = candidates.first(where: { $0.isHittable }) else {
+                XCTFail("mode switcher pill or \(title) tab should exist")
+                return
+            }
+            target.tap()
+            return
+        }
         pill.tap()
         let segment = app.buttons[title]
         if segment.waitForExistence(timeout: 5) {

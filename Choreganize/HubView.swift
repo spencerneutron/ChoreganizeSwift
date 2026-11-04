@@ -26,6 +26,12 @@ struct HubView: View {
     /// CG-12 / #95: live Plus entitlement for the Support section.
     @ObservedObject private var entitlements = EntitlementStore.shared
     @State private var showPaywall = false
+    /// CG-28 / #129: who's been helping, loaded off the main thread for the household.
+    @State private var members: HouseholdMembers.Loaded?
+    @ObservedObject private var directory = CompleterDirectory.shared
+    /// The log viewer. The pill switcher opens it on a long press; the system tab bar
+    /// (iPad, iPhone Duo) can't, so the Version row offers the same long press.
+    @State private var showLogs = false
 
     #if DEBUG
     /// #65 A/B: which floating mode-switcher style to use (toggled in the Developer
@@ -80,7 +86,7 @@ struct HubView: View {
                     Text("Shown next to chores you complete when you share a household. Stored only on this device until then.")
                 }
 
-                Section("Household") {
+                Section {
                     Picker("Data", selection: Binding(
                         get: { model.scope },
                         set: { model.setScope($0) }
@@ -91,8 +97,17 @@ struct HubView: View {
                     }
                     if model.scope == .household {
                         LabeledContent("Sharing") {
-                            HouseholdShareControl()
+                            HouseholdShareControl(iconOnly: true)   // the row already says "Sharing"
                         }
+                        if let members = sharedMembers {
+                            HouseholdMemberRows(summary: members, isPlus: Entitlements.isPlus(for: model.activeHousehold))
+                        }
+                    }
+                } header: {
+                    Text("Household")
+                } footer: {
+                    if let members = sharedMembers {
+                        HouseholdMemberFooter(summary: members, isPlus: Entitlements.isPlus(for: model.activeHousehold))
                     }
                 }
 
@@ -179,6 +194,9 @@ struct HubView: View {
 
                 Section("About") {
                     LabeledContent("Version", value: Self.appVersion)
+                        .contentShape(Rectangle())
+                        .onLongPressGesture(minimumDuration: 0.6) { showLogs = true }
+                        .accessibilityAction(named: "Show Logs") { showLogs = true }
                     // Debug builds only (DataIsolation): which data this run is using.
                     if let dataLabel = DataIsolation.label {
                         LabeledContent("Data", value: dataLabel)
@@ -186,6 +204,7 @@ struct HubView: View {
                 }
             }
             .navigationTitle("Hub")
+            .loadsHouseholdMembers(for: model.activeHousehold?.objectID, into: $members)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -194,7 +213,16 @@ struct HubView: View {
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
             }
+            .sheet(isPresented: $showLogs) {
+                LogViewerView()
+            }
         }
+    }
+
+    /// The household's member stats, when there's more than one person to show.
+    private var sharedMembers: InsightsMath.MembersSummary? {
+        HouseholdMembers.shown(members, for: model.activeHousehold?.objectID,
+                               participantIDs: directory.namesByID.keys)
     }
 
     private static var appVersion: String {

@@ -21,3 +21,16 @@ enum AppMode: String, CaseIterable, Identifiable {
         }
     }
 }
+
+private struct ClearsModeSwitcherKey: EnvironmentKey { static let defaultValue = true }
+
+extension EnvironmentValues {
+    /// Whether the floating mode switcher (the iPhone pill) sits over the bottom of a mode's
+    /// content, so lists and floating day buttons leave room for it. The iOS shell sets it
+    /// false where the modes are in the system tab bar (iPad, iPhone Duo), which takes its
+    /// own space; elsewhere the clearances stay as they were.
+    var clearsModeSwitcher: Bool {
+        get { self[ClearsModeSwitcherKey.self] }
+        set { self[ClearsModeSwitcherKey.self] = newValue }
+    }
+}

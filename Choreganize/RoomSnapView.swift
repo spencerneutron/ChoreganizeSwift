@@ -32,6 +32,8 @@ struct RoomSnapFlowView: View {
         .compatInlineNavigationTitle()
         .onAppear { successHaptic.prepare() }
         .onDisappear { snap.cancel() }
+        // The suggestions kept in review are unsaved work, like the add-flow's staged chores.
+        .guardsUnsavedChores(snap.phase == .review ? snap.selected.count : 0)
         #if DEBUG
         .task {
             if snap.phase == .capture, let photo = PhotoInput.testPhoto { snap.start(with: photo, household: household) }

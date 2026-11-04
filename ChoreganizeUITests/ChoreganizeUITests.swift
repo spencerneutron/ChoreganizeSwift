@@ -28,7 +28,23 @@ final class ChoreganizeUITests: XCTestCase {
     @MainActor
     private func selectMode(_ app: XCUIApplication, _ title: String) {
         let collapsed = app.buttons["modeSwitcherCollapsed"]
-        XCTAssertTrue(collapsed.waitForExistence(timeout: 10), "mode switcher pill should exist")
+        // iPad and iPhone Duo show the modes in the system tab bar instead of the pill.
+        let tab = app.tabBars.buttons[title]
+        let deadline = Date().addingTimeInterval(10)
+        while !collapsed.exists && !tab.exists && Date() < deadline {
+            _ = collapsed.waitForExistence(timeout: 0.5)
+        }
+        if !collapsed.exists {
+            // The iPad tab bar can list a mode twice (tab bar and sidebar); tap the one on screen.
+            let candidates = tab.exists ? [tab] : app.buttons.matching(identifier: title).allElementsBoundByIndex
+                + app.buttons.matching(NSPredicate(format: "label == %@", title)).allElementsBoundByIndex
+            guard let target = candidates.first(where: { $0.isHittable }) else {
+                XCTFail("mode switcher pill or \(title) tab should exist")
+                return
+            }
+            target.tap()
+            return
+        }
         collapsed.tap()
         // Menu items expose their label/identifier; accept either query.
         let asButton = app.buttons[title]
@@ -39,6 +55,38 @@ final class ChoreganizeUITests: XCTestCase {
             XCTAssertTrue(asMenuItem.waitForExistence(timeout: 5), "\(title) menu item should exist")
             asMenuItem.tap()
         }
+    }
+
+    /// Finishing a group with a typed but unadded chore asks first (#54): an action sheet on
+    /// iPhone, a popover from Day Complete in regular width. "Add & Finish" stages the
+    /// chore and moves on, so the typed name isn't lost.
+    @MainActor
+    func testFinishingWithAnUnaddedChoreAsksFirst() throws {
+        let app = launchApp()
+        selectMode(app, "Edit")
+
+        let lens = app.descendants(matching: .any)["addflow.lens.byDay"]
+        XCTAssertTrue(lens.waitForExistence(timeout: 5), "Day-by-day lens entry should exist")
+        lens.tap()
+        let monday = app.buttons["Monday"]
+        XCTAssertTrue(monday.waitForExistence(timeout: 5), "Weekday picker should offer Monday")
+        monday.tap()
+
+        let nameField = app.textFields["addflow.choreNameField"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5), "Chore name field should exist")
+        nameField.tap()
+        nameField.typeText("UITest Water Ferns")
+
+        // Day Complete without tapping Add.
+        app.buttons["Day Complete"].tap()
+        let addAndFinish = app.buttons["Add & Finish"]
+        XCTAssertTrue(addAndFinish.waitForExistence(timeout: 5),
+                      "Finishing with an unadded chore should ask before dropping it")
+        addAndFinish.tap()
+
+        // The chore was staged and the flow moved on.
+        XCTAssertTrue(app.buttons["Review & Save"].waitForExistence(timeout: 5),
+                      "Add & Finish should stage the chore and move on")
     }
 
     /// Drives the day-by-day wizard end to end and confirms the chore persists into the

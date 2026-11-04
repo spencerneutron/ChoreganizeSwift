@@ -39,6 +39,8 @@ struct DescribeChoresFlowView: View {
         .compatInlineNavigationTitle()
         .onAppear { successHaptic.prepare() }
         .onDisappear { describe.cancel() }
+        // The suggestions kept in review are unsaved work, like the add-flow's staged chores.
+        .guardsUnsavedChores(describe.phase == .review ? describe.selected.count : 0)
         #if DEBUG
         .task {
             if describe.phase == .compose, describe.text.isEmpty, let text = DescribeChoresModel.testTextFromEnvironment {

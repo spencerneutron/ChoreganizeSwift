@@ -1,14 +1,40 @@
 import SwiftUI
 import CoreData
 
+/// Where a row on the Edit list leads. On iOS the list is the sidebar of a split view and
+/// these drive its detail column; on the Mac (and in previews) the rows push them.
+enum EditDestination: Hashable {
+    case lens(AddFlowGrouping)
+    case snapRoom
+    case describe
+    case chores
+    case areas
+
+    @ViewBuilder var view: some View {
+        switch self {
+        case .lens(let lens): AddFlowFlowView(grouping: lens)
+        case .chores: ChoreListView()
+        case .areas: AreaListView()
+        #if os(iOS)
+        case .snapRoom: RoomSnapFlowView()
+        case .describe: DescribeChoresFlowView()
+        #else
+        case .snapRoom, .describe: EmptyView()   // the Mac opens these as sheets
+        #endif
+        }
+    }
+}
+
 struct EditHomeView: View {
+    /// The split view's selection (iOS). Without one, the rows push their destinations.
+    var selection: Binding<EditDestination?>? = nil
+    @Environment(\.clearsModeSwitcher) private var clearsModeSwitcher
+
     var body: some View {
-        List {
+        List(selection: selection) {
             Section {
                 ForEach(AddFlowGrouping.allCases) { lens in
-                    NavigationLink {
-                        AddFlowFlowView(grouping: lens)
-                    } label: {
+                    link(to: .lens(lens)) {
                         lensLabel(lens.title,
                                   subtitle: lens == .byArea
                                       ? "Pick a room, then add its chores."
@@ -26,13 +52,24 @@ struct EditHomeView: View {
             }
 
             Section("Manage") {
-                NavigationLink("Chores") { ChoreListView() }
-                NavigationLink("Areas") { AreaListView() }
+                link(to: .chores) { Text("Chores") }
+                link(to: .areas) { Text("Areas") }
             }
         }
         // Float-over-content (#65): clear the floating mode switcher so the last row isn't
         // hidden behind it.
-        .contentMargins(.bottom, 100, for: .scrollContent)
+        .contentMargins(.bottom, clearsModeSwitcher ? 100 : 24, for: .scrollContent)
+    }
+
+    /// A row that selects `destination` in the split view, or pushes it where there's none.
+    @ViewBuilder
+    private func link<Label: View>(to destination: EditDestination,
+                                   @ViewBuilder label: () -> Label) -> some View {
+        if selection != nil {
+            NavigationLink(value: destination, label: label)
+        } else {
+            NavigationLink(destination: { destination.view }, label: label)
+        }
     }
 
     private func lensLabel(_ title: String, subtitle: String, systemImage: String) -> some View {
@@ -73,14 +110,13 @@ struct EditHomeView: View {
         let language = RoomVisionAvailability.describeChores
         if language.isOfferable {
             #if os(iOS)
-            NavigationLink {
-                DescribeChoresFlowView()
-            } label: {
+            link(to: .describe) {
                 lensLabel("Describe Chores",
                           subtitle: language.hint ?? "Type or say what needs doing, and when.",
                           systemImage: "text.bubble")
             }
             .disabled(!language.isAvailable)
+            .selectionDisabled(!language.isAvailable)
             .accessibilityIdentifier("addflow.describe")
             #else
             Button {
@@ -105,14 +141,13 @@ struct EditHomeView: View {
         let vision = RoomVisionAvailability.current
         if vision.isOfferable {
             #if os(iOS)
-            NavigationLink {
-                RoomSnapFlowView()
-            } label: {
+            link(to: .snapRoom) {
                 lensLabel("Snap a Room",
                           subtitle: vision.hint ?? "Take a photo of a room to get chore ideas.",
                           systemImage: "camera.viewfinder")
             }
             .disabled(!vision.isAvailable)
+            .selectionDisabled(!vision.isAvailable)
             .accessibilityIdentifier("addflow.snapRoom")
             #else
             Button {
@@ -225,6 +260,11 @@ struct ChoreListView: View {
                 ToolbarItem(placement: .compatTrailing) {
                     Button("Delete", role: .destructive) { showDeleteConfirm = true }
                         .disabled(selection.isEmpty)
+                        #if os(iOS)
+                        // On the button, so where it shows as a popover (iPad, the open
+                        // iPhone Duo) it points at Delete rather than the middle of the list.
+                        .modifier(deleteConfirmation)
+                        #endif
                 }
             } else {
                 ToolbarItem(placement: .compatTrailing) {
@@ -232,12 +272,9 @@ struct ChoreListView: View {
                 }
             }
         }
-        .confirmationDialog(deleteTitle, isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { deleteSelected() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This also removes their completion history and can't be undone.")
-        }
+        #if os(macOS)
+        .modifier(deleteConfirmation)
+        #endif
         .sheet(isPresented: $showingNew) {
             NewChoreView()
         }
@@ -261,6 +298,11 @@ struct ChoreListView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// Delete's "delete the selected chores?" question.
+    private var deleteConfirmation: DeleteConfirmation {
+        DeleteConfirmation(title: deleteTitle, isPresented: $showDeleteConfirm) { deleteSelected() }
     }
 
     private var deleteTitle: String {
@@ -315,6 +357,21 @@ private func applyPlusChoreFields(to chore: CDChore,
     chore.recurrenceIntervalValue = isDaily ? 1 : interval
     if chore.household != nil {
         chore.assignee = assignee
+    }
+}
+
+private struct DeleteConfirmation: ViewModifier {
+    let title: String
+    @Binding var isPresented: Bool
+    let onDelete: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(title, isPresented: $isPresented, titleVisibility: .visible) {
+            Button("Delete", role: .destructive, action: onDelete)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This also removes their completion history and can't be undone.")
+        }
     }
 }
 
@@ -517,6 +574,8 @@ struct EditChoreView: View {
                                 areas: Array(areas).inScope(chore.household),
                                 household: chore.household)
 
+                ChoreStatsSection(chore: chore)
+
                 Section("History") {
                     let completions = chore.completionsArray
 
@@ -680,6 +739,7 @@ struct EditAreaView: View {
         NavigationStack {
             Form {
                 AreaFormFields(name: $name, description: $detail)
+                AreaStatsSection(chores: allChores.filter { $0.area == area }, household: area.household)
                 let available = allChores.inScope(area.household).filter { $0.area == nil || $0.area == area }
                 Section(header: Text("Chores")) {
                     ForEach(available, id: \.objectID) { chore in

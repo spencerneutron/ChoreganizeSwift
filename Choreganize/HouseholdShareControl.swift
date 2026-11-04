@@ -5,6 +5,9 @@ import CoreData
 /// share / manage / rename. Shown only in Household scope. The share/manage
 /// actions need CloudKit; rename works offline (it's a synced attribute).
 struct HouseholdShareControl: View {
+    /// Shows only the symbol (the Hub's "Sharing" row already names it). The style is
+    /// applied to the menu's label alone so the menu's own items keep their titles.
+    var iconOnly = false
     @EnvironmentObject private var model: AppModel
     @State private var info: HouseholdShareInfo = .notShared
     @State private var showRename = false
@@ -37,7 +40,15 @@ struct HouseholdShareControl: View {
                 Label("Rename Household…", systemImage: "pencil")
             }
         } label: {
-            Image(systemName: menuIcon)
+            // A title as well as the symbol: iPhone Duo's side bar shows the symbol, and
+            // the system uses the title in overflow menus and expanded forms (HIG,
+            // "Designing for iPhone Duo" ▸ Vertical controls).
+            if iconOnly {
+                Label("Household Sharing", systemImage: menuIcon)
+                    .labelStyle(.iconOnly)
+            } else {
+                Label("Household Sharing", systemImage: menuIcon)
+            }
         }
         .task(id: model.scope) { refresh() }
         // These notifications post on background queues — NSPersistentStoreRemoteChange

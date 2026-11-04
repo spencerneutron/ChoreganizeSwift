@@ -30,23 +30,29 @@ struct InsightsHomeView: View {
         let scope = model.activeHousehold
         let chores = Array(allChores).inScope(scope)
         let locks = Array(lockedDays).inScope(scope)
-        let dashboard = InsightsDashboard(
+        // Without Plus it's a teaser: the real layout, blurred and redacted, behind the lock
+        // card (placed by the dashboard, so it stays off the fold on iPhone Duo).
+        return InsightsDashboard(
             chores: chores, locks: locks,
-            scopeName: scope != nil ? model.householdName : AppScope.solo.title)
+            scopeName: scope != nil ? model.householdName : AppScope.solo.title,
+            locked: !isPlus)
+    }
+}
 
-        return Group {
-            if isPlus {
-                dashboard
-            } else {
-                // Teaser: the real layout, blurred + redacted, behind the lock
-                // card. Hit-testing off so nothing under the glass is tappable.
-                dashboard
-                    .blur(radius: 8)
-                    .redacted(reason: .placeholder)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                    .overlay { InsightsLockCard() }
-            }
+/// The teaser treatment: the real layout, blurred and redacted, with hit-testing off so
+/// nothing under the lock card's glass is tappable.
+private struct Teaser: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .blur(radius: 8)
+                .redacted(reason: .placeholder)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        } else {
+            content
         }
     }
 }
@@ -77,67 +83,145 @@ private struct InsightsLockCard: View {
 
 /// The dashboard proper: headline 7d/30d rate cards, the year heatmap, per-room
 /// and per-frequency bars, streaks, and the shareable month card.
+///
+/// Where two pages fit (iPad, iPhone Duo's inner display; the same rule as Work's two-day
+/// spread), the dashboard opens like a book divided at the fold: the headline (the rates, the
+/// year, streaks) and the share card on the right page, the one the outer display shows, so
+/// opening iPhone Duo keeps it where your eyes are; the room and frequency breakdowns on the
+/// left. Each page scrolls on its own. Elsewhere it's the single column, in the same order as
+/// before. The right page is the same view in both layouts, as in Work and Calendar, so opening
+/// or closing the Duo keeps its scroll position and the share card's rendered image.
 private struct InsightsDashboard: View {
     let chores: [CDChore]
     let locks: [CDLockedDay]
     let scopeName: String
+    /// Without Plus: blurred and redacted behind the lock card (CG-21 / #103).
+    let locked: Bool
+    @Environment(\.clearsModeSwitcher) private var clearsModeSwitcher
 
     var body: some View {
         // Recomputed per render, same as the calendar grid / Hub streaks — the
         // aggregation is pure and the data volumes of a chores app keep it cheap.
-        let week = InsightsMath.completionStats(chores: chores, lastDays: 7)
-        let month = InsightsMath.completionStats(chores: chores, lastDays: 30)
-        let rooms = InsightsMath.roomBreakdown(chores: chores)
-        let frequencies = InsightsMath.frequencyBreakdown(chores: chores)
-        let streaks = InsightsMath.streakSummary(scopedChores: chores, scopedLocks: locks)
-        let heatmap = InsightsMath.yearHeatmap(chores: chores)
-        let monthSummary = InsightsMath.monthSummary(chores: chores, locks: locks)
+        let stats = Stats(chores: chores, locks: locks)
 
+        #if os(iOS)
+        SpreadReader { spread, margins, geo in
+            let split = SpreadSplit(in: geo)
+            HStack(spacing: 0) {
+                if spread {
+                    page { breakdowns(stats) }
+                        .modifier(Teaser(active: locked))
+                        .padding(.leading, margins.leading)
+                        .frame(width: split.leadingWidth)
+                    Color.clear
+                        .frame(width: split.gap)
+                }
+                page {
+                    headline(stats)
+                    if !spread { breakdowns(stats) }
+                    streaksSection(stats)
+                    shareSection(stats)
+                }
+                .modifier(Teaser(active: locked))
+                // The lock card sits on this page: centered on both, it straddled the fold.
+                .overlay { if locked { InsightsLockCard() } }
+                .padding(.leading, spread ? 0 : margins.leading)
+                .padding(.trailing, margins.trailing)
+                .frame(maxWidth: .infinity)
+                // VoiceOver reads the headline first, as on one page.
+                .accessibilitySortPriority(1)
+            }
+            .accessibilityElement(children: .contain)
+        }
+        #else
+        page {
+            headline(stats)
+            breakdowns(stats)
+            streaksSection(stats)
+            shareSection(stats)
+        }
+        .modifier(Teaser(active: locked))
+        .overlay { if locked { InsightsLockCard() } }
+        #endif
+    }
+
+    /// One scrolling page of sections.
+    private func page<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                HStack(spacing: 12) {
-                    RateCard(title: "Last 7 days", stats: week)
-                    RateCard(title: "Last 30 days", stats: month)
-                }
-
-                InsightsSection("This year") {
-                    YearHeatmapView(days: heatmap)
-                }
-
-                InsightsSection("Rooms — last 30 days") {
-                    if rooms.isEmpty {
-                        EmptyHint(text: "No chores were due in the last 30 days.")
-                    } else {
-                        VStack(spacing: 10) {
-                            ForEach(rooms) { BreakdownBar(stats: $0) }
-                        }
-                    }
-                }
-
-                InsightsSection("By frequency — last 30 days") {
-                    if frequencies.isEmpty {
-                        EmptyHint(text: "No chores were due in the last 30 days.")
-                    } else {
-                        VStack(spacing: 10) {
-                            ForEach(frequencies) { BreakdownBar(stats: $0) }
-                        }
-                    }
-                }
-
-                InsightsSection("Streaks") {
-                    StreakRow(summary: streaks)
-                }
-
-                InsightsSection("Share your month") {
-                    ShareCardSection(summary: monthSummary, scopeName: scopeName)
-                }
+                content()
             }
             .padding(.horizontal)
             .padding(.top, 8)
         }
         // Float-over-content (#65): the last section must clear the floating
         // glass mode switcher, same clearance EditHome uses.
-        .contentMargins(.bottom, 100, for: .scrollContent)
+        .contentMargins(.bottom, clearsModeSwitcher ? 100 : 24, for: .scrollContent)
+    }
+
+    @ViewBuilder private func headline(_ stats: Stats) -> some View {
+        HStack(spacing: 12) {
+            RateCard(title: "Last 7 days", stats: stats.week)
+            RateCard(title: "Last 30 days", stats: stats.month)
+        }
+
+        InsightsSection("This year") {
+            YearHeatmapView(days: stats.heatmap)
+        }
+    }
+
+    @ViewBuilder private func breakdowns(_ stats: Stats) -> some View {
+        InsightsSection("Rooms — last 30 days") {
+            if stats.rooms.isEmpty {
+                EmptyHint(text: "No chores were due in the last 30 days.")
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(stats.rooms) { BreakdownBar(stats: $0) }
+                }
+            }
+        }
+
+        InsightsSection("By frequency — last 30 days") {
+            if stats.frequencies.isEmpty {
+                EmptyHint(text: "No chores were due in the last 30 days.")
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(stats.frequencies) { BreakdownBar(stats: $0) }
+                }
+            }
+        }
+    }
+
+    private func streaksSection(_ stats: Stats) -> some View {
+        InsightsSection("Streaks") {
+            StreakRow(summary: stats.streaks)
+        }
+    }
+
+    private func shareSection(_ stats: Stats) -> some View {
+        InsightsSection("Share your month") {
+            ShareCardSection(summary: stats.monthSummary, scopeName: scopeName)
+        }
+    }
+
+    /// Everything the dashboard shows, computed once per render.
+    private struct Stats {
+        let week, month: InsightsMath.WindowStats
+        let rooms: [InsightsMath.GroupStats]
+        let frequencies: [InsightsMath.GroupStats]
+        let streaks: CalendarStreaks.Summary
+        let heatmap: [InsightsMath.HeatmapDay]
+        let monthSummary: InsightsMath.MonthSummary
+
+        init(chores: [CDChore], locks: [CDLockedDay]) {
+            week = InsightsMath.completionStats(chores: chores, lastDays: 7)
+            month = InsightsMath.completionStats(chores: chores, lastDays: 30)
+            rooms = InsightsMath.roomBreakdown(chores: chores)
+            frequencies = InsightsMath.frequencyBreakdown(chores: chores)
+            streaks = InsightsMath.streakSummary(scopedChores: chores, scopedLocks: locks)
+            heatmap = InsightsMath.yearHeatmap(chores: chores)
+            monthSummary = InsightsMath.monthSummary(chores: chores, locks: locks)
+        }
     }
 }
 

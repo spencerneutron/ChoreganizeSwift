@@ -119,22 +119,86 @@ struct WorkHomeView: View {
 
 struct WeekView: View {
     @EnvironmentObject private var model: AppModel
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
     // Expose a range before and after today so the user can page through recent days.
     // weekDates returns stable start-of-day dates, today centered (index == includePast).
     private var dates: [Date] {
         Scheduling.weekDates(startingFrom: Date(), includePast: 6, includeFuture: 6)
     }
 
-    // Today sits in the middle of the symmetric range. Optional because scrollPosition(id:)
-    // drives it; starts on today.
+    // The focused day as an index into `dates`: the page on screen, or the RIGHT page of a
+    // two-day spread. Pages are identified by this index (a spread by its right page's), so
+    // the same value survives a switch between one page and a spread.
     // macOS NOTE: the Mac shell doesn't mount this view — trackpad momentum ignores
     // `.scrollTargetBehavior(.paging)` and two guided fixes fought the scroll system
     // (both backed out). MacWorkHomeView shows one day with explicit navigation instead.
-    @State private var currentIndex: Int? = 6
+    @State private var position = ScrollPosition(id: 6)
+    @State private var focusIndex = 6
+    #if os(iOS)
+    /// The open iPhone Duo's day rail follows the pager through this (see `DayRail`).
+    @State private var rail = DayRailTracker()
+    #endif
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Index of today within `dates` (today is the middle of the range).
     private var todayIndex: Int {
         dates.firstIndex { Calendar.current.isDateInToday($0) } ?? 6
+    }
+
+    /// A day's page, or — one past either end of the range, which a spread can reach so
+    /// every day has a page — a quiet note that there's nothing further. Only the focused
+    /// page handles a widget deep link: a spread's left page may be about to make way for
+    /// the spread that puts today on the right.
+    @ViewBuilder
+    private func spreadSide(_ index: Int, focused: Bool = true) -> some View {
+        if dates.indices.contains(index) {
+            DayPage(date: dates[index], handlesDeepLinks: focused)
+        } else {
+            EdgePage(isEarlier: index < 0)
+        }
+    }
+
+    /// Two days side by side (the day before | the focused day) where there's room: a
+    /// regular × regular size (iPad, iPhone Duo's inner display) and room for both sides'
+    /// content once the fold and any side bar are taken out. Decided by size class and the
+    /// container, never the device model.
+    private func showsSpread(in geo: GeometryProxy, insets: EdgeInsets, sideBar: Bool) -> Bool {
+        #if os(iOS)
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+            && SpreadLayout.fits(in: geo, insets: insets, sideBar: sideBar)
+        #else
+        false
+        #endif
+    }
+
+    /// The day rail never grows wider than this, whatever the inset beside it.
+    private static let maxRailWidth: CGFloat = 88
+
+    /// The two days a spread shows, for VoiceOver.
+    private func spreadDescription(right index: Int) -> String {
+        [index - 1, index]
+            .filter { dates.indices.contains($0) }
+            .map { dates[$0].formatted(.dateTime.weekday(.wide).month(.wide).day()) }
+            .joined(separator: " and ")
+    }
+
+    /// Pages to a spread picked on the day rail (a drag, or VoiceOver's adjust).
+    private func select(spread right: Int) {
+        focusIndex = right
+        if reduceMotion {
+            position.scrollTo(id: right)
+        } else {
+            withAnimation(.snappy) { position.scrollTo(id: right) }
+        }
+    }
+
+    /// Page IDs: each day's index, or in a spread each spread's right-page index (see
+    /// `WeekPager.spreadRights`).
+    private func pageIDs(spread: Bool) -> [Int] {
+        spread ? WeekPager.spreadRights(focus: focusIndex, dayCount: dates.count) : Array(dates.indices)
     }
 
     var body: some View {
@@ -144,53 +208,273 @@ struct WeekView: View {
         // list rests BELOW the top nav controls and ABOVE the home indicator — a full-window
         // page (containerRelativeFrame) otherwise trapped the first rows under the top
         // controls and collided the Done button with the switcher. One container = identical
-        // insets on every page (D2 stays fixed). All iOS 17+.
+        // insets on every page (D2 stays fixed). iOS 18+ (ScrollPosition, scroll geometry).
+        // Horizontally, each page spans the full width — under a side safe-area inset (iPhone
+        // Duo's side bar, a notch in landscape) — and pads its own content clear of it. Pages
+        // narrower than the scroll view left a neighbour's sliver under the bar, which
+        // misaligned paging and made the leading-most page a neighbour. The outer reader
+        // keeps the safe area so it can report the insets; the pager's ignores it.
+        GeometryReader { outer in
+            #if os(iOS)
+            VerticalBarReader { barsAreVertical in
+                pager(insets: outer.safeAreaInsets, sideBar: barsAreVertical)
+            }
+            #else
+            pager(insets: outer.safeAreaInsets, sideBar: false)
+            #endif
+        }
+    }
+
+    /// `sideBar`: the system lays bars out vertically here (iPhone Duo), so a horizontal
+    /// inset is its side bar.
+    private func pager(insets: EdgeInsets, sideBar: Bool) -> some View {
         GeometryReader { geo in
+            let spread = showsSpread(in: geo, insets: insets, sideBar: sideBar)
+            let pageIDs = pageIDs(spread: spread)
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
-                    ForEach(Array(dates.enumerated()), id: \.offset) { _, date in
-                        DayPage(date: date)
-                            // Each page == the safe-area-bounded container: gives the nested
-                            // List its bounded width AND height (it scrolls vertically within).
-                            .frame(width: geo.size.width, height: geo.size.height)
+                    ForEach(pageIDs, id: \.self) { index in
+                        page(index, spread: spread,
+                             insets: spread ? SpreadLayout.margins(insets, sideBar: sideBar) : insets, in: geo)
+                        // Each page == the safe-area-bounded container vertically: gives the
+                        // nested List its bounded width AND height (it scrolls vertically within).
+                        .frame(width: geo.size.width, height: geo.size.height)
                     }
                 }
                 .scrollTargetLayout()
             }
-            .scrollTargetBehavior(.paging)       // container-width snap == the old paged feel
-            .scrollPosition(id: $currentIndex)    // track the centered day (chevrons + deep link)
+            // Snap to each page, one per swipe.
+            .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
+            .scrollPosition($position)            // place the pager (layout switches, deep link)
             .defaultScrollAnchor(.center)         // first layout centers today (the middle page)
             .scrollIndicators(.hidden)
+            // The focused page is where a scroll settles, read from the scroll offset. Only a
+            // scroll that ran — a swipe, an animated scroll from VoiceOver, a keyboard or the
+            // code below — moves it: layout passes (first launch, a resize when iPhone Duo
+            // opens or rotates) shift the offset without a scroll phase, and the layout switch
+            // below re-places the pager.
+            .onScrollPhaseChange { oldPhase, phase, context in
+                guard phase == .idle, oldPhase != .idle else { return }
+                focusIndex = pageIDs[WeekPager.pageIndex(offset: context.geometry.contentOffset.x,
+                                                         pageWidth: geo.size.width,
+                                                         pageCount: pageIDs.count)]
+            }
+            // A new layout (opening or closing iPhone Duo, rotating, resizing an iPad window)
+            // changes the page width, and may switch between one page and a spread, which
+            // changes the page IDs. Neither keeps the offset on the focused day, so place the
+            // pager explicitly: the day that was on screen stays on screen (as a spread's
+            // right page), and a spread's right page becomes the single page.
+            .onChange(of: PagerLayout(width: geo.size.width, spread: spread)) { _, layout in
+                let index = WeekPager.pageID(switchingToSpread: layout.spread, focus: focusIndex,
+                                             dayCount: dates.count)
+                focusIndex = index
+                position.scrollTo(id: index)
+                #if os(iOS)
+                if layout.spread { rail.rightIndex = CGFloat(index) }
+                #endif
+            }
+            #if os(iOS)
+            // The day rail tracks the pager continuously: the fractional spread on screen.
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, x in
+                guard spread, let first = pageIDs.first else { return }
+                rail.rightIndex = DayRailMath.rightIndex(firstRight: first, offset: x, pageWidth: geo.size.width)
+            }
+            // The open iPhone Duo: a spread beside a side bar gets the day rail in the margin
+            // across from the bar.
+            .overlay(alignment: insets.trailing >= insets.leading ? .leading : .trailing) {
+                let bar = max(insets.leading, insets.trailing)
+                if spread, sideBar, bar > 0 {
+                    DayRail(dayCount: dates.count, tracker: rail, spreadRights: pageIDs,
+                            focusedRight: focusIndex,
+                            spreadDescription: { spreadDescription(right: $0) },
+                            onSelect: { select(spread: $0) })
+                        .frame(width: min(bar, Self.maxRailWidth))
+                        .frame(width: bar)
+                }
+            }
+            #endif
             // Paint the grouped background to the physical edges so the home-indicator band
             // and the device's rounded corners are never the window's black base.
             .background(Color.compatGroupedBackground.ignoresSafeArea())
             // CG-05: a widget deep-link targets a today chore — snap back to today (the user
-            // may have paged away) so the targeted page is the one that scrolls to it.
+            // may have paged away) so the targeted page is the one that scrolls to it. In a
+            // spread today lands on the right, the page that stays when iPhone Duo closes.
             .onChange(of: model.deepLinkChore) { _, target in
-                if target != nil, (currentIndex ?? todayIndex) != todayIndex {
-                    withAnimation { currentIndex = todayIndex }
+                if target != nil,
+                   let landing = WeekPager.deepLinkTarget(today: todayIndex, focus: focusIndex) {
+                    focusIndex = landing
+                    withAnimation { position.scrollTo(id: landing) }
                 }
             }
-            .overlay(alignment: .center) {
-                let idx = currentIndex ?? todayIndex
-                HStack {
-                    if idx > 0 {
-                        Image(systemName: "chevron.left")
-                    }
-                    Spacer()
-                    if idx < dates.count - 1 {
-                        Image(systemName: "chevron.right")
-                    }
+        }
+        .ignoresSafeArea(.container, edges: .horizontal)
+    }
+
+    /// A page: the focused day, plus — in a spread — the day before it on the left, divided
+    /// where the device folds. The focused day keeps the same place in the view tree in both
+    /// layouts, so switching (opening or closing iPhone Duo, resizing an iPad window) keeps
+    /// its DayPage, with any open sheet, draft and list position, instead of rebuilding it.
+    /// Each side is padded clear of the side safe-area insets it touches (a side bar, a
+    /// notch) — in a spread, the mirrored `SpreadLayout.margins` — so its list and cards stop short
+    /// of them; only the plain page background, painted by the pager, runs underneath.
+    private func page(_ index: Int, spread: Bool, insets: EdgeInsets, in geo: GeometryProxy) -> some View {
+        HStack(spacing: 0) {
+            if spread {
+                let split = SpreadSplit(in: geo)
+                spreadSide(index - 1, focused: false)
+                    .padding(.leading, insets.leading)
+                    .frame(width: split.leadingWidth)
+                Color.clear
+                    .frame(width: split.gap)
+            }
+            spreadSide(index)
+                .padding(.leading, spread ? 0 : insets.leading)
+                .padding(.trailing, insets.trailing)
+                .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+/// The pager's layout: its page width, and whether it shows two-day spreads.
+private struct PagerLayout: Equatable {
+    var width: CGFloat
+    var spread: Bool
+}
+
+/// The Work pager's page arithmetic, kept pure for unit tests. Days are indices into the
+/// pager's range (`0 ..< dayCount`, today in the middle); a two-day spread is identified by
+/// its right page, the focused day.
+enum WeekPager {
+    /// Right-page indices of the spreads: every other day, in step with the focused day, so
+    /// a swipe moves two days and the focused day stays on the right. Reaching one past the
+    /// end keeps every day in the range on some spread whichever parity is in step; the
+    /// side that falls outside the range shows an `EdgePage`, never a day the single-page
+    /// view can't reach (opened on the earliest day, the left page is that note).
+    static func spreadRights(focus: Int, dayCount: Int) -> [Int] {
+        Array(stride(from: focus.isMultiple(of: 2) ? 0 : 1, through: dayCount, by: 2))
+    }
+
+    /// The page to show after switching layout: the focused day becomes a spread's right
+    /// page, and a spread's right page becomes the single page (one past the end, an edge
+    /// note, falls back to the last day, the one that spread showed).
+    static func pageID(switchingToSpread spread: Bool, focus: Int, dayCount: Int) -> Int {
+        spread ? focus : min(focus, dayCount - 1)
+    }
+
+    /// Where a deep link to today lands, or `nil` when today is already the focused page.
+    /// In a spread that's the right page, even when today is showing on the left: the right
+    /// page is the one the outer display keeps when iPhone Duo closes. (The spreads then
+    /// re-step around today.)
+    static func deepLinkTarget(today: Int, focus: Int) -> Int? {
+        focus == today ? nil : today
+    }
+
+    /// The page at a horizontal scroll offset, measured from the content's leading inset.
+    static func pageIndex(offset: CGFloat, pageWidth: CGFloat, pageCount: Int) -> Int {
+        guard pageWidth > 0, pageCount > 0 else { return 0 }
+        return min(max(Int((offset / pageWidth).rounded()), 0), pageCount - 1)
+    }
+}
+
+/// The side of a two-day spread that falls outside the pager's range (before the earliest
+/// day or after the latest): a quiet note instead of a day the single-page view can't reach.
+private struct EdgePage: View {
+    let isEarlier: Bool
+
+    var body: some View {
+        Text(isEarlier ? "No earlier days" : "No later days")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.compatGroupedBackground)
+    }
+}
+
+/// The two-page layout Work and Calendar share on a wide, regular × regular container (iPad,
+/// iPhone Duo's inner display): the rule for when it fits, its outer margins, and (with
+/// `SpreadSplit`) where it divides.
+enum SpreadLayout {
+    /// Narrowest content a side of a two-page spread may have; below it, one page fills the width.
+    static let minPageWidth: CGFloat = 360
+
+    /// Whether both sides get at least `minPageWidth` once the fold and the margins are taken
+    /// out. The caller checks the size classes.
+    static func fits(in geo: GeometryProxy, insets: EdgeInsets, sideBar: Bool) -> Bool {
+        let split = SpreadSplit(in: geo)
+        let margins = margins(insets, sideBar: sideBar)
+        let leading = split.leadingWidth - margins.leading
+        let trailing = geo.size.width - split.leadingWidth - split.gap - margins.trailing
+        return min(leading, trailing) >= minPageWidth
+    }
+
+    /// A spread's outer margins: beside the system's side bar (the open iPhone Duo, where it
+    /// reports vertical bars) both pages step in by the bar's width, so they sit
+    /// symmetrically about the fold and the side away from the bar gains a margin (Work's day
+    /// rail). Any other horizontal inset (a notch, an iPad sidebar) is just padded clear of.
+    static func margins(_ insets: EdgeInsets, sideBar: Bool) -> EdgeInsets {
+        guard sideBar else { return EdgeInsets(top: 0, leading: insets.leading, bottom: 0, trailing: insets.trailing) }
+        let bar = max(insets.leading, insets.trailing)
+        return EdgeInsets(top: 0, leading: bar, bottom: 0, trailing: bar)
+    }
+}
+
+#if os(iOS)
+/// Hands `content` whether two pages fit here by `SpreadLayout`'s rule (and the size classes),
+/// the margins its pages take, and the full-width container. As in Work's pager, the outer
+/// reader keeps the safe area to report the insets, and the inner one spans the full width so
+/// each page can pad itself clear of a side bar or notch.
+struct SpreadReader<Content: View>: View {
+    @ViewBuilder let content: (_ spread: Bool, _ margins: EdgeInsets, _ geo: GeometryProxy) -> Content
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    var body: some View {
+        GeometryReader { outer in
+            VerticalBarReader { sideBar in
+                GeometryReader { geo in
+                    let spread = horizontalSizeClass == .regular && verticalSizeClass == .regular
+                        && SpreadLayout.fits(in: geo, insets: outer.safeAreaInsets, sideBar: sideBar)
+                    content(spread,
+                            spread ? SpreadLayout.margins(outer.safeAreaInsets, sideBar: sideBar)
+                                   : outer.safeAreaInsets,
+                            geo)
                 }
-                .font(.title2)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 6)
-                .opacity(0.5)
-                .allowsHitTesting(false)
-                .animation(.easeInOut, value: idx)
+                .ignoresSafeArea(.container, edges: .horizontal)
             }
         }
     }
+}
+#endif
+
+/// Where a two-day spread divides. On iPhone Duo that's the fold: its division region
+/// (iOS 27.1) is reported even while the device is flat, and covers the curve when the
+/// device is partly folded, so each page keeps to one half and nothing sits in the fold.
+/// The gap follows the region's frame whether or not it's active (Apple: "An inactive
+/// region still has a frame, so you can leave room for it. This keeps your layout from
+/// jumping"). Elsewhere the spread divides halfway.
+struct SpreadSplit {
+    var leadingWidth: CGFloat
+    var gap: CGFloat = 0
+
+    init(in geo: GeometryProxy) {
+        leadingWidth = geo.size.width / 2
+        #if os(iOS)
+        // Only a fold that runs down the middle of the container splits the spread; one
+        // across it, or off to a side (Split View on the inner display), falls back to halves.
+        if #available(iOS 27.1, *),
+           let fold = geo.reservedRegions(kind: .division, options: .includeInactive).first,
+           fold.frame.minX > geo.size.width / 4, fold.frame.maxX < geo.size.width * 3 / 4 {
+            leadingWidth = fold.frame.minX
+            gap = fold.frame.width
+        }
+        #endif
+    }
+}
+
+/// Whether a `DayPage` is showing a sheet or an alert (see `DayPage`).
+struct DayPagePresentingKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
 
 /// Single day page used within the horizontally scrolling week view or as a
@@ -210,6 +494,9 @@ struct DayPage: View {
     @AppStorage(SettingsKeys.oneOffsUnlimitedPersonal) private var oneOffsUnlimitedPersonal = false
     @State private var oneOffSheet: OneOffEditor.Mode?
     var date: Date
+    /// Whether this page acts on a widget deep link (CG-05). False for a two-day spread's
+    /// left page, which is about to make way for the spread with today on the right.
+    var handlesDeepLinks = true
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
     @State private var showLogSheet = false
@@ -221,12 +508,12 @@ struct DayPage: View {
     @State private var quickAdd = QuickAddTracker()
     @State private var quickAddRequest: QuickAddRequest?
 
-    // Bottom clearances for the floating chrome, scaled with Dynamic Type so larger text
-    // still clears it — replaces the old raw 132 / 84 magic numbers. The list reserves more
-    // room on days that show a Done/Unlock button so the last row clears that too.
-    @ScaledMetric private var bottomClearanceWithButton: CGFloat = 110
-    @ScaledMetric private var bottomClearanceNoButton: CGFloat = 72
-    @ScaledMetric private var dayButtonClearance: CGFloat = 58
+    // Bottom clearance for the floating mode switcher (the iPhone pill), scaled with
+    // Dynamic Type so larger text still clears it. With the modes in the system tab bar
+    // (iPad, iPhone Duo) nothing floats over the list, so it keeps a plain margin.
+    @ScaledMetric private var switcherClearance: CGFloat = 72
+    @ScaledMetric private var tabBarClearance: CGFloat = 24
+    @Environment(\.clearsModeSwitcher) private var clearsModeSwitcher
 
     private var grouping: WorkGrouping { WorkGrouping(rawValue: workGroupingRaw) ?? .none }
 
@@ -241,7 +528,7 @@ struct DayPage: View {
     /// Only today's page acts — the widget links to today's chores; other days ignore it.
     @MainActor
     private func consumeDeepLink(_ target: UUID?, proxy: ScrollViewProxy, in dayChores: [CDChore]) {
-        guard isToday, let target else { return }
+        guard isToday, handlesDeepLinks, let target else { return }
         if let match = dayChores.first(where: { $0.id == target }) {
             withAnimation { proxy.scrollTo(match.objectID, anchor: .center) }
             highlightedChore = target
@@ -291,11 +578,26 @@ struct DayPage: View {
         // done" acts on exactly this set, so locked/past days (toggles disabled) and
         // already-completed rows are untouched.
         let incompleteChores = dayChores.filter { !$0.isCompleted(on: date) }
-        // A Done (unlocked) or Unlock (locked, not past) button floats on every day except a
-        // locked PAST day; reserve extra bottom room only when one is shown.
-        let hasDayButton = !(isLocked && isPast)
+        let finishDay = {
+            DayLock.lock(date, existing: scopedLocks, household: active, in: context)
+            AccessibilityNotification.Announcement("Day finished").post()
+            withAnimation { showConfirmation = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                withAnimation { showConfirmation = false }
+            }
+        }
+        let finishDayConfirmation = FinishDayConfirmation(openCount: incompleteChores.count,
+                                                          isPresented: $showDoneAlert,
+                                                          onFinish: finishDay)
+        // An unlocked day with chores offers Finish Day, and a locked day that isn't past
+        // offers Unlock Day. An empty day has nothing to finish, and locking it would only
+        // hide its Quick Add prompt.
+        let showsFinish = !isLocked && !dayChores.isEmpty
+        let showsUnlock = isLocked && !isPast
+        // Finishing asks first only while chores are open.
+        let asksBeforeFinishing = showsFinish && !incompleteChores.isEmpty
         let offersQuickAdd = QuickAddRules.offersGhost(on: date, isLocked: isLocked)
-        let bottomClearance = hasDayButton ? bottomClearanceWithButton : bottomClearanceNoButton
+        let bottomClearance = clearsModeSwitcher ? switcherClearance : tabBarClearance
         // One-offs aren't tied to a day, so every upcoming page shows the same ones
         // (past pages are history). Hidden when there are none.
         let scopedOneOffs = Array(oneOffs).inScope(active)
@@ -352,32 +654,68 @@ struct DayPage: View {
                 }
             }
 
-            // CG-08 — one tap to complete every visible incomplete chore for the day.
-            // Only offered on an unlocked, non-empty day (locked days have disabled
-            // toggles), and only while something is still incomplete.
-            if !isLocked && !incompleteChores.isEmpty {
+            // The day's actions. Finish Day and Unlock Day are rows here, last, on every
+            // platform: a floating Done covered whichever row sat under it, and it's an
+            // occasional action that didn't earn a permanent spot over the list.
+            if showsFinish || showsUnlock {
                 Section {
-                    Button {
-                        let ids = Set(incompleteChores.map(\.objectID))
-                        withAnimation {
-                            BulkChoreOps.markAllDone(ids, on: date, in: context)
-                        }
-                    } label: {
-                        Label("Mark all done", systemImage: "checklist.checked")
-                    }
-                    .accessibilityIdentifier("markAllDoneButton")
-                    #if os(iOS)
-                    // #107 — photograph a room; chores that look done come back pre-checked
-                    // for the user to confirm. Today only: a photo shows the room now.
-                    if isToday && RoomVisionAvailability.current.isAvailable {
+                    // CG-08 — one tap to complete every visible incomplete chore for the
+                    // day. Only on an unlocked day (locked days have disabled toggles),
+                    // and only while something is still incomplete.
+                    if !isLocked && !incompleteChores.isEmpty {
                         Button {
-                            showPhotoCheck = true
+                            let ids = Set(incompleteChores.map(\.objectID))
+                            withAnimation {
+                                BulkChoreOps.markAllDone(ids, on: date, in: context)
+                            }
                         } label: {
-                            Label("Check off with a photo", systemImage: "camera.viewfinder")
+                            Label("Mark all done", systemImage: "checklist.checked")
                         }
-                        .accessibilityIdentifier("photoCheckButton")
+                        .accessibilityIdentifier("markAllDoneButton")
+                        #if os(iOS)
+                        // #107 — photograph a room; chores that look done come back pre-checked
+                        // for the user to confirm. Today only: a photo shows the room now.
+                        if isToday && RoomVisionAvailability.current.isAvailable {
+                            Button {
+                                showPhotoCheck = true
+                            } label: {
+                                Label("Check off with a photo", systemImage: "camera.viewfinder")
+                            }
+                            .accessibilityIdentifier("photoCheckButton")
+                        }
+                        #endif
                     }
-                    #endif
+                    if showsUnlock {
+                        Button {
+                            DayLock.unlock(date, existing: scopedLocks, in: context)
+                        } label: {
+                            Label("Unlock Day", systemImage: "lock.open")
+                        }
+                        .accessibilityIdentifier("unlockDayButton")
+                    } else if showsFinish {
+                        Button {
+                            // Asks only when finishing would leave chores open; with
+                            // everything done it just finishes (Unlock Day undoes it).
+                            if asksBeforeFinishing { showDoneAlert = true } else { finishDay() }
+                        } label: {
+                            Label("Finish Day", systemImage: "flag.checkered")
+                                #if os(iOS)
+                                // Row-wide, so its dialog's popover centres on the row and keeps
+                                // clear of the fold on the open iPhone Duo.
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                #endif
+                        }
+                        .accessibilityHint("Locks the day")
+                        .accessibilityIdentifier("finishDayButton")
+                        .onboardingAnchor(.doneButton)
+                        #if os(iOS)
+                        // On the row: where it shows as a popover (iPad, the open iPhone Duo)
+                        // it grows from Finish Day on its own page. An alert is placed by the
+                        // system, which on the part-folded Duo can be the other half.
+                        .modifier(finishDayConfirmation)
+                        #endif
+                    }
                 }
             }
 
@@ -401,28 +739,41 @@ struct DayPage: View {
         // that offer it, so the list adds no spacing of its own there.
         .listSectionSpacing(offersQuickAdd ? .custom(0) : .default)
         #endif
-        // Inset the rows past the left/right paging chevrons WeekView overlays near the
-        // edges. contentMargins REPLACES the default insetGrouped margin (~20pt), so this
-        // must exceed it to actually add space — 32 clears the chevrons with a gap.
+        // Wider than the default insetGrouped margin (~20pt): contentMargins REPLACES it.
+        // 32 first cleared WeekView's paging chevrons (since removed) and is kept so the
+        // cards don't shift; revisit with the day-paging review.
         // (Tunable: one number; the list background still spans full-width, no edge strip.)
         .contentMargins(.horizontal, 32, for: .scrollContent)
-        // Float-over-content (#65): the switcher + Done button float at the bottom, so give
-        // the list enough trailing room that its last row rests clear ABOVE them at the end
-        // of the scroll, while mid-scroll content still slides UNDER the translucent glass.
+        // Float-over-content (#65): the switcher floats at the bottom, so give the list
+        // enough trailing room that its last row rests clear ABOVE it at the end of the
+        // scroll, while mid-scroll content still slides UNDER the translucent glass.
         // No TOP margin — the single-container safe area positions the header below the bar.
         .contentMargins(.bottom, bottomClearance, for: .scrollContent)
         .scrollIndicators(.hidden)   // hide the scroll bar; scrolling still works
         // #127: the ghost shows while this list moves (the pager's horizontal swipes
         // don't reach here) and targets the slot nearest the visible middle.
+        // The question hangs off Finish Day: close it if the row goes (another member
+        // finished the day, midnight passed) or the open chores get done elsewhere, so it
+        // doesn't linger or come back on its own.
+        .onChange(of: asksBeforeFinishing) { _, asks in
+            if !asks { showDoneAlert = false }
+        }
         .onScrollPhaseChange { _, phase in
             quickAdd.scrollMoved(phase == .interacting || phase == .decelerating)
         }
         .onGeometryChange(for: QuickAddRules.Span.self) { proxy in
             let frame = proxy.frame(in: .global)
-            return QuickAddRules.Span(minY: frame.minY, maxY: frame.maxY - bottomClearance)
+            // In tab layouts a bottom tab bar (the upright iPhone Duo) is a safe-area inset.
+            let bottom = clearsModeSwitcher ? bottomClearance : bottomClearance + proxy.safeAreaInsets.bottom
+            return QuickAddRules.Span(minY: frame.minY, maxY: frame.maxY - bottom)
         } action: { span in
             quickAdd.updateViewport(span)
         }
+        // A container that would replace this page (Calendar's two pages as iPhone Duo opens or
+        // closes) waits while it shows a sheet or a question, so the draft in it isn't lost.
+        .preference(key: DayPagePresentingKey.self,
+                    value: quickAddRequest != nil || oneOffSheet != nil || showLogSheet
+                        || showPhotoCheck || showDoneAlert)
         .sheet(item: $quickAddRequest) { request in
             NewChoreView(prefill: request.prefill, offersOneOff: true) { chore in
                 flashNewChore(chore, proxy: proxy)
@@ -439,36 +790,15 @@ struct DayPage: View {
             PhotoCheckView(date: date, chores: incompleteChores)
         }
         #endif
-        .alert("Finish day?", isPresented: $showDoneAlert) {
-            Button("Confirm") {
-                DayLock.lock(date, existing: scopedLocks, household: active, in: context)
-                withAnimation { showConfirmation = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation { showConfirmation = false }
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Any incomplete chores will remain unfinished.")
-        }
+        #if os(macOS)
+        .modifier(finishDayConfirmation)
+        #endif
         .overlay(alignment: .center) {
             if showConfirmation {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 80))
                     .foregroundColor(.green)
                     .transition(.scale)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if isLocked && !isPast {
-                Button("Unlock") { DayLock.unlock(date, existing: scopedLocks, in: context) }
-                    .buttonStyle(.bordered)
-                    .padding(.bottom, dayButtonClearance)
-            } else if !isLocked {
-                Button("Done") { showDoneAlert = true }
-                    .buttonStyle(.borderedProminent)
-                    .padding(.bottom, dayButtonClearance)
-                    .onboardingAnchor(.doneButton)
             }
         }
         // CG-05: scroll to + flash the deep-linked chore. Both hooks matter — onChange
@@ -481,6 +811,29 @@ struct DayPage: View {
         .onAppear {
             consumeDeepLink(model.deepLinkChore, proxy: proxy, in: dayChores)
         }
+        }
+    }
+}
+
+/// Finishing a day that still has open chores: a confirmation dialog, which the HIG
+/// prefers to an alert for choices about an action the person started ("Use an action
+/// sheet — not an alert — to offer choices related to an intentional action"). The title
+/// says what's at stake rather than repeating the row, and the button says what happens.
+private struct FinishDayConfirmation: ViewModifier {
+    let openCount: Int
+    @Binding var isPresented: Bool
+    let onFinish: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            openCount == 1 ? "1 chore isn't done" : "\(openCount) chores aren't done",
+            isPresented: $isPresented, titleVisibility: .visible
+        ) {
+            Button("Finish Anyway", action: onFinish)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(openCount == 1 ? "Finishing locks the day, and that chore stays undone."
+                                : "Finishing locks the day, and those chores stay undone.")
         }
     }
 }

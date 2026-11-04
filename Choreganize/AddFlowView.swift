@@ -6,6 +6,66 @@ import CoreData
 // the ambient NavigationStack). Engine lives in AddFlow.swift; the step subviews below
 // are navigation-agnostic (callback-driven) and reused across both lenses.
 
+/// Unsaved work in Edit flows: chores staged (the add-flow) or suggested and kept (Snap a
+/// Room, Describe Chores) but not yet saved. The iOS shell reads it to keep that work from
+/// being dropped by a tap elsewhere: it asks before leaving Edit (the tab bar, the pill, a
+/// widget link), and where a flow sits beside the list (the two-column Edit on iPad and the
+/// open iPhone Duo) it disables the list. Nothing provides one on the Mac. Flows report
+/// through `guardsUnsavedChores(_:)`.
+@Observable
+final class EditFlowGuard {
+    /// What each open flow holds, by flow.
+    private var staged: [UUID: Int] = [:]
+
+    var unsavedChores: Int { staged.values.reduce(0, +) }
+
+    fileprivate func set(_ flow: UUID, staged count: Int) { staged[flow] = count }
+    fileprivate func remove(_ flow: UUID) { staged[flow] = nil }
+
+    /// Forgets every flow, for when they're known to be closed (their entries also remove
+    /// themselves, a moment later).
+    func removeAll() { staged = [:] }
+}
+
+extension View {
+    /// Reports `staged` unsaved chores to the Edit guard for as long as this flow exists.
+    func guardsUnsavedChores(_ staged: Int) -> some View {
+        modifier(UnsavedChoresReporter(staged: staged))
+    }
+}
+
+private struct UnsavedChoresReporter: ViewModifier {
+    let staged: Int
+    @Environment(EditFlowGuard.self) private var flowGuard: EditFlowGuard?
+    @State private var entry = GuardEntry()
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { entry.report(staged, to: flowGuard) }
+            .onChange(of: staged) { _, count in entry.report(count, to: flowGuard) }
+    }
+}
+
+/// A flow's entry in the guard, kept for the flow's whole life: it lives in the flow's state,
+/// so it goes when the flow does and takes the entry with it. Appearances aren't a reliable
+/// signal here: a refused tab switch, or the split view moving a column, can end and restart
+/// them while the flow and its chores live on.
+private final class GuardEntry {
+    private let id = UUID()
+    private weak var flowGuard: EditFlowGuard?
+
+    func report(_ staged: Int, to flowGuard: EditFlowGuard?) {
+        self.flowGuard = flowGuard
+        flowGuard?.set(id, staged: staged)
+    }
+
+    deinit {
+        // After the update that removed the flow, not during it.
+        let id = id, flowGuard = flowGuard
+        DispatchQueue.main.async { [weak flowGuard] in flowGuard?.remove(id) }
+    }
+}
+
 /// The guided add-flow, pushed in-tab from `EditHomeView`. One shell for both lenses,
 /// parameterized by `AddFlowGrouping` (the swappable grouping key). Steps advance in
 /// place; the system back button cancels the flow (drafts are uncommitted until
@@ -45,10 +105,16 @@ struct AddFlowFlowView: View {
         // With staged drafts uncommitted, replace the system back button (which would pop
         // and silently discard them) with a Cancel that confirms first (#53).
         .navigationBarBackButtonHidden(flow.draftCount > 0)
+        .guardsUnsavedChores(flow.draftCount)
         .toolbar {
             if flow.draftCount > 0 {
                 ToolbarItem(placement: .compatLeading) {
                     Button("Cancel") { showDiscardConfirm = true }
+                        #if os(iOS)
+                        // On the button, so where it shows as a popover (iPad, the open
+                        // iPhone Duo) it points at Cancel rather than the middle of the step.
+                        .modifier(discardConfirmation)
+                        #endif
                 }
             }
             // Jump to Review from the group picker after looping back with drafts staged.
@@ -58,11 +124,14 @@ struct AddFlowFlowView: View {
                 }
             }
         }
-        .confirmationDialog("Discard \(flow.draftCount) unsaved chore\(flow.draftCount == 1 ? "" : "s")?",
-                            isPresented: $showDiscardConfirm, titleVisibility: .visible) {
-            Button("Discard", role: .destructive) { dismiss() }
-            Button("Keep Editing", role: .cancel) {}
-        }
+        #if os(macOS)
+        .modifier(discardConfirmation)
+        #endif
+    }
+
+    /// Cancel's "discard the staged chores?" question.
+    private var discardConfirmation: DiscardConfirmation {
+        DiscardConfirmation(count: flow.draftCount, isPresented: $showDiscardConfirm) { dismiss() }
     }
 
     @ViewBuilder private var stepView: some View {
@@ -91,6 +160,39 @@ struct AddFlowFlowView: View {
         flow.commit(in: context, household: model.activeHousehold)
         successHaptic.success()
         dismiss()
+    }
+}
+
+private struct DiscardConfirmation: ViewModifier {
+    let count: Int
+    @Binding var isPresented: Bool
+    let onDiscard: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog("Discard \(count) unsaved chore\(count == 1 ? "" : "s")?",
+                                   isPresented: $isPresented, titleVisibility: .visible) {
+            Button("Discard", role: .destructive, action: onDiscard)
+            Button("Keep Editing", role: .cancel) {}
+        }
+    }
+}
+
+private struct UnaddedConfirmation: ViewModifier {
+    let name: String
+    @Binding var isPresented: Bool
+    let onAdd: () -> Void
+    let onDiscard: () -> Void
+    let onKeepEditing: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog("\u{201C}\(name)\u{201D} hasn't been added yet",
+                                   isPresented: $isPresented, titleVisibility: .visible) {
+            Button("Add & Finish", action: onAdd)
+            Button("Discard", role: .destructive, action: onDiscard)
+            Button("Keep Editing", role: .cancel, action: onKeepEditing)
+        } message: {
+            Text("Tap Add to stage it, or discard it before finishing.")
+        }
     }
 }
 
@@ -223,18 +325,26 @@ private struct AddChoresStep: View {
                 // "Done" was ambiguous (done with this chore vs done with the group);
                 // "Room/Day Complete" reads as finishing the group.
                 Button(doneLabel) { finishAdding() }
+                    #if os(iOS)
+                    // On the button, so where it shows as a popover (iPad, the open iPhone
+                    // Duo) it grows from Day Complete rather than the middle of the step.
+                    .modifier(unaddedConfirmation)
+                    #endif
             }
         }
-        // Guard against finishing with a typed-but-unadded chore — easy to miss the Add
-        // control the first time, and the text would otherwise be silently dropped (#54).
-        .confirmationDialog("\u{201C}\(trimmedName)\u{201D} hasn't been added yet",
-                            isPresented: $showUnaddedConfirm, titleVisibility: .visible) {
-            Button("Add & Finish") { addChore(); onDone() }
-            Button("Discard", role: .destructive) { name = ""; onDone() }
-            Button("Keep Editing", role: .cancel) { nameFocused = true }
-        } message: {
-            Text("Tap Add to stage it, or discard it before finishing.")
-        }
+        #if os(macOS)
+        // The Mac keeps it on the step, as it does Cancel's question.
+        .modifier(unaddedConfirmation)
+        #endif
+    }
+
+    /// Guards finishing with a typed-but-unadded chore — easy to miss the Add control the
+    /// first time, and the text would otherwise be silently dropped (#54).
+    private var unaddedConfirmation: UnaddedConfirmation {
+        UnaddedConfirmation(name: trimmedName, isPresented: $showUnaddedConfirm,
+                            onAdd: { addChore(); onDone() },
+                            onDiscard: { name = ""; onDone() },
+                            onKeepEditing: { nameFocused = true })
     }
 
     /// Finish adding to this group. If a chore was typed but never added, confirm first
