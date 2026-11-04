@@ -268,15 +268,17 @@ enum InsightsMath {
 
     /// A chore's own numbers, for its editor: when it was last done and how often it
     /// usually is (free), and how often it's done on its due day and who usually does it
-    /// (Plus). Same due-day derivation and same-day completion rule as the calendar, so
-    /// the numbers agree with the month grid and the Insights tab.
+    /// (Plus). Due days come from the calendar's derivation and a day counts as done by the
+    /// same same-day rule. Unlike the calendar and the Insights tab, an unfinished today
+    /// isn't counted against it: the day isn't over.
     nonisolated struct ChoreStats: Equatable {
         /// The latest completion on or before today.
         var lastDone: Date?
-        /// The median number of days between completions, from the recent ones. Nil until
-        /// there are at least three completions, so one gap doesn't pass for a habit.
+        /// The median number of days between recent completions. Nil until there are four
+        /// completions, so a gap or two doesn't pass for a habit.
         var typicalGapDays: Int?
         /// Due days in the window it was done that day. Today counts only once it's done.
+        /// Zero when not computed (`includesOnTime: false`).
         var onTime: WindowStats
         /// The window `onTime` covers, long enough for a few due days at the chore's pace.
         var onTimeWindowDays: Int
@@ -297,56 +299,82 @@ enum InsightsMath {
     /// Gaps behind `typicalGapDays`: recent habit, not the chore's whole history.
     nonisolated static let typicalGapSample = 10
 
-    /// The on-time window for a chore: a month for daily and weekly chores, longer for
-    /// monthly and yearly ones so a single miss isn't the whole story.
-    nonisolated static func onTimeWindowDays(for chore: CDChore) -> Int {
-        if chore.isDaily { return 30 }
-        switch chore.frequencyValue {
-        case .monthly: return 180
-        case .yearly: return 730
-        case .weekly, nil: return 30
-        }
+    /// Whether the chore has due days at all: a weekly, monthly or yearly chore with no day
+    /// set never comes due on the calendar, so it has no on-time rate.
+    nonisolated static func hasDueDays(_ chore: CDChore) -> Bool {
+        chore.isDaily || !chore.assignedDaysValue.isEmpty || chore.assignedDayValue?.calendarWeekday != nil
     }
 
-    nonisolated static func choreStats(for chore: CDChore, today: Date = Date(),
+    /// The on-time window for a chore: a month for daily and weekly chores, six months for
+    /// monthly and two years for yearly ones, times its repeat interval ("every 6 weeks"
+    /// looks back 6 months), so a single miss isn't the whole story.
+    nonisolated static func onTimeWindowDays(for chore: CDChore) -> Int {
+        if chore.isDaily { return 30 }
+        let base: Int
+        switch chore.frequencyValue {
+        case .monthly: base = 180
+        case .yearly: base = 730
+        case .weekly, nil: base = 30
+        }
+        return base * max(1, chore.recurrenceIntervalValue)
+    }
+
+    /// The start-of-days a chore was done on, up to today. Built once per chore so the
+    /// day loops below don't re-sort its history for every day they check.
+    private nonisolated static func completedDays(_ chore: CDChore, through today: Date,
+                                                  calendar cal: Calendar) -> Set<Date> {
+        let end = cal.startOfDay(for: today)
+        return Set(chore.completionsArray.compactMap { completion -> Date? in
+            guard let d = completion.date else { return nil }
+            let day = cal.startOfDay(for: d)
+            return day <= end ? day : nil
+        })
+    }
+
+    /// - Parameter includesOnTime: false skips the on-time pass (the row is locked).
+    nonisolated static func choreStats(for chore: CDChore, includesOnTime: Bool = true,
+                                       today: Date = Date(),
                                        calendar cal: Calendar = .current) -> ChoreStats {
         let todayStart = cal.startOfDay(for: today)
-        let completions = chore.completionsArray.filter {
-            guard let d = $0.date else { return false }
-            return cal.startOfDay(for: d) <= todayStart
-        }
-        let days = Set(completions.compactMap { $0.date.map(cal.startOfDay(for:)) }).sorted()
+        let done = completedDays(chore, through: today, calendar: cal)
+        let days = done.sorted()
 
         var typicalGap: Int?
-        if days.count >= 3 {
+        if days.count >= 4 {
             let gaps = zip(days, days.dropFirst())
                 .compactMap { cal.dateComponents([.day], from: $0, to: $1).day }
                 .suffix(typicalGapSample)
                 .sorted()
-            typicalGap = gaps.isEmpty ? nil : gaps[(gaps.count - 1) / 2]
+            if !gaps.isEmpty {
+                let mid = gaps.count / 2
+                typicalGap = gaps.count.isMultiple(of: 2)
+                    ? Int((Double(gaps[mid - 1] + gaps[mid]) / 2).rounded())
+                    : gaps[mid]
+            }
         }
 
         let windowDays = onTimeWindowDays(for: chore)
         var onTime = WindowStats(due: 0, completed: 0)
-        if let start = cal.date(byAdding: .day, value: -(windowDays - 1), to: todayStart) {
+        if includesOnTime, let start = cal.date(byAdding: .day, value: -(windowDays - 1), to: todayStart) {
             for (day, dayChores) in choresByDay(chores: [chore], from: start, to: todayStart, calendar: cal)
             where !dayChores.isEmpty {
-                let done = chore.isCompleted(on: day)
-                if day == todayStart && !done { continue }   // today isn't over yet
+                let doneThatDay = done.contains(day)
+                if day == todayStart && !doneThatDay { continue }   // today isn't over yet
                 onTime.due += 1
-                if done { onTime.completed += 1 }
+                if doneThatDay { onTime.completed += 1 }
             }
         }
 
         var topCompleter: ChoreStats.Completer?
         if let since = cal.date(byAdding: .day, value: -(completerWindowDays - 1), to: todayStart) {
-            let ids = completions.compactMap { c -> String? in
-                guard let d = c.date, cal.startOfDay(for: d) >= since else { return nil }
-                return c.completedBy
+            // Newest first, so a tie goes to whoever did it most recently.
+            let ids = chore.completionsArray.compactMap { c -> String? in
+                guard let d = c.date else { return nil }
+                let day = cal.startOfDay(for: d)
+                return day >= since && day <= todayStart ? c.completedBy : nil
             }
             if ids.count >= 2 {
                 let counts = Dictionary(ids.map { ($0, 1) }, uniquingKeysWith: +)
-                // Ties go to whoever did it most recently (`completions` is newest first).
                 if let best = counts.values.max(),
                    let id = ids.first(where: { counts[$0] == best }) {
                     topCompleter = .init(id: id, count: best, attributed: ids.count)
@@ -364,7 +392,8 @@ enum InsightsMath {
     /// how often its chores are done on their due days, and which chore misses most.
     nonisolated struct RoomStats: Equatable {
         /// Due days of the room's chores in the window that were done that day. Today
-        /// counts only once done, as for one chore.
+        /// counts only once done, as for one chore (so it can trail the tab's room row
+        /// by today's open chores).
         var onTime: WindowStats
         var mostMissed: Missed?
 
@@ -376,31 +405,40 @@ enum InsightsMath {
         }
     }
 
+    /// A chore needs this many due days in the window to be the room's most missed, so one
+    /// missed day doesn't make a chore look worse than one missed every day for a month.
+    nonisolated static let mostMissedMinimumDue = 3
+
     nonisolated static func roomStats(chores: [CDChore], lastDays days: Int = 30,
                                       today: Date = Date(),
                                       calendar cal: Calendar = .current) -> RoomStats {
         let todayStart = cal.startOfDay(for: today)
         var onTime = WindowStats(due: 0, completed: 0)
-        var perChore: [NSManagedObjectID: (chore: CDChore, due: Int, missed: Int)] = [:]
+        var perChore: [NSManagedObjectID: (chore: CDChore, done: Set<Date>, due: Int, missed: Int)] = [:]
         if days > 0, let start = cal.date(byAdding: .day, value: -(days - 1), to: todayStart) {
             for (day, dayChores) in choresByDay(chores: chores, from: start, to: todayStart, calendar: cal) {
                 for chore in dayChores where chore.existedOn(day, calendar: cal) {
-                    let done = chore.isCompleted(on: day)
+                    var entry = perChore[chore.objectID]
+                        ?? (chore, completedDays(chore, through: today, calendar: cal), 0, 0)
+                    let done = entry.done.contains(day)
                     if day == todayStart && !done { continue }   // today isn't over yet
                     onTime.due += 1
                     if done { onTime.completed += 1 }
-                    var entry = perChore[chore.objectID] ?? (chore, 0, 0)
                     entry.due += 1
                     if !done { entry.missed += 1 }
                     perChore[chore.objectID] = entry
                 }
             }
         }
+        // By miss rate, then misses, then name: a weekly chore never done outranks a daily
+        // one missed a few times.
         let worst = perChore.values
-            .filter { $0.missed > 0 }
+            .filter { $0.missed > 0 && $0.due >= mostMissedMinimumDue }
             .max { a, b in
-                a.missed != b.missed ? a.missed < b.missed
-                    : (a.chore.name ?? "").localizedStandardCompare(b.chore.name ?? "") == .orderedDescending
+                let rateA = Double(a.missed) / Double(a.due), rateB = Double(b.missed) / Double(b.due)
+                if rateA != rateB { return rateA < rateB }
+                if a.missed != b.missed { return a.missed < b.missed }
+                return (a.chore.name ?? "").localizedStandardCompare(b.chore.name ?? "") == .orderedDescending
             }
         return RoomStats(onTime: onTime,
                          mostMissed: worst.map { .init(name: $0.chore.name ?? "Untitled", missed: $0.missed, due: $0.due) })

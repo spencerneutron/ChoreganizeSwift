@@ -32,12 +32,11 @@ struct ChoreStatsTests {
         }
     }
 
-    @Test func typicalGapNeedsThreeCompletions() throws {
+    @Test func typicalGapNeedsFourCompletions() throws {
         let ctx = makeContext()
         try ctx.performAndWait {
             let chore = CDChore.make(in: ctx, name: "Mop", isDaily: true, createdDate: day(-40))
-            chore.recordCompletion(on: day(-5), by: nil, in: ctx)
-            chore.recordCompletion(on: day(-2), by: nil, in: ctx)
+            for offset in [-8, -5, -2] { chore.recordCompletion(on: day(offset), by: nil, in: ctx) }
             try ctx.save()
 
             let stats = InsightsMath.choreStats(for: chore, today: today)
@@ -45,6 +44,43 @@ struct ChoreStatsTests {
             #expect(stats.lastDone == cal.startOfDay(for: day(-2)))
             #expect(stats.typicalGapDays == nil)
         }
+    }
+
+    @Test func typicalGapAveragesTheMiddlePair() throws {
+        let ctx = makeContext()
+        try ctx.performAndWait {
+            // Gaps 2, 4, 6, 8: the median is between 4 and 6.
+            let chore = CDChore.make(in: ctx, name: "Vacuum", isDaily: true, createdDate: day(-40))
+            for offset in [-20, -18, -14, -8, 0] { chore.recordCompletion(on: day(offset), by: nil, in: ctx) }
+            try ctx.save()
+
+            #expect(InsightsMath.choreStats(for: chore, today: today).typicalGapDays == 5)
+        }
+    }
+
+    @Test func gapAndWindowWording() {
+        #expect(ChoreStatsSection.gapText(1) == "Every day")
+        #expect(ChoreStatsSection.gapText(3) == "Every 3 days")
+        #expect(ChoreStatsSection.gapText(7) == "Every week")
+        #expect(ChoreStatsSection.gapText(14) == "Every 2 weeks")
+        #expect(ChoreStatsSection.gapText(35) == "Every 5 weeks")
+        #expect(ChoreStatsSection.gapText(30) == "Every month")
+        #expect(ChoreStatsSection.gapText(31) == "Every month")
+        #expect(ChoreStatsSection.gapText(45) == "Every 45 days")
+        #expect(ChoreStatsSection.gapText(61) == "Every 2 months")
+        #expect(ChoreStatsSection.gapText(365) == "Every year")
+        #expect(ChoreStatsSection.gapText(731) == "Every 2 years")
+
+        #expect(ChoreStatsSection.windowText(30) == "30 days")
+        #expect(ChoreStatsSection.windowText(180) == "6 months")
+        #expect(ChoreStatsSection.windowText(360) == "year")
+        #expect(ChoreStatsSection.windowText(730) == "2 years")
+        #expect(ChoreStatsSection.windowText(1080) == "3 years")
+
+        #expect(ChoreStatsSection.lastDoneText(nil, today: today) == "Never")
+        #expect(ChoreStatsSection.lastDoneText(day(0), today: today) == "Today")
+        #expect(ChoreStatsSection.lastDoneText(day(-1), today: today) == "Yesterday")
+        #expect(ChoreStatsSection.lastDoneText(day(-400), today: today).contains("2025"))
     }
 
     @Test func onTimeCountsDueDaysAndSkipsAnOpenToday() throws {
@@ -78,6 +114,36 @@ struct ChoreStatsTests {
             #expect(InsightsMath.onTimeWindowDays(for: weekly) == 30)
             #expect(InsightsMath.onTimeWindowDays(for: monthly) == 180)
             #expect(InsightsMath.onTimeWindowDays(for: yearly) == 730)
+
+            // The repeat interval stretches it: every 6 weeks looks back 6 months.
+            weekly.recurrenceIntervalValue = 6
+            #expect(InsightsMath.onTimeWindowDays(for: weekly) == 180)
+        }
+    }
+
+    @Test func aChoreWithNoSetDayHasNoDueDays() throws {
+        let ctx = makeContext()
+        ctx.performAndWait {
+            let unscheduled = CDChore.make(in: ctx, name: "Someday", frequency: .weekly, assignedDay: nil)
+            let scheduled = CDChore.make(in: ctx, name: "Mondays", frequency: .weekly, assignedDay: .monday)
+            let daily = CDChore.make(in: ctx, name: "Daily", isDaily: true)
+
+            #expect(!InsightsMath.hasDueDays(unscheduled))
+            #expect(InsightsMath.hasDueDays(scheduled))
+            #expect(InsightsMath.hasDueDays(daily))
+        }
+    }
+
+    @Test func onTimeIsSkippedWhenLocked() throws {
+        let ctx = makeContext()
+        try ctx.performAndWait {
+            let chore = CDChore.make(in: ctx, name: "Dishes", isDaily: true, createdDate: day(-9))
+            chore.recordCompletion(on: day(-1), by: nil, in: ctx)
+            try ctx.save()
+
+            let stats = InsightsMath.choreStats(for: chore, includesOnTime: false, today: today)
+            #expect(stats.onTime == InsightsMath.WindowStats(due: 0, completed: 0))
+            #expect(stats.lastDone == cal.startOfDay(for: day(-1)))
         }
     }
 
@@ -144,8 +210,30 @@ struct ChoreStatsTests {
 
             // Dishes 5 of 5 (today done); Mop and Bins 1 of 4 each (today still open).
             #expect(stats.onTime == InsightsMath.WindowStats(due: 13, completed: 7))
-            // Mop and Bins tie on 3 missed: the first by name wins.
+            // Mop and Bins tie on 3 missed of 4: the first by name wins.
             #expect(stats.mostMissed == .init(name: "Bins", missed: 3, due: 4))
+        }
+    }
+
+    @Test func mostMissedRanksByRate() throws {
+        let ctx = makeContext()
+        try ctx.performAndWait {
+            // A daily chore missed 5 of 29 past days, and a weekly one never done.
+            let dishes = CDChore.make(in: ctx, name: "Dishes", isDaily: true, createdDate: day(-29))
+            for offset in -29...0 where ![-25, -20, -15, -10, -5].contains(offset) {
+                dishes.recordCompletion(on: day(offset), by: nil, in: ctx)
+            }
+            let weekday = try #require(Weekday.standardCases.first {
+                $0.calendarWeekday == cal.component(.weekday, from: day(-1))
+            })
+            let trash = CDChore.make(in: ctx, name: "Trash", frequency: .weekly, assignedDay: weekday,
+                                     createdDate: day(-29))
+            try ctx.save()
+
+            let stats = InsightsMath.roomStats(chores: [dishes, trash], today: today)
+
+            #expect(stats.mostMissed?.name == "Trash")
+            #expect(stats.mostMissed?.missed == stats.mostMissed?.due)
         }
     }
 
