@@ -59,8 +59,23 @@ struct CompleteChoreIntent: AppIntent {
             return .result(dialog: "‘\(name)’ is already done today.")
         }
         target.recordCompletion(on: Date(), in: context)
-        if let id = target.id { WidgetSnapshotWriter.markDone(choreID: id) }
+        await Self.refreshAfterCompletion(in: context)
         return .result(dialog: "Done — marked ‘\(name)’ complete for today.")
+    }
+
+    /// A completion that doesn't bring the app forward (the widget's circle, Siri,
+    /// Shortcuts) gets none of the scene's refreshes, so it does them here: the widget's
+    /// snapshot, rebuilt rather than patched so it's for today even once the widget has
+    /// turned over at midnight; the badge; and the reminders, so a "still open" one
+    /// doesn't fire for a chore that's done.
+    @MainActor
+    private static func refreshAfterCompletion(in context: NSManagedObjectContext) async {
+        let household = ChoreScopeResolver.activeHousehold(in: context)
+        await NotificationManager.reschedule(using: context, activeHousehold: household)
+        await NotificationManager.refreshBadge(using: context,
+                                               household: ChoreScopeResolver.resolvedHousehold(in: context))
+        await WidgetSnapshotWriter.update(householdID: household?.objectID,
+                                          scopeLabel: ChoreScopeResolver.scopeLabel(in: context))
     }
 #endif
 }

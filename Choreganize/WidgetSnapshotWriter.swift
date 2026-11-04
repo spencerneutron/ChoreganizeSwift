@@ -27,20 +27,6 @@ enum WidgetSnapshotWriter {
             WidgetCenter.shared.reloadTimelines(ofKind: WidgetShared.widgetKind)
         }
     }
-
-    /// Marks a chore done in the published snapshot and reloads the widget. For a
-    /// completion that doesn't bring the app forward (the widget's own circle, Siri,
-    /// Shortcuts), which would otherwise leave the widget showing the chore open until
-    /// the app next becomes active and rebuilds the snapshot.
-    static func markDone(choreID: UUID, on date: Date = Date()) {
-        guard let defaults = WidgetShared.defaults,
-              let data = defaults.data(forKey: WidgetShared.snapshotKey),
-              let snapshot = try? JSONDecoder().decode(ChoreWidgetSnapshot.self, from: data),
-              let updated = WidgetSnapshotBuilder.markingDone(choreID, in: snapshot, on: date),
-              let encoded = try? JSONEncoder().encode(updated) else { return }
-        defaults.set(encoded, forKey: WidgetShared.snapshotKey)
-        WidgetCenter.shared.reloadTimelines(ofKind: WidgetShared.widgetKind)
-    }
 }
 
 /// Pure construction of the widget snapshot from chores — the data the widget
@@ -85,17 +71,4 @@ enum WidgetSnapshotBuilder {
         }
     }
 
-    /// `snapshot` with the chore marked done and the list re-ordered, or nil when
-    /// there's nothing to change: the snapshot is for another day, or doesn't list the
-    /// chore, or already has it done.
-    static func markingDone(_ choreID: UUID, in snapshot: ChoreWidgetSnapshot,
-                            on date: Date) -> ChoreWidgetSnapshot? {
-        guard Calendar.current.isDate(snapshot.date, inSameDayAs: date),
-              let index = snapshot.items.firstIndex(where: { $0.id == choreID }),
-              !snapshot.items[index].isDone else { return nil }
-        var updated = snapshot
-        updated.items[index].isDone = true
-        updated.items = ordered(updated.items)
-        return updated
-    }
 }

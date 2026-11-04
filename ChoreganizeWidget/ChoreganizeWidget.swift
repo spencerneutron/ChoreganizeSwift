@@ -41,8 +41,11 @@ struct TodayChoresProvider: TimelineProvider {
     func getSnapshot(in context: Context, completion: @escaping (TodayChoresEntry) -> Void) {
         let published = Self.load()
         let now = Date()
-        // The gallery shows the last list rather than the stale message.
-        completion(TodayChoresEntry(date: now, snapshot: published.on(now) ?? published))
+        // The gallery shows the last list rather than the stale message; anywhere else an
+        // old list must not pass for today's.
+        completion(context.isPreview
+            ? TodayChoresEntry(date: now, snapshot: published.on(now) ?? published)
+            : TodayChoresEntry(date: now, published: published))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<TodayChoresEntry>) -> Void) {
@@ -51,8 +54,9 @@ struct TodayChoresProvider: TimelineProvider {
         let calendar = Calendar.current
         // At midnight the widget turns to the next day's list, which the app publishes
         // with today's, so it never shows yesterday's chores as today's.
-        let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))
-            ?? now.addingTimeInterval(86_400)
+        // The day's end, not start-of-day + 1 day, which lands an hour late where the
+        // clocks change at midnight.
+        let midnight = calendar.dateInterval(of: .day, for: now)?.end ?? now.addingTimeInterval(86_400)
         let entries = [TodayChoresEntry(date: now, published: published),
                        TodayChoresEntry(date: midnight, published: published)]
         // The app pushes a reload whenever data changes; this is just a fallback

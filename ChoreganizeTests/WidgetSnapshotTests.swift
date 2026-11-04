@@ -67,24 +67,6 @@ struct WidgetSnapshotTests {
         }
     }
 
-    @Test func markingDoneMovesTheChoreDownAndSkipsOtherDays() throws {
-        let now = Date()
-        let ids = (0..<3).map { _ in UUID() }
-        let snap = ChoreWidgetSnapshot(
-            date: Calendar.current.startOfDay(for: now), scopeLabel: "Personal",
-            items: zip(ids, ["Beds", "Dishes", "Trash"]).map { .init(id: $0, name: $1, isDone: false) })
-
-        let updated = try #require(WidgetSnapshotBuilder.markingDone(ids[0], in: snap, on: now))
-        #expect(updated.items.map { $0.name } == ["Dishes", "Trash", "Beds"])
-        #expect(updated.remaining == 2)
-
-        // Already done, not listed, or a snapshot from another day: nothing to change.
-        #expect(WidgetSnapshotBuilder.markingDone(ids[0], in: updated, on: now) == nil)
-        #expect(WidgetSnapshotBuilder.markingDone(UUID(), in: snap, on: now) == nil)
-        let tomorrow = try #require(Calendar.current.date(byAdding: .day, value: 1, to: now))
-        #expect(WidgetSnapshotBuilder.markingDone(ids[1], in: snap, on: tomorrow) == nil)
-    }
-
     @Test func snapshotCarriesTheNextDaysChores() throws {
         let ctx = makeContext()
         try ctx.performAndWait {

@@ -138,7 +138,9 @@ struct TodayChoresView: View {
               in: 0...Double(max(snapshot.total, 1))) {
             Image(systemName: "checklist")
         } currentValueLabel: {
-            Text(entry.isStale ? "–" : "\(snapshot.remaining)")
+            entry.isStale
+                ? Text("–").accessibilityLabel("Open Choreganize to update")
+                : Text("\(snapshot.remaining)")
         }
         .gaugeStyle(.accessoryCircular)
         .widgetURL(WidgetDeepLink.url(choreID: nil))
