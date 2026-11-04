@@ -20,6 +20,13 @@ enum ChoreScopeResolver {
     @MainActor
     static func activeHousehold(in context: NSManagedObjectContext) -> CDHousehold? {
         guard scope == .household else { return nil }
+        return resolvedHousehold(in: context)
+    }
+
+    /// The household backing Household-scoped data, regardless of the active scope (the
+    /// badge counts its chores even from Solo). Matches `AppModel.resolvedHousehold`.
+    @MainActor
+    static func resolvedHousehold(in context: NSManagedObjectContext) -> CDHousehold? {
         if let raw = UserDefaults.standard.string(forKey: AppModel.activeHouseholdKey),
            let id = UUID(uuidString: raw) {
             let request = NSFetchRequest<CDHousehold>(entityName: "CDHousehold")
@@ -29,6 +36,12 @@ enum ChoreScopeResolver {
         }
         return household(in: CoreDataStack.shared.sharedStore, context: context)
             ?? household(in: nil, context: context)
+    }
+
+    /// The scope's name for the widget, as `AppModel` builds it.
+    @MainActor
+    static func scopeLabel(in context: NSManagedObjectContext) -> String {
+        scope == .household ? (activeHousehold(in: context)?.name ?? "Household") : AppScope.solo.title
     }
 
     /// All chores in the active scope.

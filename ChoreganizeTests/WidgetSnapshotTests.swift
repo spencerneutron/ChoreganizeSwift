@@ -67,22 +67,49 @@ struct WidgetSnapshotTests {
         }
     }
 
-    @Test func markingDoneMovesTheChoreDownAndSkipsOtherDays() throws {
-        let now = Date()
-        let ids = (0..<3).map { _ in UUID() }
+    @Test func snapshotCarriesTheNextDaysChores() throws {
+        let ctx = makeContext()
+        try ctx.performAndWait {
+            let now = Date()
+            let tomorrow = try #require(Calendar.current.date(byAdding: .day, value: 1, to: now))
+            let tomorrowsWeekday = try #require(Weekday.standardCases.first {
+                $0.calendarWeekday == Calendar.current.component(.weekday, from: tomorrow)
+            })
+            CDChore.make(in: ctx, name: "Daily", isDaily: true)
+            CDChore.make(in: ctx, name: "Weekly Tomorrow", isDaily: false,
+                         frequency: .weekly, assignedDay: tomorrowsWeekday)
+            try ctx.save()
+
+            let chores = try ctx.fetch(NSFetchRequest<CDChore>(entityName: "CDChore"))
+            let snap = WidgetSnapshotBuilder.snapshot(from: chores, on: now, scopeLabel: "Personal")
+
+            #expect(snap.items.map { $0.name } == ["Daily"])
+            #expect(snap.nextDay?.map { $0.name } == ["Daily", "Weekly Tomorrow"])
+        }
+    }
+
+    @Test func snapshotTurnsToTheNextDayAtMidnightThenGoesStale() throws {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let tomorrow = try #require(calendar.date(byAdding: .day, value: 1, to: today))
+        let dayAfter = try #require(calendar.date(byAdding: .day, value: 2, to: today))
         let snap = ChoreWidgetSnapshot(
-            date: Calendar.current.startOfDay(for: now), scopeLabel: "Personal",
-            items: zip(ids, ["Beds", "Dishes", "Trash"]).map { .init(id: $0, name: $1, isDone: false) })
+            date: today, scopeLabel: "Personal",
+            items: [.init(id: UUID(), name: "Today's", isDone: true)],
+            nextDay: [.init(id: UUID(), name: "Tomorrow's", isDone: false)])
 
-        let updated = try #require(WidgetSnapshotBuilder.markingDone(ids[0], in: snap, on: now))
-        #expect(updated.items.map { $0.name } == ["Dishes", "Trash", "Beds"])
-        #expect(updated.remaining == 2)
+        #expect(snap.on(today.addingTimeInterval(3600))?.items.map { $0.name } == ["Today's"])
+        let next = try #require(snap.on(tomorrow))
+        #expect(next.items.map { $0.name } == ["Tomorrow's"])
+        #expect(next.date == tomorrow)
+        #expect(next.nextDay == nil)
+        #expect(snap.on(dayAfter) == nil)
 
-        // Already done, not listed, or a snapshot from another day: nothing to change.
-        #expect(WidgetSnapshotBuilder.markingDone(ids[0], in: updated, on: now) == nil)
-        #expect(WidgetSnapshotBuilder.markingDone(UUID(), in: snap, on: now) == nil)
-        let tomorrow = try #require(Calendar.current.date(byAdding: .day, value: 1, to: now))
-        #expect(WidgetSnapshotBuilder.markingDone(ids[1], in: snap, on: tomorrow) == nil)
+        // A snapshot written before `nextDay` existed decodes, and goes stale at midnight.
+        let old = try JSONDecoder().decode(ChoreWidgetSnapshot.self, from: Data(
+            #"{"date": \#(today.timeIntervalSinceReferenceDate), "scopeLabel": "Personal", "items": []}"#.utf8))
+        #expect(old.nextDay == nil)
+        #expect(old.on(tomorrow) == nil)
     }
 
     @Test func emptyChoresGivesEmptySnapshot() {

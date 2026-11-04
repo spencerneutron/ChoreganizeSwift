@@ -12,6 +12,25 @@ import SwiftUI
 struct TodayChoresEntry: TimelineEntry {
     let date: Date
     let snapshot: ChoreWidgetSnapshot
+    /// The published snapshot is older than yesterday's next-day list, so the widget
+    /// can't know today's chores until the app runs again.
+    var isStale = false
+
+    /// The entry for `date` from the published snapshot.
+    init(date: Date, published: ChoreWidgetSnapshot) {
+        self.date = date
+        if let day = published.on(date) {
+            snapshot = day
+        } else {
+            snapshot = .empty
+            isStale = true
+        }
+    }
+
+    init(date: Date, snapshot: ChoreWidgetSnapshot) {
+        self.date = date
+        self.snapshot = snapshot
+    }
 }
 
 struct TodayChoresProvider: TimelineProvider {
@@ -20,16 +39,30 @@ struct TodayChoresProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (TodayChoresEntry) -> Void) {
-        completion(TodayChoresEntry(date: Date(), snapshot: Self.load()))
+        let published = Self.load()
+        let now = Date()
+        // The gallery shows the last list rather than the stale message; anywhere else an
+        // old list must not pass for today's.
+        completion(context.isPreview
+            ? TodayChoresEntry(date: now, snapshot: published.on(now) ?? published)
+            : TodayChoresEntry(date: now, published: published))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<TodayChoresEntry>) -> Void) {
-        let entry = TodayChoresEntry(date: Date(), snapshot: Self.load())
+        let published = Self.load()
+        let now = Date()
+        let calendar = Calendar.current
+        // At midnight the widget turns to the next day's list, which the app publishes
+        // with today's, so it never shows yesterday's chores as today's.
+        // The day's end, not start-of-day + 1 day, which lands an hour late where the
+        // clocks change at midnight.
+        let midnight = calendar.dateInterval(of: .day, for: now)?.end ?? now.addingTimeInterval(86_400)
+        let entries = [TodayChoresEntry(date: now, published: published),
+                       TodayChoresEntry(date: midnight, published: published)]
         // The app pushes a reload whenever data changes; this is just a fallback
         // refresh at the next hour boundary so a left-open widget stays current.
-        let next = Calendar.current.date(byAdding: .hour, value: 1, to: Date())
-            ?? Date().addingTimeInterval(3600)
-        completion(Timeline(entries: [entry], policy: .after(next)))
+        let next = calendar.date(byAdding: .hour, value: 1, to: now) ?? now.addingTimeInterval(3600)
+        completion(Timeline(entries: entries, policy: .after(next)))
     }
 
     static func load() -> ChoreWidgetSnapshot {

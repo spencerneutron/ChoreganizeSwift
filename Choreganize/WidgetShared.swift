@@ -64,9 +64,23 @@ struct ChoreWidgetSnapshot: Codable {
     /// Scope label shown on the widget ("Personal" or the household name).
     var scopeLabel: String
     var items: [Item]
+    /// The following day's chores, so the widget can turn the page at midnight
+    /// without the app. Nil in snapshots written before it existed.
+    var nextDay: [Item]? = nil
 
     var remaining: Int { items.filter { !$0.isDone }.count }
     var total: Int { items.count }
 
     static let empty = ChoreWidgetSnapshot(date: Date(), scopeLabel: "", items: [])
+
+    /// What the widget shows on `date`: this snapshot on its own day, the next day's
+    /// list from midnight on, or nil once both have passed (the app hasn't run since,
+    /// so the widget can't know the day's chores).
+    func on(_ date: Date, calendar: Calendar = .current) -> ChoreWidgetSnapshot? {
+        if calendar.isDate(self.date, inSameDayAs: date) { return self }
+        guard let nextDay,
+              let next = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: self.date)),
+              calendar.isDate(next, inSameDayAs: date) else { return nil }
+        return ChoreWidgetSnapshot(date: next, scopeLabel: scopeLabel, items: nextDay)
+    }
 }
