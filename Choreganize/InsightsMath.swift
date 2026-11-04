@@ -263,4 +263,98 @@ enum InsightsMath {
                             stats: WindowStats(due: due, completed: completed),
                             bestStreak: bestStreak, topRoom: topRoom, dayBuckets: buckets)
     }
+
+    // MARK: - One chore's stats (CG-28 / #129)
+
+    /// A chore's own numbers, for its editor: when it was last done and how often it
+    /// usually is (free), and how often it's done on its due day and who usually does it
+    /// (Plus). Same due-day derivation and same-day completion rule as the calendar, so
+    /// the numbers agree with the month grid and the Insights tab.
+    nonisolated struct ChoreStats: Equatable {
+        /// The latest completion on or before today.
+        var lastDone: Date?
+        /// The median number of days between completions, from the recent ones. Nil until
+        /// there are at least three completions, so one gap doesn't pass for a habit.
+        var typicalGapDays: Int?
+        /// Due days in the window it was done that day. Today counts only once it's done.
+        var onTime: WindowStats
+        /// The window `onTime` covers, long enough for a few due days at the chore's pace.
+        var onTimeWindowDays: Int
+        /// The most frequent completer over the last `completerWindowDays`, when at least
+        /// two completions there say who did them (households).
+        var topCompleter: Completer?
+
+        nonisolated struct Completer: Equatable {
+            /// A `CDCompletion.completedBy` id.
+            var id: String
+            var count: Int
+            /// Completions in the window that say who did them.
+            var attributed: Int
+        }
+    }
+
+    nonisolated static let completerWindowDays = 90
+    /// Gaps behind `typicalGapDays`: recent habit, not the chore's whole history.
+    nonisolated static let typicalGapSample = 10
+
+    /// The on-time window for a chore: a month for daily and weekly chores, longer for
+    /// monthly and yearly ones so a single miss isn't the whole story.
+    nonisolated static func onTimeWindowDays(for chore: CDChore) -> Int {
+        if chore.isDaily { return 30 }
+        switch chore.frequencyValue {
+        case .monthly: return 180
+        case .yearly: return 730
+        case .weekly, nil: return 30
+        }
+    }
+
+    nonisolated static func choreStats(for chore: CDChore, today: Date = Date(),
+                                       calendar cal: Calendar = .current) -> ChoreStats {
+        let todayStart = cal.startOfDay(for: today)
+        let completions = chore.completionsArray.filter {
+            guard let d = $0.date else { return false }
+            return cal.startOfDay(for: d) <= todayStart
+        }
+        let days = Set(completions.compactMap { $0.date.map(cal.startOfDay(for:)) }).sorted()
+
+        var typicalGap: Int?
+        if days.count >= 3 {
+            let gaps = zip(days, days.dropFirst())
+                .compactMap { cal.dateComponents([.day], from: $0, to: $1).day }
+                .suffix(typicalGapSample)
+                .sorted()
+            typicalGap = gaps.isEmpty ? nil : gaps[(gaps.count - 1) / 2]
+        }
+
+        let windowDays = onTimeWindowDays(for: chore)
+        var onTime = WindowStats(due: 0, completed: 0)
+        if let start = cal.date(byAdding: .day, value: -(windowDays - 1), to: todayStart) {
+            for (day, dayChores) in choresByDay(chores: [chore], from: start, to: todayStart, calendar: cal)
+            where !dayChores.isEmpty {
+                let done = chore.isCompleted(on: day)
+                if day == todayStart && !done { continue }   // today isn't over yet
+                onTime.due += 1
+                if done { onTime.completed += 1 }
+            }
+        }
+
+        var topCompleter: ChoreStats.Completer?
+        if let since = cal.date(byAdding: .day, value: -(completerWindowDays - 1), to: todayStart) {
+            let ids = completions.compactMap { c -> String? in
+                guard let d = c.date, cal.startOfDay(for: d) >= since else { return nil }
+                return c.completedBy
+            }
+            if ids.count >= 2 {
+                let counts = Dictionary(ids.map { ($0, 1) }, uniquingKeysWith: +)
+                // Ties go to whoever did it most recently (`completions` is newest first).
+                if let best = counts.values.max(),
+                   let id = ids.first(where: { counts[$0] == best }) {
+                    topCompleter = .init(id: id, count: best, attributed: ids.count)
+                }
+            }
+        }
+
+        return ChoreStats(lastDone: days.last, typicalGapDays: typicalGap, onTime: onTime,
+                          onTimeWindowDays: windowDays, topCompleter: topCompleter)
+    }
 }

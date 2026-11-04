@@ -574,6 +574,8 @@ struct EditChoreView: View {
                                 areas: Array(areas).inScope(chore.household),
                                 household: chore.household)
 
+                ChoreStatsSection(chore: chore)
+
                 Section("History") {
                     let completions = chore.completionsArray
 
