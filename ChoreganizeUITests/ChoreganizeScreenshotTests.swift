@@ -54,9 +54,16 @@ final class ChoreganizeScreenshotTests: XCTestCase {
     }
 
     /// Save the current screen as a kept attachment named for the surface.
+    ///
+    /// On the iPhone Duo, `XCUIScreen.main` is the outer display even while the phone is
+    /// open, so take the screen that's showing something: an unused display is all black,
+    /// and a black PNG is tiny. Devices with one screen get the same shot as before.
     @MainActor
     private func snap(_ name: String) {
-        let shot = XCUIScreen.main.screenshot()
+        let shot = XCUIScreen.screens
+            .map { $0.screenshot() }
+            .max { $0.pngRepresentation.count < $1.pngRepresentation.count }
+            ?? XCUIScreen.main.screenshot()
         let att = XCTAttachment(screenshot: shot)
         att.name = name
         att.lifetime = .keepAlways
