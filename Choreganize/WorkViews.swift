@@ -571,13 +571,6 @@ struct DayPage: View {
     var body: some View {
         let active = model.activeHousehold
         let scopedLocks = Array(lockedDays).inScope(active)
-        let finishDayConfirmation = FinishDayConfirmation(isPresented: $showDoneAlert) {
-            DayLock.lock(date, existing: scopedLocks, household: active, in: context)
-            withAnimation { showConfirmation = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                withAnimation { showConfirmation = false }
-            }
-        }
         let inScopeChores = Array(chores).inScope(active)
         let dayChores = Scheduling.chores(inScopeChores, for: date)
         let isLocked = DayLock.isLocked(date, in: scopedLocks)
@@ -585,6 +578,16 @@ struct DayPage: View {
         // done" acts on exactly this set, so locked/past days (toggles disabled) and
         // already-completed rows are untouched.
         let incompleteChores = dayChores.filter { !$0.isCompleted(on: date) }
+        let finishDay = {
+            DayLock.lock(date, existing: scopedLocks, household: active, in: context)
+            withAnimation { showConfirmation = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                withAnimation { showConfirmation = false }
+            }
+        }
+        let finishDayConfirmation = FinishDayConfirmation(openCount: incompleteChores.count,
+                                                          isPresented: $showDoneAlert,
+                                                          onFinish: finishDay)
         // Every day but a locked past one offers Finish Day (unlocked) or Unlock Day
         // (locked, not past) in its actions.
         let hasDayButton = !(isLocked && isPast)
@@ -686,7 +689,9 @@ struct DayPage: View {
                         .accessibilityIdentifier("unlockDayButton")
                     } else {
                         Button {
-                            showDoneAlert = true
+                            // Asks only when finishing would leave chores open; with
+                            // everything done it just finishes (Unlock Day undoes it).
+                            if incompleteChores.isEmpty { finishDay() } else { showDoneAlert = true }
                         } label: {
                             // Row-wide, so its dialog's popover centres on the row and keeps
                             // clear of the fold on the open iPhone Duo.
@@ -794,19 +799,24 @@ struct DayPage: View {
     }
 }
 
-/// "Finish day?" — a confirmation dialog, which the HIG prefers to an alert for choices
-/// about an action the person started ("Use an action sheet — not an alert — to offer
-/// choices related to an intentional action").
+/// Finishing a day that still has open chores: a confirmation dialog, which the HIG
+/// prefers to an alert for choices about an action the person started ("Use an action
+/// sheet — not an alert — to offer choices related to an intentional action"). The title
+/// says what's at stake rather than repeating the row, and the button says what happens.
 private struct FinishDayConfirmation: ViewModifier {
+    let openCount: Int
     @Binding var isPresented: Bool
     let onFinish: () -> Void
 
     func body(content: Content) -> some View {
-        content.confirmationDialog("Finish day?", isPresented: $isPresented, titleVisibility: .visible) {
-            Button("Finish Day", action: onFinish)
+        content.confirmationDialog(
+            openCount == 1 ? "1 chore isn't done" : "\(openCount) chores aren't done",
+            isPresented: $isPresented, titleVisibility: .visible
+        ) {
+            Button("Finish Anyway", action: onFinish)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Any incomplete chores will remain unfinished.")
+            Text("Finishing locks the day, and \(openCount == 1 ? "it" : "they")'ll stay unfinished.")
         }
     }
 }
