@@ -8,10 +8,11 @@ import CoreData
 ///
 /// The home-screen widget references this intent via `Button(intent:)` (CG-02), so
 /// the type is compiled into the widget extension too — but the widget never owns
-/// Core Data (no iCloud entitlement; the store isn't in the App Group), and the
-/// system runs the intent in the **app's** process. The Core Data `perform()` body
-/// is therefore gated out of the widget build (`WIDGET_EXTENSION`); the widget only
-/// needs the parameter shape to construct the intent.
+/// Core Data (no iCloud entitlement; the store isn't in the App Group). A widget's
+/// intent runs in the widget extension by default; the `LiveActivityIntent`
+/// conformance below has the system run it in the **app's** process instead. The
+/// Core Data `perform()` body is therefore gated out of the widget build
+/// (`WIDGET_EXTENSION`); the widget only needs the parameter shape to construct it.
 struct CompleteChoreIntent: AppIntent {
     static var title: LocalizedStringResource = "Complete a Chore"
     static var description = IntentDescription("Marks a chore done for today.")
@@ -63,3 +64,13 @@ struct CompleteChoreIntent: AppIntent {
     }
 #endif
 }
+
+#if os(iOS)
+/// Apple: "By default, the system runs the app intent in the same process as the widget
+/// extension. However, if … the intent conforms to … `LiveActivityIntent` …, the system
+/// performs the app intent in the app's process" ("Adding interactivity to widgets and
+/// Live Activities"), launching it in the background without opening it. Without this,
+/// a tap on a widget's circle reached only the extension's stub and failed. (The Mac
+/// has no widget, and the protocol isn't on macOS.)
+extension CompleteChoreIntent: LiveActivityIntent {}
+#endif

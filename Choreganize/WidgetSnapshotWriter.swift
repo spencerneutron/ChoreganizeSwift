@@ -29,9 +29,9 @@ enum WidgetSnapshotWriter {
     }
 
     /// Marks a chore done in the published snapshot and reloads the widget. For a
-    /// completion that doesn't bring the app forward (Siri, Shortcuts), which would
-    /// otherwise leave the widget showing the chore open until the app next becomes
-    /// active and rebuilds the snapshot.
+    /// completion that doesn't bring the app forward (the widget's own circle, Siri,
+    /// Shortcuts), which would otherwise leave the widget showing the chore open until
+    /// the app next becomes active and rebuilds the snapshot.
     static func markDone(choreID: UUID, on date: Date = Date()) {
         guard let defaults = WidgetShared.defaults,
               let data = defaults.data(forKey: WidgetShared.snapshotKey),
@@ -47,8 +47,18 @@ enum WidgetSnapshotWriter {
 /// shows. Separated from the App Group write so it can be unit-tested.
 enum WidgetSnapshotBuilder {
     static func snapshot(from chores: [CDChore], on date: Date, scopeLabel: String) -> ChoreWidgetSnapshot {
+        let calendar = Calendar.current
+        let nextDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: date))
+        return ChoreWidgetSnapshot(
+            date: calendar.startOfDay(for: date),
+            scopeLabel: scopeLabel,
+            items: items(from: chores, on: date),
+            nextDay: nextDay.map { items(from: chores, on: $0) })
+    }
+
+    private static func items(from chores: [CDChore], on date: Date) -> [ChoreWidgetSnapshot.Item] {
         let due = Scheduling.chores(chores, for: date)
-        let items: [ChoreWidgetSnapshot.Item] = due.compactMap { chore in
+        return ordered(due.compactMap { chore in
             // Carry the chore's STABLE synced UUID (not the Core Data objectID URI,
             // which isn't stable across store reloads and can't be resolved by
             // CompleteChoreIntent's UUID predicate). A chore with no id is skipped.
@@ -57,11 +67,7 @@ enum WidgetSnapshotBuilder {
                 id: id,
                 name: chore.name ?? "Untitled",
                 isDone: chore.isCompleted(on: date))
-        }
-        return ChoreWidgetSnapshot(
-            date: Calendar.current.startOfDay(for: date),
-            scopeLabel: scopeLabel,
-            items: ordered(items))
+        })
     }
 
     /// Open chores first, since the widget lists what still needs doing and can only
