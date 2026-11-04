@@ -8,10 +8,11 @@ import CoreData
 ///
 /// The home-screen widget references this intent via `Button(intent:)` (CG-02), so
 /// the type is compiled into the widget extension too — but the widget never owns
-/// Core Data (no iCloud entitlement; the store isn't in the App Group), and the
-/// system runs the intent in the **app's** process. The Core Data `perform()` body
-/// is therefore gated out of the widget build (`WIDGET_EXTENSION`); the widget only
-/// needs the parameter shape to construct the intent.
+/// Core Data (no iCloud entitlement; the store isn't in the App Group). A widget's
+/// intent runs in the widget extension by default; the `LiveActivityIntent`
+/// conformance below has the system run it in the **app's** process instead. The
+/// Core Data `perform()` body is therefore gated out of the widget build
+/// (`WIDGET_EXTENSION`); the widget only needs the parameter shape to construct it.
 struct CompleteChoreIntent: AppIntent {
     static var title: LocalizedStringResource = "Complete a Chore"
     static var description = IntentDescription("Marks a chore done for today.")
@@ -58,8 +59,33 @@ struct CompleteChoreIntent: AppIntent {
             return .result(dialog: "‘\(name)’ is already done today.")
         }
         target.recordCompletion(on: Date(), in: context)
-        if let id = target.id { WidgetSnapshotWriter.markDone(choreID: id) }
+        await Self.refreshAfterCompletion(in: context)
         return .result(dialog: "Done — marked ‘\(name)’ complete for today.")
+    }
+
+    /// A completion that doesn't bring the app forward (the widget's circle, Siri,
+    /// Shortcuts) gets none of the scene's refreshes, so it does them here: the widget's
+    /// snapshot, rebuilt rather than patched so it's for today even once the widget has
+    /// turned over at midnight; the badge; and the reminders, so a "still open" one
+    /// doesn't fire for a chore that's done.
+    @MainActor
+    private static func refreshAfterCompletion(in context: NSManagedObjectContext) async {
+        let household = ChoreScopeResolver.activeHousehold(in: context)
+        await NotificationManager.reschedule(using: context, activeHousehold: household)
+        await NotificationManager.refreshBadge(using: context,
+                                               household: ChoreScopeResolver.resolvedHousehold(in: context))
+        await WidgetSnapshotWriter.update(householdID: household?.objectID,
+                                          scopeLabel: ChoreScopeResolver.scopeLabel(in: context))
     }
 #endif
 }
+
+#if os(iOS)
+/// Apple: "By default, the system runs the app intent in the same process as the widget
+/// extension. However, if … the intent conforms to … `LiveActivityIntent` …, the system
+/// performs the app intent in the app's process" ("Adding interactivity to widgets and
+/// Live Activities"), launching it in the background without opening it. Without this,
+/// a tap on a widget's circle reached only the extension's stub and failed. (The Mac
+/// has no widget, and the protocol isn't on macOS.)
+extension CompleteChoreIntent: LiveActivityIntent {}
+#endif

@@ -65,9 +65,10 @@ struct TodayChoresView: View {
             }
             if snapshot.items.isEmpty {
                 Spacer(minLength: 0)
-                Text("No chores today")
+                Text(entry.isStale ? "Open Choreganize to see today's chores" : "No chores today")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, alignment: .center)
                 Spacer(minLength: 0)
             } else {
@@ -122,9 +123,11 @@ struct TodayChoresView: View {
                     .lineLimit(1)
             }
             Spacer()
-            Text(snapshot.remaining == 0 ? "All done" : "\(snapshot.remaining) left")
-                .font(.caption.bold())
-                .foregroundStyle(snapshot.remaining == 0 ? .green : .secondary)
+            if !entry.isStale {
+                Text(snapshot.remaining == 0 ? "All done" : "\(snapshot.remaining) left")
+                    .font(.caption.bold())
+                    .foregroundStyle(snapshot.remaining == 0 ? .green : .secondary)
+            }
         }
     }
 
@@ -135,7 +138,9 @@ struct TodayChoresView: View {
               in: 0...Double(max(snapshot.total, 1))) {
             Image(systemName: "checklist")
         } currentValueLabel: {
-            Text("\(snapshot.remaining)")
+            entry.isStale
+                ? Text("–").accessibilityLabel("Open Choreganize to update")
+                : Text("\(snapshot.remaining)")
         }
         .gaugeStyle(.accessoryCircular)
         .widgetURL(WidgetDeepLink.url(choreID: nil))
@@ -146,7 +151,9 @@ struct TodayChoresView: View {
             Label("Today's Chores", systemImage: "checklist")
                 .font(.caption.bold())
                 .widgetAccentable()
-            if snapshot.total == 0 {
+            if entry.isStale {
+                Text("Open Choreganize to update").font(.caption2)
+            } else if snapshot.total == 0 {
                 Text("No chores today").font(.caption2)
             } else if snapshot.remaining == 0 {
                 Text("All done").font(.caption2)
