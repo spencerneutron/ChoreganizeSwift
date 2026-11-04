@@ -97,6 +97,7 @@ private struct InsightsDashboard: View {
     let scopeName: String
     /// Without Plus: blurred and redacted behind the lock card (CG-21 / #103).
     let locked: Bool
+    @Environment(\.clearsModeSwitcher) private var clearsModeSwitcher
 
     var body: some View {
         // Recomputed per render, same as the calendar grid / Hub streaks — the
@@ -155,7 +156,7 @@ private struct InsightsDashboard: View {
         }
         // Float-over-content (#65): the last section must clear the floating
         // glass mode switcher, same clearance EditHome uses.
-        .contentMargins(.bottom, 100, for: .scrollContent)
+        .contentMargins(.bottom, clearsModeSwitcher ? 100 : 24, for: .scrollContent)
     }
 
     @ViewBuilder private func headline(_ stats: Stats) -> some View {

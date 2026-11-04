@@ -28,6 +28,7 @@ enum EditDestination: Hashable {
 struct EditHomeView: View {
     /// The split view's selection (iOS). Without one, the rows push their destinations.
     var selection: Binding<EditDestination?>? = nil
+    @Environment(\.clearsModeSwitcher) private var clearsModeSwitcher
 
     var body: some View {
         List(selection: selection) {
@@ -57,7 +58,7 @@ struct EditHomeView: View {
         }
         // Float-over-content (#65): clear the floating mode switcher so the last row isn't
         // hidden behind it.
-        .contentMargins(.bottom, 100, for: .scrollContent)
+        .contentMargins(.bottom, clearsModeSwitcher ? 100 : 24, for: .scrollContent)
     }
 
     /// A row that selects `destination` in the split view, or pushes it where there's none.

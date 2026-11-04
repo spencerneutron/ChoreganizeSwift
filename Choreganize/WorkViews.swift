@@ -508,12 +508,12 @@ struct DayPage: View {
     @State private var quickAdd = QuickAddTracker()
     @State private var quickAddRequest: QuickAddRequest?
 
-    // Bottom clearances for the floating chrome, scaled with Dynamic Type so larger text
-    // still clears it — replaces the old raw 132 / 84 magic numbers. The list reserves more
-    // room on days that show a Done/Unlock button so the last row clears that too.
-    @ScaledMetric private var bottomClearanceWithButton: CGFloat = 110
-    @ScaledMetric private var bottomClearanceNoButton: CGFloat = 72
-    @ScaledMetric private var dayButtonClearance: CGFloat = 58
+    // Bottom clearance for the floating mode switcher (the iPhone pill), scaled with
+    // Dynamic Type so larger text still clears it. With the modes in the system tab bar
+    // (iPad, iPhone Duo) nothing floats over the list, so it keeps a plain margin.
+    @ScaledMetric private var switcherClearance: CGFloat = 72
+    @ScaledMetric private var tabBarClearance: CGFloat = 24
+    @Environment(\.clearsModeSwitcher) private var clearsModeSwitcher
 
     private var grouping: WorkGrouping { WorkGrouping(rawValue: workGroupingRaw) ?? .none }
 
@@ -578,11 +578,11 @@ struct DayPage: View {
         // done" acts on exactly this set, so locked/past days (toggles disabled) and
         // already-completed rows are untouched.
         let incompleteChores = dayChores.filter { !$0.isCompleted(on: date) }
-        // A Done (unlocked) or Unlock (locked, not past) button floats on every day except a
-        // locked PAST day; reserve extra bottom room only when one is shown.
+        // Every day but a locked past one offers Finish Day (unlocked) or Unlock Day
+        // (locked, not past) in its actions.
         let hasDayButton = !(isLocked && isPast)
         let offersQuickAdd = QuickAddRules.offersGhost(on: date, isLocked: isLocked)
-        let bottomClearance = hasDayButton ? bottomClearanceWithButton : bottomClearanceNoButton
+        let bottomClearance = clearsModeSwitcher ? switcherClearance : tabBarClearance
         // One-offs aren't tied to a day, so every upcoming page shows the same ones
         // (past pages are history). Hidden when there are none.
         let scopedOneOffs = Array(oneOffs).inScope(active)
@@ -639,32 +639,53 @@ struct DayPage: View {
                 }
             }
 
-            // CG-08 — one tap to complete every visible incomplete chore for the day.
-            // Only offered on an unlocked, non-empty day (locked days have disabled
-            // toggles), and only while something is still incomplete.
-            if !isLocked && !incompleteChores.isEmpty {
+            // The day's actions. Finish Day and Unlock Day are rows here, last, on every
+            // platform: a floating Done covered whichever row sat under it, and it's an
+            // occasional action that didn't earn a permanent spot over the list.
+            if hasDayButton {
                 Section {
-                    Button {
-                        let ids = Set(incompleteChores.map(\.objectID))
-                        withAnimation {
-                            BulkChoreOps.markAllDone(ids, on: date, in: context)
-                        }
-                    } label: {
-                        Label("Mark all done", systemImage: "checklist.checked")
-                    }
-                    .accessibilityIdentifier("markAllDoneButton")
-                    #if os(iOS)
-                    // #107 — photograph a room; chores that look done come back pre-checked
-                    // for the user to confirm. Today only: a photo shows the room now.
-                    if isToday && RoomVisionAvailability.current.isAvailable {
+                    // CG-08 — one tap to complete every visible incomplete chore for the
+                    // day. Only on an unlocked day (locked days have disabled toggles),
+                    // and only while something is still incomplete.
+                    if !isLocked && !incompleteChores.isEmpty {
                         Button {
-                            showPhotoCheck = true
+                            let ids = Set(incompleteChores.map(\.objectID))
+                            withAnimation {
+                                BulkChoreOps.markAllDone(ids, on: date, in: context)
+                            }
                         } label: {
-                            Label("Check off with a photo", systemImage: "camera.viewfinder")
+                            Label("Mark all done", systemImage: "checklist.checked")
                         }
-                        .accessibilityIdentifier("photoCheckButton")
+                        .accessibilityIdentifier("markAllDoneButton")
+                        #if os(iOS)
+                        // #107 — photograph a room; chores that look done come back pre-checked
+                        // for the user to confirm. Today only: a photo shows the room now.
+                        if isToday && RoomVisionAvailability.current.isAvailable {
+                            Button {
+                                showPhotoCheck = true
+                            } label: {
+                                Label("Check off with a photo", systemImage: "camera.viewfinder")
+                            }
+                            .accessibilityIdentifier("photoCheckButton")
+                        }
+                        #endif
                     }
-                    #endif
+                    if isLocked {
+                        Button {
+                            DayLock.unlock(date, existing: scopedLocks, in: context)
+                        } label: {
+                            Label("Unlock Day", systemImage: "lock.open")
+                        }
+                        .accessibilityIdentifier("unlockDayButton")
+                    } else {
+                        Button {
+                            showDoneAlert = true
+                        } label: {
+                            Label("Finish Day", systemImage: "flag.checkered")
+                        }
+                        .accessibilityIdentifier("finishDayButton")
+                        .onboardingAnchor(.doneButton)
+                    }
                 }
             }
 
@@ -693,9 +714,9 @@ struct DayPage: View {
         // cards don't shift; revisit with the day-paging review.
         // (Tunable: one number; the list background still spans full-width, no edge strip.)
         .contentMargins(.horizontal, 32, for: .scrollContent)
-        // Float-over-content (#65): the switcher + Done button float at the bottom, so give
-        // the list enough trailing room that its last row rests clear ABOVE them at the end
-        // of the scroll, while mid-scroll content still slides UNDER the translucent glass.
+        // Float-over-content (#65): the switcher floats at the bottom, so give the list
+        // enough trailing room that its last row rests clear ABOVE it at the end of the
+        // scroll, while mid-scroll content still slides UNDER the translucent glass.
         // No TOP margin — the single-container safe area positions the header below the bar.
         .contentMargins(.bottom, bottomClearance, for: .scrollContent)
         .scrollIndicators(.hidden)   // hide the scroll bar; scrolling still works
@@ -749,18 +770,6 @@ struct DayPage: View {
                     .font(.system(size: 80))
                     .foregroundColor(.green)
                     .transition(.scale)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if isLocked && !isPast {
-                Button("Unlock") { DayLock.unlock(date, existing: scopedLocks, in: context) }
-                    .buttonStyle(.bordered)
-                    .padding(.bottom, dayButtonClearance)
-            } else if !isLocked {
-                Button("Done") { showDoneAlert = true }
-                    .buttonStyle(.borderedProminent)
-                    .padding(.bottom, dayButtonClearance)
-                    .onboardingAnchor(.doneButton)
             }
         }
         // CG-05: scroll to + flash the deep-linked chore. Both hooks matter — onChange

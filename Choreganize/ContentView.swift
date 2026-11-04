@@ -190,6 +190,7 @@ struct ContentView: View {
                     // four tabs never change, so switching between the pill and the tab bar
                     // (an iPad window crossing compact/regular) keeps the open mode.
                     .toolbar(systemTabs ? .automatic : .hidden, for: .tabBar)
+                    .environment(\.clearsModeSwitcher, !systemTabs)
                 }
             }
         }
