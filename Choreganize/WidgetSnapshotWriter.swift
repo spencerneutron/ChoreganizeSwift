@@ -27,6 +27,20 @@ enum WidgetSnapshotWriter {
             WidgetCenter.shared.reloadTimelines(ofKind: WidgetShared.widgetKind)
         }
     }
+
+    /// Marks a chore done in the published snapshot and reloads the widget. For a
+    /// completion that doesn't bring the app forward (Siri, Shortcuts), which would
+    /// otherwise leave the widget showing the chore open until the app next becomes
+    /// active and rebuilds the snapshot.
+    static func markDone(choreID: UUID, on date: Date = Date()) {
+        guard let defaults = WidgetShared.defaults,
+              let data = defaults.data(forKey: WidgetShared.snapshotKey),
+              let snapshot = try? JSONDecoder().decode(ChoreWidgetSnapshot.self, from: data),
+              let updated = WidgetSnapshotBuilder.markingDone(choreID, in: snapshot, on: date),
+              let encoded = try? JSONEncoder().encode(updated) else { return }
+        defaults.set(encoded, forKey: WidgetShared.snapshotKey)
+        WidgetCenter.shared.reloadTimelines(ofKind: WidgetShared.widgetKind)
+    }
 }
 
 /// Pure construction of the widget snapshot from chores — the data the widget
@@ -34,9 +48,6 @@ enum WidgetSnapshotWriter {
 enum WidgetSnapshotBuilder {
     static func snapshot(from chores: [CDChore], on date: Date, scopeLabel: String) -> ChoreWidgetSnapshot {
         let due = Scheduling.chores(chores, for: date)
-        // Open chores first, since the widget lists what still needs doing and can
-        // only show so many; then the done ones. By name within each, as in the Work
-        // view. (The fetch has no order, so the rows used to shuffle between updates.)
         let items: [ChoreWidgetSnapshot.Item] = due.compactMap { chore in
             // Carry the chore's STABLE synced UUID (not the Core Data objectID URI,
             // which isn't stable across store reloads and can't be resolved by
@@ -47,10 +58,38 @@ enum WidgetSnapshotBuilder {
                 name: chore.name ?? "Untitled",
                 isDone: chore.isCompleted(on: date))
         }
-        .sorted { ($0.isDone ? 1 : 0, $0.name) < ($1.isDone ? 1 : 0, $1.name) }
         return ChoreWidgetSnapshot(
             date: Calendar.current.startOfDay(for: date),
             scopeLabel: scopeLabel,
-            items: items)
+            items: ordered(items))
+    }
+
+    /// Open chores first, since the widget lists what still needs doing and can only
+    /// show so many; then the done ones. By name within each (as Finder sorts), then by
+    /// id so equal names keep their places. The fetch has no order, so without this
+    /// the rows shuffled between updates.
+    static func ordered(_ items: [ChoreWidgetSnapshot.Item]) -> [ChoreWidgetSnapshot.Item] {
+        items.sorted { a, b in
+            if a.isDone != b.isDone { return !a.isDone }
+            switch a.name.localizedStandardCompare(b.name) {
+            case .orderedAscending: return true
+            case .orderedDescending: return false
+            case .orderedSame: return a.id.uuidString < b.id.uuidString
+            }
+        }
+    }
+
+    /// `snapshot` with the chore marked done and the list re-ordered, or nil when
+    /// there's nothing to change: the snapshot is for another day, or doesn't list the
+    /// chore, or already has it done.
+    static func markingDone(_ choreID: UUID, in snapshot: ChoreWidgetSnapshot,
+                            on date: Date) -> ChoreWidgetSnapshot? {
+        guard Calendar.current.isDate(snapshot.date, inSameDayAs: date),
+              let index = snapshot.items.firstIndex(where: { $0.id == choreID }),
+              !snapshot.items[index].isDone else { return nil }
+        var updated = snapshot
+        updated.items[index].isDone = true
+        updated.items = ordered(updated.items)
+        return updated
     }
 }

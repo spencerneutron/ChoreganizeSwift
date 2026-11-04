@@ -12,6 +12,7 @@ import AppIntents
 ///   accessory (CG-04) reusing the snapshot's precomputed `remaining`/`total`.
 struct TodayChoresView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.dynamicTypeSize) private var typeSize
     var entry: TodayChoresEntry
 
     private var snapshot: ChoreWidgetSnapshot { entry.snapshot }
@@ -33,10 +34,27 @@ struct TodayChoresView: View {
     /// iPhone Duo, where a longer list is the point.
     private var isLarge: Bool { family == .systemLarge }
 
-    /// How many chores are listed before "+N more".
-    private var rowLimit: Int { isLarge ? 10 : 4 }
+    /// How many chores to try listing, most first; the widget shows the longest list
+    /// that fits. The large widget's height runs from about 305 pt (iPad mini) to 382 pt
+    /// (the biggest iPhones), and larger text sizes fit fewer rows. Small and medium
+    /// keep their 4 at the default text size, where 4 only fit by running into the
+    /// content margins.
+    private var rowLimits: [Int] {
+        if isLarge { return [10, 9, 8, 7, 6, 5, 4, 3] }
+        return typeSize <= .large ? [4] : [3, 2, 1]
+    }
 
     private var homeScreen: some View {
+        ViewThatFits(in: .vertical) {
+            ForEach(rowLimits, id: \.self) { checklist(limit: $0) }
+        }
+        // If even the shortest list overflows, it loses its last rows, not the header.
+        .frame(maxHeight: .infinity, alignment: .top)
+        // CG-05: tapping anywhere not on a row's toggle opens the app to today.
+        .widgetURL(WidgetDeepLink.url(choreID: nil))
+    }
+
+    private func checklist(limit: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             header
             if isLarge && snapshot.total > 0 {
@@ -53,19 +71,19 @@ struct TodayChoresView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                 Spacer(minLength: 0)
             } else {
-                ForEach(snapshot.items.prefix(rowLimit)) { item in
+                ForEach(snapshot.items.prefix(limit)) { item in
                     row(for: item)
                 }
-                if snapshot.items.count > rowLimit {
-                    Text("+\(snapshot.items.count - rowLimit) more")
+                let hidden = snapshot.items.dropFirst(limit)
+                if !hidden.isEmpty {
+                    // Done chores sort last, so the hidden ones are often all done.
+                    Text(hidden.allSatisfy(\.isDone) ? "+\(hidden.count) done" : "+\(hidden.count) more")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
         }
-        // CG-05: tapping anywhere not on a row's toggle opens the app to today.
-        .widgetURL(WidgetDeepLink.url(choreID: nil))
     }
 
     /// One chore row: an interactive completion toggle (CG-02) plus a deep-link to
@@ -81,6 +99,7 @@ struct TodayChoresView: View {
             }
             .buttonStyle(.plain)
             .disabled(item.isDone)
+            .accessibilityLabel(item.isDone ? "\(item.name), done" : "Mark \(item.name) done")
 
             // The label deep-links to this chore's day.
             Link(destination: WidgetDeepLink.url(choreID: item.id)) {

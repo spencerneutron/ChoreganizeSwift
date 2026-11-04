@@ -58,6 +58,7 @@ struct CompleteChoreIntent: AppIntent {
             return .result(dialog: "‘\(name)’ is already done today.")
         }
         target.recordCompletion(on: Date(), in: context)
+        if let id = target.id { WidgetSnapshotWriter.markDone(choreID: id) }
         return .result(dialog: "Done — marked ‘\(name)’ complete for today.")
     }
 #endif
