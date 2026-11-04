@@ -259,6 +259,11 @@ struct ChoreListView: View {
                 ToolbarItem(placement: .compatTrailing) {
                     Button("Delete", role: .destructive) { showDeleteConfirm = true }
                         .disabled(selection.isEmpty)
+                        #if os(iOS)
+                        // On the button, so where it shows as a popover (iPad, the open
+                        // iPhone Duo) it points at Delete rather than the middle of the list.
+                        .modifier(deleteConfirmation)
+                        #endif
                 }
             } else {
                 ToolbarItem(placement: .compatTrailing) {
@@ -266,12 +271,9 @@ struct ChoreListView: View {
                 }
             }
         }
-        .confirmationDialog(deleteTitle, isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { deleteSelected() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This also removes their completion history and can't be undone.")
-        }
+        #if os(macOS)
+        .modifier(deleteConfirmation)
+        #endif
         .sheet(isPresented: $showingNew) {
             NewChoreView()
         }
@@ -295,6 +297,11 @@ struct ChoreListView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// Delete's "delete the selected chores?" question.
+    private var deleteConfirmation: DeleteConfirmation {
+        DeleteConfirmation(title: deleteTitle, isPresented: $showDeleteConfirm) { deleteSelected() }
     }
 
     private var deleteTitle: String {
@@ -349,6 +356,21 @@ private func applyPlusChoreFields(to chore: CDChore,
     chore.recurrenceIntervalValue = isDaily ? 1 : interval
     if chore.household != nil {
         chore.assignee = assignee
+    }
+}
+
+private struct DeleteConfirmation: ViewModifier {
+    let title: String
+    @Binding var isPresented: Bool
+    let onDelete: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(title, isPresented: $isPresented, titleVisibility: .visible) {
+            Button("Delete", role: .destructive, action: onDelete)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This also removes their completion history and can't be undone.")
+        }
     }
 }
 

@@ -177,6 +177,25 @@ private struct DiscardConfirmation: ViewModifier {
     }
 }
 
+private struct UnaddedConfirmation: ViewModifier {
+    let name: String
+    @Binding var isPresented: Bool
+    let onAdd: () -> Void
+    let onDiscard: () -> Void
+    let onKeepEditing: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog("\u{201C}\(name)\u{201D} hasn't been added yet",
+                                   isPresented: $isPresented, titleVisibility: .visible) {
+            Button("Add & Finish", action: onAdd)
+            Button("Discard", role: .destructive, action: onDiscard)
+            Button("Keep Editing", role: .cancel, action: onKeepEditing)
+        } message: {
+            Text("Tap Add to stage it, or discard it before finishing.")
+        }
+    }
+}
+
 // MARK: - Step 1: pick / define the group
 
 private struct AddFlowGroupPicker: View {
@@ -306,20 +325,26 @@ private struct AddChoresStep: View {
                 // "Done" was ambiguous (done with this chore vs done with the group);
                 // "Room/Day Complete" reads as finishing the group.
                 Button(doneLabel) { finishAdding() }
-                    // Guard against finishing with a typed-but-unadded chore — easy to miss
-                    // the Add control the first time, and the text would otherwise be
-                    // silently dropped (#54). On the button, so where the dialog shows as a
-                    // popover (regular width: iPad, the open iPhone Duo) it grows from it.
-                    .confirmationDialog("\u{201C}\(trimmedName)\u{201D} hasn't been added yet",
-                                        isPresented: $showUnaddedConfirm, titleVisibility: .visible) {
-                        Button("Add & Finish") { addChore(); onDone() }
-                        Button("Discard", role: .destructive) { name = ""; onDone() }
-                        Button("Keep Editing", role: .cancel) { nameFocused = true }
-                    } message: {
-                        Text("Tap Add to stage it, or discard it before finishing.")
-                    }
+                    #if os(iOS)
+                    // On the button, so where it shows as a popover (iPad, the open iPhone
+                    // Duo) it grows from Day Complete rather than the middle of the step.
+                    .modifier(unaddedConfirmation)
+                    #endif
             }
         }
+        #if os(macOS)
+        // The Mac keeps it on the step, as it does Cancel's question.
+        .modifier(unaddedConfirmation)
+        #endif
+    }
+
+    /// Guards finishing with a typed-but-unadded chore — easy to miss the Add control the
+    /// first time, and the text would otherwise be silently dropped (#54).
+    private var unaddedConfirmation: UnaddedConfirmation {
+        UnaddedConfirmation(name: trimmedName, isPresented: $showUnaddedConfirm,
+                            onAdd: { addChore(); onDone() },
+                            onDiscard: { name = ""; onDone() },
+                            onKeepEditing: { nameFocused = true })
     }
 
     /// Finish adding to this group. If a chore was typed but never added, confirm first

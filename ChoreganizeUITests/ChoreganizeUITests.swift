@@ -57,6 +57,38 @@ final class ChoreganizeUITests: XCTestCase {
         }
     }
 
+    /// Finishing a group with a typed but unadded chore asks first (#54): an action sheet on
+    /// iPhone, a popover from Day Complete in regular width. "Add & Finish" stages the
+    /// chore and moves on, so the typed name isn't lost.
+    @MainActor
+    func testFinishingWithAnUnaddedChoreAsksFirst() throws {
+        let app = launchApp()
+        selectMode(app, "Edit")
+
+        let lens = app.descendants(matching: .any)["addflow.lens.byDay"]
+        XCTAssertTrue(lens.waitForExistence(timeout: 5), "Day-by-day lens entry should exist")
+        lens.tap()
+        let monday = app.buttons["Monday"]
+        XCTAssertTrue(monday.waitForExistence(timeout: 5), "Weekday picker should offer Monday")
+        monday.tap()
+
+        let nameField = app.textFields["addflow.choreNameField"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5), "Chore name field should exist")
+        nameField.tap()
+        nameField.typeText("UITest Water Ferns")
+
+        // Day Complete without tapping Add.
+        app.buttons["Day Complete"].tap()
+        let addAndFinish = app.buttons["Add & Finish"]
+        XCTAssertTrue(addAndFinish.waitForExistence(timeout: 5),
+                      "Finishing with an unadded chore should ask before dropping it")
+        addAndFinish.tap()
+
+        // The chore was staged and the flow moved on.
+        XCTAssertTrue(app.buttons["Review & Save"].waitForExistence(timeout: 5),
+                      "Add & Finish should stage the chore and move on")
+    }
+
     /// Drives the day-by-day wizard end to end and confirms the chore persists into the
     /// manual Chores list — exercising lens → group → add → review → commit in the app.
     @MainActor
