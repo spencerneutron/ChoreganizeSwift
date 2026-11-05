@@ -137,13 +137,55 @@ extension View {
     /// page inside raises. One page or two, the wash enters at the container's lower
     /// trailing corner and leaves at its upper leading one.
     func completionWashHost<S: ShapeStyle>(base: S) -> some View {
-        environment(\.hostsCompletionWash, true)
-            .backgroundPreferenceValue(WashRequestKey.self) { request in
-                CompletionWashLayer(start: request?.start, seed: request?.seed ?? 0,
-                                    base: base, frozenTime: request?.frozenTime)
+        modifier(CompletionWashHost(base: AnyShapeStyle(base)))
+    }
+}
+
+/// Draws the latest wash its day pages raise and keeps it to the end, even when the page that
+/// raised it is rebuilt meanwhile (the Calendar shows another day when one is tapped).
+private struct CompletionWashHost: ViewModifier {
+    let base: AnyShapeStyle
+    @State private var playing: WashRequest?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.hostsCompletionWash, true)
+            .onPreferenceChange(WashRequestKey.self) { request in
+                if let request, request != playing { playing = request }
+            }
+            .background {
+                CompletionWashLayer(start: playing?.start, seed: playing?.seed ?? 0,
+                                    base: base, frozenTime: playing?.frozenTime)
                     .ignoresSafeArea()
             }
+            .task(id: playing?.start) {
+                // Clear it once it has played (a DEBUG frozen wash stays).
+                guard let request = playing, request.frozenTime == nil else { return }
+                let fades = reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled
+                let length = fades ? CompletionWashLayer.fadeDuration : CompletionWash.duration
+                let remaining = length + 0.1 - Date.now.timeIntervalSince(request.start)
+                if remaining > 0 { try? await Task.sleep(for: .seconds(remaining)) }
+                if !Task.isCancelled, playing == request { playing = nil }
+            }
     }
+}
+
+/// What a day page's completion effects compare from one render to the next.
+struct DayCompletionState: Equatable {
+    /// The chores the page shows (their ids).
+    var chores: Set<UUID>
+    /// Every chore the page shows is done.
+    var complete: Bool
+    /// Each section's progress, by its rim key.
+    var sections: [String: Double]
+}
+
+extension Notification.Name {
+    /// Posted (object: the day, a `Date`) just before a check-off made outside the day page,
+    /// the Mac's photo check-off sheet, records completions, so the day's page counts them as
+    /// the user's own action (the wash's "local action").
+    static let choreganizeLocalCompletion = Notification.Name("choreganizeLocalCompletion")
 }
 
 /// The page backdrop: `base` always, plus the wash while `start` is set. Sits behind the

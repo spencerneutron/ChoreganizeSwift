@@ -223,6 +223,9 @@ private struct RimSchedule: TimelineSchedule {
                 next = next.addingTimeInterval(1.0 / 60)
                 dates.append(min(next, end))
             }
+            // One entry clearly past the end, so the last frame drawn is the resting rim. A
+            // last frame a tick short of 8 s left a full rim about 2 pt from closing.
+            dates.append(end.addingTimeInterval(0.05))
         }
         return dates
     }

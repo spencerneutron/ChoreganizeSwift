@@ -24,13 +24,20 @@ struct SectionRimSpec: Identifiable, Equatable {
     var fraction: Double
     var flourish: SectionRimFlourish?
 
-    /// Section ids made unique: a repeated title gets "#1", "#2"… after its first use.
+    /// Section ids made unique: a repeated title gets "#1", "#2"… after its first use (or a
+    /// higher number, when a room is itself named like that).
     static func uniqueIDs(_ ids: [String]) -> [String] {
-        var seen: [String: Int] = [:]
+        var used = Set<String>()
+        var next: [String: Int] = [:]
         return ids.map { id in
-            let count = seen[id, default: 0]
-            seen[id] = count + 1
-            return count == 0 ? id : "\(id)#\(count)"
+            var candidate = id
+            while used.contains(candidate) {
+                let n = next[id, default: 1]
+                next[id] = n + 1
+                candidate = "\(id)#\(n)"
+            }
+            used.insert(candidate)
+            return candidate
         }
     }
 }
@@ -175,6 +182,9 @@ struct SectionRimLayer: View {
         .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { origin in
             tracker.origin = origin
         }
+        // The List clips its cards at its edges (under the top controls, the home indicator,
+        // the fold); the rims of cards running past them are clipped there too.
+        .clipped()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

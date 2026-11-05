@@ -18,6 +18,8 @@ Decided 2026-11-05 with the product owner, in the wash-lab playground. Items mar
 - Fires when the **last open chore of the day** is completed by a **local action**, i.e. the day's "complete" state goes false → true with a local completion in the previous 3 s, on an unlocked day. Implemented: `WashTrigger.shouldWash` and the `onChange(of: dayComplete)` in `DayPage`.
 - **Completing one section when other sections still have open chores does not fire the wash.** That section gets its rim flourish only. Only the absolute final completed task of the day, which by definition finishes the last section, fires the wash.
 - Finish Day never fires it (it locks the day; it is not a completion).
+- A change in which chores the page shows (a scope switch, a sync adding or removing chores) is never a completion, even within 3 s of the user's last tap; the wash and the rim flourishes ignore that update.
+- The Mac's photo check-off sheet posts `choreganizeLocalCompletion` before it records, so today's page counts it as the user's action.
 - Any unlocked day page can fire it, not only today, since the action is the user's and the page is the one they are looking at. Unchecking and re-checking the last chore fires it again (the rule is edge-based), at most once per 30 s per page (`WashTrigger.refireInterval`). Both approved 2026-11-05. A chore added to the day (Quick Add, another device) re-arms it at once: finishing new work is never held back by the limit (owner, 2026-11-05).
 
 ### 2.2 What plays
@@ -36,7 +38,7 @@ Decided 2026-11-05 with the product owner, in the wash-lab playground. Items mar
 
 ### 2.4 iPhone Duo and iPad spreads (owner rule)
 - When two day pages share the inner display, **the wash transits the whole display, not one page**, whichever page's completion fired it. It must never stop at the fold or at the midline, in either the left or the right case.
-- Implemented: the completing `DayPage` raises a `WashRequest` preference (start, seed); the container draws it with `completionWashHost(base:)` (WeekView's pager pages; the Calendar's two pages, whose base is grouped up to the fold and plain after). A page outside a host (the Mac, a pushed Calendar day) draws its own. The entry corner is the lower trailing corner of the whole display.
+- Implemented: the completing `DayPage` raises a `WashRequest` preference (start, seed); the container draws it with `completionWashHost(base:)` (WeekView's pager pages; the Calendar's two pages, whose base is grouped up to the fold and plain after). A page outside a host (the Mac, a pushed Calendar day) draws its own. The entry corner is the lower trailing corner of the whole display. The host keeps a wash to its end even if the page that raised it is rebuilt meanwhile (tapping another day in the Calendar mid-wash).
 
 ### 2.5 Timing with the rim
 - The last section's flourish and the wash start together and share the 8 s clock (§3.4), so the rim finishes while the gas lingers mid-screen.
@@ -85,7 +87,8 @@ The plan it followed:
 ## 4. The toggles and the accent (decided 2026-11-05)
 
 - **The system switch, tinted lavender**: on track `#7370CF` light / `#8285DF` dark (4.2:1 and 3.3:1 against the white thumb). The off track stays the system grey: there is no API to tint it, and the owner chose to keep Apple's switch (its iOS 26 glass thumb, drag, VoiceOver) over the custom `PromiseToggleStyle` (warm-grey off track), which was removed.
-- The same pair is the app's **accent** (`AccentColor`, app and widget), replacing system blue everywhere it showed: action rows, the Quick Add ghost, buttons, the tab bar. On the Mac it shows only while the user's system accent is Multicolor; otherwise macOS uses the user's own accent, as it intends. Increase Contrast: `#4B48AE` light (7.4:1 on white, on par with system blue's 7.6:1); dark keeps `#8285DF` so the switch stays 3.3:1 against its thumb. As text it reads at least as well as system blue did (4.2:1 vs 4.0:1 on white; 5.2:1 vs 4.7:1 on the dark card).
+- The same pair is the app's **accent** (`AccentColor`, app and widget), replacing system blue everywhere it showed: action rows, the Quick Add ghost, buttons, the tab bar. On the Mac it shows only while the user's system accent is Multicolor; otherwise macOS uses the user's own accent, as it intends. Increase Contrast: `#4B48AE` light (7.4:1 on white, on par with system blue's 7.6:1); dark keeps `#8285DF` so the switch stays 3.3:1 against its thumb.
+- Accepted trade-off: white on the dark accent (prominent buttons, the Calendar's today circle) is 3.3:1, against 3.65:1 for system blue. A deeper dark lavender would raise fills and the switch to about 3.6:1 and lower accent text on the dark card from 5.2:1 to about 4.7:1; not changed, as the pair is the owner's pick. As text it reads at least as well as system blue did (4.2:1 vs 4.0:1 on white; 5.2:1 vs 4.7:1 on the dark card).
 
 ## 5. Open investigations
 

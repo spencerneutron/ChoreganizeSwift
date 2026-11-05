@@ -149,6 +149,8 @@ struct WeekView: View {
     @State private var rail = DayRailTracker()
     #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Whether scrolling is allowed here at all; the pages pass it on below the paging hold.
+    @Environment(\.isScrollEnabled) private var scrollEnabled
     /// A completion wash is playing on a page. Paging (and the Duo's day rail) waits for it
     /// to end: the wash is drawn by the page, so a swipe would carry it away mid-play.
     @State private var washPlaying = false
@@ -253,8 +255,9 @@ struct WeekView: View {
                         // The page draws its days' completion wash, so on a spread it crosses
                         // both days and the fold, whichever day finished.
                         .completionWashHost(base: Color.washPageBase)
-                        // Only the paging freezes during a wash; each day's list still scrolls.
-                        .environment(\.isScrollEnabled, true)
+                        // Only the paging freezes during a wash; each day's list still scrolls
+                        // (unless something above this view turned scrolling off).
+                        .environment(\.isScrollEnabled, scrollEnabled)
                     }
                 }
                 .scrollTargetLayout()
@@ -263,7 +266,8 @@ struct WeekView: View {
             .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
             // No paging while a wash plays (it's drawn by the page and would scroll away).
             .scrollDisabled(washPlaying)
-            .onPreferenceChange(WashRequestKey.self) { washPlaying = $0 != nil }
+            // A DEBUG wash frozen for screenshots never ends, so it doesn't hold the paging.
+            .onPreferenceChange(WashRequestKey.self) { washPlaying = $0 != nil && $0?.frozenTime == nil }
             .scrollPosition($position)            // place the pager (layout switches, deep link)
             .defaultScrollAnchor(.center)         // first layout centers today (the middle page)
             .scrollIndicators(.hidden)
@@ -635,7 +639,56 @@ struct DayPage: View {
     private var debugFrozenTime: Double? { nil }
     #endif
 
+    /// Reacts to a change in the day's progress: the wash for a finished day, a flourish for
+    /// each finished section, and what VoiceOver hears in their place.
+    @MainActor
+    private func progressChanged(from old: DayCompletionState, to new: DayCompletionState, isLocked: Bool,
+                                 sectionTitles: [String: String]) {
+        let now = Date.now
+        // A chore added to the day (Quick Add, another device) is new work: finishing it may
+        // earn the wash again at once, inside the 30 s re-fire limit.
+        if WashTrigger.rearms(oldChores: old.chores, newChores: new.chores) { lastWash = nil }
+        // A section that drops below full loses its flourish, so a later synced re-check
+        // eases to full instead of resuming it.
+        for (id, fraction) in new.sections where fraction < 1 { rimFlourishes[id] = nil }
+        // A change in which chores the page shows (a scope switch, a sync adding or removing
+        // chores) is not a completion, even within the 3 s of the user's last tap.
+        guard old.chores == new.chores else { return }
+        let washes = WashTrigger.shouldWash(wasComplete: old.complete, isComplete: new.complete,
+                                            isLocked: isLocked, lastLocalCompletion: lastLocalCompletion,
+                                            lastWash: lastWash, now: now)
+        #if os(iOS)
+        // A section the user's own tap finished retraces its rim; one finished by a sync, a
+        // widget or a locked day just eases to full.
+        let finished = SectionRimTrigger.flourishes(old: old.sections, new: new.sections, isLocked: isLocked,
+                                                    lastLocalCompletion: lastLocalCompletion, now: now)
+        for (id, from) in finished {
+            rimFlourishes[id] = SectionRimFlourish(start: now, from: from)
+        }
+        // The rim is hidden from VoiceOver, so say what it marks, unless the wash plays now
+        // (its "Day complete" says it).
+        if !finished.isEmpty && !washes {
+            if new.complete {
+                AccessibilityNotification.Announcement("Day complete").post()
+            } else {
+                for id in finished.keys.sorted() {
+                    if let title = sectionTitles[id] {
+                        AccessibilityNotification.Announcement("\(title) complete").post()
+                    }
+                }
+            }
+        }
+        #endif
+        if washes { startWash() }
+    }
+
     /// Plays the wash and clears it afterwards, unless a newer wash replaced it.
+    #if os(iOS)
+    private static let drawsBaseAtRest = true
+    #else
+    private static let drawsBaseAtRest = false
+    #endif
+
     @MainActor
     private func startWash() {
         washSeed = Float.random(in: 0...64)
@@ -855,7 +908,9 @@ struct DayPage: View {
         .scrollContentBackground(washStart == nil ? .automatic : .hidden)
         #endif
         .background {
-            if !washHosted {
+            // The Mac's inset list paints its own background at rest, so there the layer only
+            // draws while a wash plays (iOS hides the list's background and needs the base).
+            if !washHosted && (Self.drawsBaseAtRest || washStart != nil) {
                 CompletionWashLayer(start: washStart, seed: washSeed,
                                     base: Color.washPageBase, frozenTime: debugFrozenTime)
                     .ignoresSafeArea()
@@ -868,44 +923,18 @@ struct DayPage: View {
         .preference(key: WashRequestKey.self,
                     value: washHosted ? washStart.map { WashRequest(start: $0, seed: washSeed,
                                                                     frozenTime: debugFrozenTime) } : nil)
-        #if os(iOS)
-        // A section the user's own tap finished retraces its rim (the flourish); one finished
-        // by a sync, a widget or a locked day just eases to full.
-        .onChange(of: rimFractions) { old, new in
-            // A section that drops below full loses its flourish, so a later synced re-check
-            // eases to full instead of resuming it.
-            for (id, fraction) in new where fraction < 1 { rimFlourishes[id] = nil }
-            let now = Date.now
-            let finished = SectionRimTrigger.flourishes(old: old, new: new, isLocked: isLocked,
-                                                        lastLocalCompletion: lastLocalCompletion,
-                                                        now: now)
-            guard !finished.isEmpty else { return }
-            for (id, from) in finished {
-                rimFlourishes[id] = SectionRimFlourish(start: now, from: from)
-            }
-            // The rim is hidden from VoiceOver, so say what it marks, unless the wash plays
-            // for this same completion (its "Day complete" says it). This change may run just
-            // before or just after the wash's, hence "fired a moment ago, or about to".
-            let washPlays = dayComplete && (lastWash.map {
-                now.timeIntervalSince($0) < 0.5 || now.timeIntervalSince($0) >= WashTrigger.refireInterval
-            } ?? true)
-            if !washPlays {
-                for (id, group) in zip(rimIDs, groups) where finished[id] != nil {
-                    AccessibilityNotification.Announcement("\(group.title) complete").post()
-                }
-            }
+        // The completion effects react to the day's progress: the wash, the section rims'
+        // flourishes, the re-fire limit. One handler, so they agree about each change.
+        .onChange(of: DayCompletionState(chores: dayChoreIDs, complete: dayComplete, sections: rimFractions)) { old, new in
+            progressChanged(from: old, to: new, isLocked: isLocked,
+                            sectionTitles: Dictionary(zip(rimIDs, groups.map(\.title)),
+                                                      uniquingKeysWith: { first, _ in first }))
         }
-        #endif
-        // A chore added to the day (Quick Add, another device) is new work: finishing it may
-        // earn the wash again right away, inside the 30 s re-fire limit.
-        .onChange(of: dayChoreIDs) { old, new in
-            if WashTrigger.rearms(oldChores: old, newChores: new) { lastWash = nil }
-        }
-        .onChange(of: dayComplete) { old, new in
-            if WashTrigger.shouldWash(wasComplete: old, isComplete: new, isLocked: isLocked,
-                                      lastLocalCompletion: lastLocalCompletion, lastWash: lastWash,
-                                      now: .now) {
-                startWash()
+        // The Mac's photo check-off is a sheet of its own; it says when it records the
+        // user's completions, so this page counts them as local.
+        .onReceive(NotificationCenter.default.publisher(for: .choreganizeLocalCompletion)) { note in
+            if let day = note.object as? Date, Calendar.current.isDate(day, inSameDayAs: date) {
+                lastLocalCompletion = .now
             }
         }
         #if DEBUG

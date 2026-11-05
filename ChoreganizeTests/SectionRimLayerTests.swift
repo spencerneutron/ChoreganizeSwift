@@ -66,4 +66,11 @@ struct SectionRimLayerTests {
         #expect(SectionRimSpec.uniqueIDs(["Kitchen", "No Room", "No Room", "Untitled", "Untitled", "Untitled"])
                 == ["Kitchen", "No Room", "No Room#1", "Untitled", "Untitled#1", "Untitled#2"])
     }
+
+    // A room literally named "No Room#1" beside the generated one.
+    @Test func generatedIDsSkipTakenNames() {
+        let ids = SectionRimSpec.uniqueIDs(["No Room", "No Room#1", "No Room"])
+        #expect(ids == ["No Room", "No Room#1", "No Room#2"])
+        #expect(Set(ids).count == ids.count)
+    }
 }
