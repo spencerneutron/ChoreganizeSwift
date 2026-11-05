@@ -665,6 +665,17 @@ struct DayPage: View {
         for (id, from) in finished {
             rimFlourishes[id] = SectionRimFlourish(start: now, from: from)
         }
+        // Clear them once played: the change redraws each rim at rest. Left to its timeline
+        // alone, a rim could keep a last frame from just before the end, a few points short of
+        // closing where its ends meet, until the page was rebuilt.
+        if !finished.isEmpty {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(SectionRim.flourishDuration + 0.1))
+                for id in finished.keys where rimFlourishes[id]?.start == now {
+                    rimFlourishes[id] = nil
+                }
+            }
+        }
         // The rim is hidden from VoiceOver, so say what it marks, unless the wash plays now
         // (its "Day complete" says it).
         if !finished.isEmpty && !washes {
