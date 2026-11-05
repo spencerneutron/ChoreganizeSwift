@@ -18,7 +18,7 @@ Decided 2026-11-05 with the product owner, in the wash-lab playground. Items mar
 - Fires when the **last open chore of the day** is completed by a **local action**, i.e. the day's "complete" state goes false → true with a local completion in the previous 3 s, on an unlocked day. Implemented: `WashTrigger.shouldWash` and the `onChange(of: dayComplete)` in `DayPage`.
 - **Completing one section when other sections still have open chores does not fire the wash.** That section gets its rim flourish only. Only the absolute final completed task of the day, which by definition finishes the last section, fires the wash.
 - Finish Day never fires it (it locks the day; it is not a completion).
-- **Proposed:** any unlocked day page can fire it, not only today, since the action is the user's and the page is the one they are looking at. **Proposed:** unchecking and re-checking the last chore fires it again (the rule is edge-based), rate-limited to once per 30 s per page.
+- Any unlocked day page can fire it, not only today, since the action is the user's and the page is the one they are looking at. Unchecking and re-checking the last chore fires it again (the rule is edge-based), at most once per 30 s per page (`WashTrigger.refireInterval`). Both approved 2026-11-05. A chore added to the day (Quick Add, another device) re-arms it at once: finishing new work is never held back by the limit (owner, 2026-11-05).
 
 ### 2.2 What plays
 - Shader iteration 06 "night haze": `ChoreWash.metal`, look 1 (calm), motion 1 (roll-through), 8.0 s, seed random per play.
@@ -31,9 +31,12 @@ Decided 2026-11-05 with the product owner, in the wash-lab playground. Items mar
 - Behind the cards, over the page's whole background, edge to edge (the layer ignores safe areas). The cards stay opaque; nothing draws over text.
 - Implemented today as the `DayPage` List's background (`scrollContentBackground(.hidden)` + `CompletionWashLayer`).
 
+### 2.3a Paging while it plays (owner rule, 2026-11-05)
+- While a wash plays, the Work view's side-to-side paging and the iPhone Duo's day rail are held still, on every device; each day's list still scrolls vertically. The wash is drawn by the page, so a swipe would carry it away mid-play. Under Reduce Motion or Low Power the hold lasts only as long as the fade (1.4 s).
+
 ### 2.4 iPhone Duo and iPad spreads (owner rule)
 - When two day pages share the inner display, **the wash transits the whole display, not one page**, whichever page's completion fired it. It must never stop at the fold or at the midline, in either the left or the right case.
-- Implementation: lift the layer from `DayPage` to the spread container (the two-page `WeekView` layout and the Calendar's two pages on Duo), sized to the full spread, and let the completing page raise the event (a preference key or an `AppModel` value with the start date and seed). On a single-page layout the container is the page itself, so iPhone behaviour is unchanged. The entry corner stays the lower trailing corner of the whole display.
+- Implemented: the completing `DayPage` raises a `WashRequest` preference (start, seed); the container draws it with `completionWashHost(base:)` (WeekView's pager pages; the Calendar's two pages, whose base is grouped up to the fold and plain after). A page outside a host (the Mac, a pushed Calendar day) draws its own. The entry corner is the lower trailing corner of the whole display.
 
 ### 2.5 Timing with the rim
 - The last section's flourish and the wash start together and share the 8 s clock (§3.4), so the rim finishes while the gas lingers mid-screen.
@@ -41,7 +44,7 @@ Decided 2026-11-05 with the product owner, in the wash-lab playground. Items mar
 ### 2.6 Reduce Motion, Low Power, haptics, accessibility
 - Reduce Motion or Low Power Mode: no shader. The amber-to-lavender gradient fades in to 0.7 over 0.4 s and is gone by 1.4 s (`CompletionWashLayer.fade`).
 - Haptic: `WashHaptics` (a soft Core Haptics swell, success-notification fallback; none on Mac).
-- The layer is `allowsHitTesting(false)` and `accessibilityHidden(true)`. **Proposed:** post a VoiceOver announcement "Day complete" when the wash fires, since the celebration is otherwise invisible to VoiceOver.
+- The layer is `allowsHitTesting(false)` and `accessibilityHidden(true)`. A VoiceOver announcement "Day complete" posts when the wash fires, since the celebration is otherwise invisible to VoiceOver (approved 2026-11-05).
 
 ## 3. The section rim (per section)
 
@@ -60,30 +63,34 @@ Decided 2026-11-05 with the product owner, in the wash-lab playground. Items mar
 
 ### 3.4 The flourish (section finished)
 - When a section reaches 100 % by a local action, the rim is **retraced round the whole perimeter** from the lower trailing corner, over the resting rim, with a small bright head at the drawing tip, regardless of the level it had before. The retrace runs from 0.8 s to 5.8 s on the 8 s clock (the wash's clock when the day also completes; its own clock otherwise), then the halo rises briefly (to 0.40 by 7.4 s) and settles to the resting values.
-- A section finished by a synced change (another member) eases to 100 % without the flourish (**proposed**).
+- A section finished by a synced change (another member) eases to 100 % without the flourish (approved 2026-11-05). VoiceOver hears "<section> complete" on a flourish, unless the day finished with it ("Day complete" then).
 - Reduce Motion: no retrace and no head; the rim cross-fades to 100 % over 0.3 s.
-- **Proposed:** a light `.selection` haptic when the head completes the loop.
+- Not built: a light `.selection` haptic when the head completes the loop (was proposed; not taken up).
 
 ### 3.5 What does not get a rim
 - The day's action rows (Mark all done, Check off with a photo, Finish Day, Unlock Day, Log completions): they are controls.
 - The one-offs section, the Quick Add ghost, the Edit tab's rows, and the Mac's rows (no cards; **open:** whether the Mac gets a hairline under the section header instead).
 
-### 3.6 Implementation plan (not built)
+### 3.6 Implementation (built 2026-11-05)
+- As built: one `colorEffect` view per section card (`SectionRimView`, shader `sectionRim` in `SectionRim.metal`): a signed distance to the rounded card, the hairline and a half-Gaussian halo outside it, gated by arc length for the fraction, a bright head during the flourish. It draws in `DayPage`'s background, behind the List, so it only ever shows outside the opaque card.
+- Card rects: each chore row's `listRowBackground` (the card colour, as before) reports its global frame to an `@Observable` `SectionRimTracker`, keyed by the chore. The section's current chore order is applied when the card is read: the card is the longest run of rows that sit flush one under the next, with the others estimated at the run's average row height. (Recording each row's index when it reported let a chore added above a row leave a stale index, which stretched the card into the next section.) The layer subtracts its own global origin. Card corner radius 25 pt on iOS 26+, 10 pt before (measured on iOS 27; iOS 26.x and iPad not measured).
+- Section keys: the section title, made unique ("No Room#1") because titles can repeat.
+- Reduce Motion or Low Power Mode: no retrace, no head; levels cross-fade.
+
+The plan it followed:
 - Draw the rim in the wash's layer, which already sits behind the cards: pass each visible section card's frame and corner radius plus its fraction, flourish progress and halo level as a `floatArray` argument; per pixel, compute the rounded-rectangle signed distance, light the outside with `exp(-d / falloff)` (two falloffs for near and far), and gate the hairline by arc length along the boundary for the fraction. This is resolution-independent and costs nothing where no card is near.
 - Section frames come from `onGeometryChange` on each section (in the List's coordinate space); the layer reads them from a preference.
 - The resting rim means the shader layer is alive at rest with a one-frame draw per change; the `TimelineView` runs only during a flourish or wash. Alternative if simpler: a SwiftUI `RoundedRectangle` stroke with `.trim(from:to:)` and two blurred strokes masked outside, which is the demo's construction.
 
-## 4. The toggles (approved)
+## 4. The toggles and the accent (decided 2026-11-05)
 
-- `PromiseToggleStyle` on the Work rows: off track `#E8DFC8` light / `#433D31` dark (the system switch grey warmed a hint toward gold; it must not read as active), on track `#7370CF` light / `#8285DF` dark (4.1:1 and 3.5:1 against the white thumb). Only the control toggles, not the row.
-- Restores what the system switch gives: the toggle trait and On/Off value, a selection haptic, a checkmark/circle glyph under Differentiate Without Color. Locked rows dim the control.
-- Mac: a 16 pt ring that fills with a check.
-- To ship: remove the `ToggleLook` flag (or keep it for a Developer toggle) and make the style the default on the Work rows. **Open:** VoiceOver wording for a Button-based toggle (test on device), the Mac look (compiled only).
+- **The system switch, tinted lavender**: on track `#7370CF` light / `#8285DF` dark (4.2:1 and 3.3:1 against the white thumb). The off track stays the system grey: there is no API to tint it, and the owner chose to keep Apple's switch (its iOS 26 glass thumb, drag, VoiceOver) over the custom `PromiseToggleStyle` (warm-grey off track), which was removed.
+- The same pair is the app's **accent** (`AccentColor`, app and widget), replacing system blue everywhere it showed: action rows, the Quick Add ghost, buttons, the tab bar. On the Mac it shows only while the user's system accent is Multicolor; otherwise macOS uses the user's own accent, as it intends. Increase Contrast: `#4B48AE` light (7.4:1 on white, on par with system blue's 7.6:1); dark keeps `#8285DF` so the switch stays 3.3:1 against its thumb. As text it reads at least as well as system blue did (4.2:1 vs 4.0:1 on white; 5.2:1 vs 4.7:1 on the dark card).
 
 ## 5. Open investigations
 
 1. **Colour-blind check.** Simulate protan, deutan and tritan vision on the rim (honey/lavender against the cards) and on the toggles. Low concern as long as colour stays sparse and state also reads by position, fill and lightness; the rim is a progress fraction (shape) and the toggle thumb moves.
-2. **The action rows' system blue.** Investigate whether the system tint on Mark all done / Finish Day etc. should stay (the accessibility default; the `AccentColor` asset is empty), or be brought into the day language, for example the on-lavender as the app accent or only on the Work action rows. Check 4.5:1 text contrast on the cards in both appearances and the HIG on tinted text buttons before changing anything.
+2. **The action rows' system blue.** Resolved: the lavender accent replaces system blue app-wide (§4). Remaining "boilerplate" colour spots, suggested, not built: the calendar's future-day dashes (`Color.blue`), the "done = green" spots (Finish Day check, widget and Mac 100 % green, Insights heatmap, the perfect-day bar).
 3. **Mac rim** (§3.5) and **VoiceOver announcements** (§2.6, §3.4).
 4. **Device cost.** The wash is about 54 noise lookups per covered pixel; profile on the oldest supported iPhone with Xcode's GPU tools before release. The `look` parameter can trade quality for cost if needed.
 5. **120 Hz.** The app does not set `CADisableMinimumFrameDurationOnPhone`; an app-wide decision.

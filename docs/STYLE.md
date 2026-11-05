@@ -77,28 +77,28 @@ Why: light mode is deepened because halos read poorly on white. In light mode th
 
 | Use | Colour | Source |
 |---|---|---|
-| Accent | `AccentColor` asset, which defines no colour value | `Assets.xcassets/AccentColor.colorset/Contents.json` |
+| Accent | `AccentColor` asset: lavender #7370CF light / #8285DF dark (Increase Contrast #4B48AE light; dark unchanged), app and widget. On the Mac it applies under the Multicolor system accent only. Replaced system blue on 2026-11-05 (section 1.7) | `Assets.xcassets/AccentColor.colorset/Contents.json` |
 | Page backdrop | `systemBackground` / Mac `windowBackgroundColor` | `PlatformCompat.swift` `compatBackground` |
 | Grouped backdrop | `systemGroupedBackground` / Mac `windowBackgroundColor` | `compatGroupedBackground` |
 | Card (row) fill | `secondarySystemGroupedBackground` / Mac `controlBackgroundColor` | `compatCardBackground` |
-| Done toggle | Plain `Toggle` with no tint, so the system switch green | `WorkViews.swift:80-100` |
+| Done toggle | The system switch, `.tint(.accentColor)`: lavender when on, the system grey when off | `WorkViews.swift` (`ChoreRowView`) |
 | Done / success | `Color.green` | `CalendarViews.swift:540`, `AppBannerView.swift:61`, `InsightsViews.swift:303` |
 | Day meter remainder | blue (future), red (recent, within window), gray (older) | `CalendarViews.swift:521-526` |
 | Chip fill | `tertiarySystemFill` | `WorkViews.swift:70`, `FormComponents.swift:211` |
 
 - Accent tints: Quick Add ghost fill 0.07 and dashed stroke 0.55 (`QuickAdd.swift:254-257`), chore highlight 0.18 (`WorkViews.swift:107`), One-offs row fill 0.10 (`OneOffViews.swift:197`).
-- The code never calls `.tint(...)`. The accent hue comes from the asset catalog and system default. The code does not say which hue that is.
+- The accent hue comes from the asset catalog. The only explicit `.tint(...)` is on the Work rows' switches, which otherwise stay system green. Remaining hard-coded system colours include the calendar's future-day dashes (`Color.blue`) and the "done = green" spots below.
 - Green encodes "done" by fill as well as hue, so it survives grayscale and red-green colour blindness (`CalendarViews.swift:513-516`).
 - Insights heatmap uses green at 0.30, 0.50, 0.75 and 1.0 opacity (`InsightsViews.swift:442-445`).
 
 ### 1.7 State and celebration tokens (decided 2026-11-05)
 
-Values from `docs/completion-wash/tokens.json`; the toggle pair is in `PromiseToggleStyle.swift`, the rim exists only in the playground so far.
+Values from `docs/completion-wash/tokens.json`; the accent pair is the `AccentColor` asset, the rim is `SectionRim.swift`.
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| toggle off | #E8DFC8 | #433D31 | The system switch grey warmed a hint toward gold. Must not read as active |
-| toggle on | #7370CF | #8285DF | A lavender a shade softer than the icon's; 4.1:1 / 3.5:1 against the white thumb |
+| accent / toggle on | #7370CF | #8285DF | A lavender a shade softer than the icon's; the app accent and the switch's on track. 4.2:1 / 3.3:1 against the white thumb; as text 4.2:1 on white, 5.2:1 on the dark card |
+| toggle off | system | system | The system switch's own grey (a warm-grey custom track was tried and dropped to keep Apple's switch) |
 | section rim | #FFD978 (honey) | #AEB4FF (lavender) | Hairline + outward halo on a finished or part-finished section card |
 | wash | amber → lavender, honey glow | same, over a dusky lavender haze | Background nebula for a finished day |
 
@@ -179,7 +179,9 @@ A one-shot celebration behind a day's cards when its last open chore is complete
 | Look | "Calm", smoother haze (`look` 1) |
 | Material | Lit, matte gas. No hard edges, foam lines or highlights |
 | Colour | Amber, lavender, honey, mixed in OKLab |
-| Trigger | A false-to-true edge of "day complete", not locked, with the user's own completion within 3 s (`WashTrigger.window`) |
+| Trigger | A false-to-true edge of "day complete", not locked, with the user's own completion within 3 s (`WashTrigger.window`); again after an uncheck, at most once per 30 s per page |
+| Spread | On a two-page spread the container draws it, so it crosses both pages and the fold (`completionWashHost`) |
+| Paging | Held still while it plays (the pager and the Duo's day rail); a chore added to the day re-arms the 30 s limit |
 | Backdrop | Drawn behind the list. A UIKit-backed List cannot take a `colorEffect`, and `scrollContentBackground` is hidden while it plays |
 | Dither | `dithersColor` on, because banding shows in soft gradients on flat backgrounds, most of all in dark mode |
 
@@ -234,9 +236,10 @@ The Mac has no Taptic Engine, so haptics are no-ops there.
 - Decorative layers are hidden: the wash layer and the glow bar use `.accessibilityHidden(true)`. The calendar cell's own label states the count (`CalendarViews.swift:509, 642`).
 - Calendar cells combine children and use a summary label (`CalendarViews.swift:507-510`).
 - Differentiate Without Color: the perfect-day bar adds a `checkmark.seal.fill` glyph so "perfect" is not carried by colour and glow alone (`CalendarViews.swift:609, 627-634`). This is the only DWC use in the code. The day meter instead encodes done by fill amount.
+- Locked days (past, or finished with Finish Day) show a small `lock.fill` at the trailing end of the date line, read as "…, Locked" (`DayDateHeader`). With lavender switches, a locked day's dimmed switches stand out less than green ones did.
 - Day rail: one adjustable element. Label "Days shown", value is the two-day spread read out ("Sunday, November 1 and Monday, November 2"), increment and decrement page spreads (`DayRail.swift:55-65`).
 - VoiceOver announcements via `AccessibilityNotification.Announcement`:
-  - "Day finished" (`WorkViews.swift:626`).
+  - "Day finished" when Finish Day locks the day, "Day complete" when the wash fires, "<section> complete" on a section rim's flourish (`WorkViews.swift`).
   - "The list is unavailable until you save or cancel these chores." Posted once, only when the list is visible (`ContentView.swift:769-773`).
 - Identifiers (about 45 in the app) are for UI tests and follow `area.thing` or `thingButton`:
 
@@ -261,11 +264,11 @@ Provisional. These are being decided and are not yet code rules.
 |---|---|
 | Completion wash look | Iteration 05, "nebula volume", chosen as the basis on 2026-11-05; the shipping shader is iteration 06 (05 plus a dark-mode treatment). Look 1 "calm" and motion 1 "roll-through" are the chosen variants (`CompletionWash.swift`). Every iteration is kept as a snapshot in `tools/wash-lab/iterations/` |
 | Wash in dark mode | First treatment in place, not final. Over a light page thin gas tints its way in; over black it switched on. So at night a dusky lavender haze arrives with the front, gas lightness is compressed into the daytime contrast band, and the front and tail are wider (`ChoreWash.metal`, the `dark` branches) |
-| Toggle colour language | **Approved 2026-11-05** (section 1.7). Built as `PromiseToggleStyle.swift` behind DEBUG `-toggleLook promise`; not yet the default. Release still uses the system switch green with no tint (section 1.6) |
-| Section rim | **Decided 2026-11-05**: perimeter fill, honey by day and lavender by night (section 1.7). Specified in `docs/completion-wash/BEHAVIOR.md` §3; exists only in the playground. App version planned as a signed-distance glow inside the wash shader |
+| Toggle colour language | **Shipped on the branch 2026-11-05**: the system switch tinted with the lavender accent (section 1.7). The custom warm-grey "promise" style was dropped |
+| Section rim | **Built 2026-11-05** (iOS): perimeter fill, honey by day and lavender by night, a signed-distance `colorEffect` behind each section card (`SectionRim.swift`, `SectionRimLayer.swift`). None on Mac |
 | Day page margin | 32 pt is flagged in a code comment for revisit with the day-paging review (`WorkViews.swift:811-812`) |
 
-If the toggle language is adopted, section 1 gains a new on/off pair and the `done` token (#34C759) is likely to change. Update both then.
+The toggle language is adopted (section 1.7). The `done` green (#34C759) still marks done outside the Work rows (calendar, Insights, widget, Mac); bringing those into the day language is an open suggestion.
 
 ## 7. Celebration and state language (findings, 2026-11-05)
 
@@ -273,7 +276,7 @@ Generalized from the completion-wash work (`docs/completion-wash/`). These are d
 
 ### 7.1 The day gradient carries meaning
 - Amber is morning: a promise for the day not yet kept. Lavender is evening: the promise kept, rest. Honey is the light between them. Use the pair to say *before* and *after*, not as decoration.
-- So: a chore toggle is a quiet warm grey when off and a soft lavender when on. A section's rim is honey by day and lavender by night. The wash runs amber at its leading edge into lavender in its body.
+- So: a chore toggle is the system switch, soft lavender when on (its off grey is the system's own). A section's rim is honey by day and lavender by night. The wash runs amber at its leading edge into lavender in its body.
 
 ### 7.2 Two scales of celebration
 - Finishing a **section** earns a glow on that section's card. Finishing the **whole day** earns the background wash. Controls (action rows) never glow: they are how you act, not what you achieved.
