@@ -1,0 +1,625 @@
+<title>Wash Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: a scaled device stage on the left, a control rail on the right; stacks on phones. */
+  :root {
+    --bg: #f3f1ec;
+    --fg: #22222a;
+    --muted: #6d6b76;
+    --line: #ddd9cf;
+    --panel: #fbfaf7;
+    --accent: #c48500;        /* amber, stepped for contrast on light */
+    --accent-2: #6f72c9;      /* periwinkle, stepped */
+    --ok: #2f9e4f;
+    --font: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16161a; --fg: #ecebf2; --muted: #9b99a6; --line: #2d2d35; --panel: #1f1f25;
+      --accent: #ffc233; --accent-2: #aeb4ff; --ok: #4cd964; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16161a; --fg: #ecebf2; --muted: #9b99a6; --line: #2d2d35; --panel: #1f1f25;
+    --accent: #ffc233; --accent-2: #aeb4ff; --ok: #4cd964; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px;
+    line-height: 1.45;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 12px 24px;
+  }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  .top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .top .sub { color: var(--muted); }
+  .lab { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .lab { grid-template-columns: 1fr; } }
+
+  /* Stage */
+  .stage { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .fit { position: relative; width: 100%; min-height: 320px; }
+  .device {
+    position: absolute; top: 0; left: 0; transform-origin: top left; overflow: hidden;
+    border-radius: 34px; box-shadow: 0 0 0 1px var(--line), 0 20px 60px rgba(0,0,0,0.18);
+    --screen-bg: #f2f2f7; --card: #ffffff; --ink: #1c1c1e; --ink-2: #8a8a8e; --sep: #e5e5ea; --blue: #007aff;
+    --switch-off: #e9e9eb; --green: #34c759; --pill: rgba(255,255,255,0.72);
+    --promise-off: #e8dfc8; --promise-on: #7370cf;   /* off: the system grey with a gold hint; on: 4.1:1 vs a white thumb */
+  }
+  .device[data-appearance="dark"] {
+    --screen-bg: #000000; --card: #1c1c1e; --ink: #f2f2f7; --ink-2: #8d8d93; --sep: #38383a; --blue: #0a84ff;
+    --switch-off: #39393d; --pill: rgba(44,44,46,0.78);
+    --promise-off: #433d31; --promise-on: #8285df;   /* off: the system dark grey with a gold hint; on: 3.5:1 vs a white thumb */
+  }
+  .device[data-platform="mac"] {
+    border-radius: 10px;
+    --screen-bg: #ececec; --card: transparent; --sep: #d6d6d6;
+  }
+  .device[data-platform="mac"][data-appearance="dark"] { --screen-bg: #2b2b2b; --sep: #3f3f41; }
+  .device canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .screen { position: absolute; inset: 0; color: var(--ink); font-family: var(--font); }
+  .status-bar { height: 54px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 30px 2px; font-weight: 600; font-size: 15px; }
+  .device[data-platform="mac"] .status-bar { display: none; }
+  .nav { display: flex; justify-content: space-between; align-items: center; padding: 6px 20px 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--pill); backdrop-filter: blur(16px); border-radius: 999px; padding: 7px 12px; font-weight: 600; font-size: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .device[data-platform="mac"] .nav { display: none; }
+  .content { padding: 4px 32px 0; }
+  .device[data-platform="mac"] .content { padding: 18px 24px 0; max-width: 760px; }
+  .device[data-platform="ipad"] .content { padding: 4px 120px 0; }
+  .date { font-size: 16px; font-weight: 600; color: var(--ink-2); padding: 10px 0 6px; }
+  .device[data-platform="mac"] .date { color: var(--ink); font-size: 13px; }
+  .card { background: var(--card); border-radius: 18px; margin-bottom: 20px; position: relative; --honey: 255, 217, 120; }
+  .card > :first-child { border-top-left-radius: 18px; border-top-right-radius: 18px; }
+  /* By day the rim is honey; by night lavender, which sits quieter on black than honey does. */
+  .device[data-appearance="dark"] .card { --honey: 174, 180, 255; }
+  .card .rim { position: absolute; left: -48px; top: -48px; width: calc(100% + 96px); height: calc(100% + 96px); pointer-events: none; overflow: visible; }
+  .card .rim path, .card .rim circle { fill: none; stroke: rgb(var(--honey)); stroke-linecap: round; }
+  .card .rim mask path { fill: black; stroke: none; }
+  .device[data-platform="mac"] .card { border-radius: 0; margin-bottom: 12px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; min-height: 66px; }
+  .row + .row { border-top: 1px solid var(--sep); }
+  .device[data-platform="mac"] .row { padding: 6px 4px; min-height: 40px; }
+  .row .name { font-weight: 500; font-size: 17px; }
+  .row .last { font-size: 12px; color: var(--ink-2); }
+  .row.done .text { opacity: 0.5; }
+  .device[data-platform="mac"] .row .name { font-size: 13px; }
+  .device[data-platform="mac"] .row .last { font-size: 11px; }
+  .switch { width: 51px; height: 31px; border-radius: 999px; background: var(--switch-off); position: relative; border: 0; padding: 0; cursor: pointer; flex: none; transition: background 0.2s; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.25); transition: transform 0.2s; }
+  .switch[aria-checked="true"] { background: var(--green); }
+  .device[data-toggles="promise"] .switch { background: var(--promise-off); }
+  .device[data-toggles="promise"] .switch[aria-checked="true"] { background: var(--promise-on); }
+  .device[data-toggles="promise"] .switch::before { content: ""; position: absolute; inset: 0; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06); }
+  .switch[aria-checked="true"]::after { transform: translateX(20px); }
+  .switch:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .device[data-platform="mac"] .switch { width: 16px; height: 16px; border-radius: 4px; background: transparent; border: 1px solid var(--ink-2); order: -1; }
+  .device[data-platform="mac"] .switch::after { display: none; }
+  .device[data-platform="mac"] .switch[aria-checked="true"] { background: var(--blue); border-color: var(--blue); }
+  .device[data-platform="mac"][data-toggles="promise"] .switch { border-radius: 50%; border-color: var(--promise-off); background: transparent; }
+  .device[data-platform="mac"][data-toggles="promise"] .switch[aria-checked="true"] { background: var(--promise-on); border-color: var(--promise-on); }
+  .device[data-platform="mac"] .row { justify-content: flex-start; }
+  .device[data-platform="mac"] .row .text { flex: 1; }
+  .action { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--blue); font-size: 17px; background: none; border: 0; width: 100%; text-align: left; font-family: inherit; cursor: pointer; }
+  .action + .action { border-top: 1px solid var(--sep); }
+  .action .glyph { width: 22px; text-align: center; }
+  .device[data-platform="mac"] .action { font-size: 13px; padding: 6px 4px; }
+  .mode-pill { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); }
+  .device[data-platform="ipad"] .mode-pill, .device[data-platform="mac"] .mode-pill { display: none; }
+
+  /* Transport */
+  .transport { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .transport input[type="range"] { flex: 1 1 160px; min-width: 120px; accent-color: var(--accent); }
+  .readout { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; min-width: 150px; }
+  button.btn, .seg button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--fg); cursor: pointer;
+  }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #1a1200; font-weight: 600; }
+  :root[data-theme="dark"] button.btn.primary { color: #1a1200; }
+  button.btn:focus-visible, .seg button:focus-visible, .iter:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+  .seg { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+  .seg button { border: 0; border-radius: 0; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+
+  /* Panel */
+  .panel { display: flex; flex-direction: column; gap: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; min-width: 0; }
+  .iters { display: flex; flex-direction: column; gap: 6px; }
+  .iter { text-align: left; font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 10px; padding: 8px 10px; cursor: pointer; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline; }
+  .iter[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .iter .num { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+  .iter .date { color: var(--muted); font-size: 12px; padding: 0; }
+  .note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .field { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 8px; margin-top: 6px; }
+  .field label { color: var(--muted); font-size: 12px; }
+  .field input[type="number"], .field select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); width: 100%; }
+  .field input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .status { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: pre-wrap; word-break: break-word; margin: 0; }
+  .status.error { color: #c2311f; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details pre { font-family: var(--mono); font-size: 11px; max-height: 240px; overflow: auto; background: var(--bg); padding: 8px; border-radius: 8px; }
+  kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
+  @media (prefers-reduced-motion: reduce) { .switch, .switch::after { transition: none; } }
+</style>
+
+<header class="top">
+  <h1>Wash Lab</h1>
+  <span class="sub">Choreganize completion wash, rendered in WebGL from each saved Metal iteration. Tap the last open toggle to fire it.</span>
+</header>
+
+<main class="lab">
+  <section class="stage">
+    <div class="fit" id="fit">
+      <div class="device" id="device" data-appearance="light" data-platform="iphone">
+        <canvas id="gl"></canvas>
+        <div class="screen">
+          <div class="status-bar"><span>9:41</span><span>&#9679;&#9679;&#9679; &#8980; &#9646;</span></div>
+          <div class="nav"><span class="chip">&#9711; Personal</span><span class="chip">&#8862;</span></div>
+          <div class="content">
+            <div class="date" id="date">Wednesday, Nov 5, 2026</div>
+            <div class="card glows" id="chores"></div>
+            <div class="card">
+              <button class="action" id="markAll"><span class="glyph">&#9745;</span>Mark all done</button>
+              <button class="action" id="reset"><span class="glyph">&#8634;</span>Reset chores</button>
+              <button class="action"><span class="glyph">&#9873;</span>Finish Day</button>
+            </div>
+          </div>
+          <span class="chip mode-pill">&#9776; Work</span>
+        </div>
+      </div>
+    </div>
+    <div class="transport">
+      <button class="btn primary" id="replay">Replay</button>
+      <button class="btn" id="pause">Pause</button>
+      <input type="range" id="scrub" min="0" max="3.2" step="0.01" value="0" aria-label="Time">
+      <span class="readout" id="readout">0.00 s / 3.20 s</span>
+      <div class="seg" id="speed" role="group" aria-label="Speed">
+        <button data-speed="0.25">&frac14;&times;</button><button data-speed="0.5">&frac12;&times;</button><button data-speed="1" aria-pressed="true">1&times;</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div>
+      <h2>Iteration</h2>
+      <div class="iters" id="iters"></div>
+      <p class="note" id="note"></p>
+    </div>
+    <div>
+      <h2>Appearance</h2>
+      <div class="seg" id="appearance" role="group" aria-label="Appearance">
+        <button data-appearance="light">Light</button><button data-appearance="dark">Dark</button><button data-appearance="auto" aria-pressed="true">Page</button>
+      </div>
+    </div>
+    <div>
+      <h2>Card glow</h2>
+      <div class="seg" id="glow" role="group" aria-label="Card glow">
+        <button data-glow="none" aria-pressed="true">None</button><button data-glow="peak">A Peak, settle</button><button data-glow="rim">B Perimeter fill</button>
+      </div>
+      <p class="note">A gentle light on a section card's edge from outside, honey (#ffd978) by day and lavender (#aeb4ff) by night, like a diffuse strip: brightest at the border, falling off smoothly, never into the card. The glow marks a finished section (each grouped card has its own); the wash marks the finished day; the action rows are controls and get neither. Toggling a chore eases the rim between levels. At rest it follows the day's progress (2 of 5 done shows 40%). Finishing the last chore is the flourish, on the wash's clock. A: the halo swells to a peak and settles to the "completed day" border. B: the border is retraced round the whole perimeter from the corner the wave enters, with a bright head, over the resting fraction, then settles. Toggling a chore off takes it back.</p>
+    </div>
+    <div>
+      <h2>Toggles</h2>
+      <div class="seg" id="toggles" role="group" aria-label="Toggle colours">
+        <button data-toggles="system" aria-pressed="true">System green</button><button data-toggles="promise">Promise</button>
+      </div>
+      <p class="note">Promise: off = the system grey warmed a hint toward gold (morning, a promise unfulfilled; it must not read as active), on = a lavender a shade softer than the icon's (evening, fulfilled).</p>
+    </div>
+    <div>
+      <h2>Motion</h2>
+      <div class="seg" id="motion" role="group" aria-label="Motion">
+        <button data-motion="0" aria-pressed="true">Expand, retreat</button><button data-motion="1">Roll through</button>
+      </div>
+      <p class="note" id="motionNote"></p>
+    </div>
+    <div>
+      <h2>Device</h2>
+      <div class="seg" id="platform" role="group" aria-label="Device">
+        <button data-platform="iphone" aria-pressed="true">iPhone</button><button data-platform="ipad">iPad 13&Prime;</button><button data-platform="mac">Mac</button>
+      </div>
+    </div>
+    <div>
+      <h2>Shape</h2>
+      <div class="field"><label for="look">Look</label><select id="look"></select></div>
+      <div class="field"><label for="seed">Seed</label><div style="display:flex;gap:6px"><input type="number" id="seed" step="0.1" value="3.7"><button class="btn" id="newSeed">New</button></div></div>
+      <div class="field"><label for="strength">Strength</label><input type="range" id="strength" min="0" max="1" step="0.05" value="1"></div>
+      <div class="field"><label for="duration">Duration</label><input type="number" id="duration" step="0.1" min="0.5" max="10" value="3.2"></div>
+    </div>
+    <div>
+      <h2>Mac lab</h2>
+      <button class="btn" id="copy">Copy run.sh flags</button>
+      <p class="note">Renders this exact frame from the shipping Metal file. <kbd>Space</kbd> replay/pause, <kbd>&larr;</kbd> <kbd>&rarr;</kbd> step a frame.</p>
+    </div>
+    <p class="status" id="status">Loading&hellip;</p>
+    <details><summary>Converted GLSL</summary><pre id="glsl"></pre></details>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const ITERATIONS = __ITERATIONS__;
+  const DEVICES = {
+    iphone: { w: 402, h: 874, strength: 1 },
+    ipad: { w: 1032, h: 1376, strength: 1 },
+    mac: { w: 1180, h: 760, strength: 0.55 },
+  };
+  const COLORS = { amber: [1, 0.761, 0.2, 1], lavender: [0.682, 0.706, 1, 1], honey: [1, 0.851, 0.471, 1] };
+  const CHORES = [
+    ["Make the beds", "Nov 4, 2026"], ["Mop the kitchen", "Nov 4, 2026"], ["Take out the trash", "Never completed"],
+    ["Tidy the living room", "Nov 3, 2026 \u2013 Picked up the toys"], ["Wash the dishes", "Nov 4, 2026 \u2013 Ran the dishwasher twice"],
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const device = $("device"), canvas = $("gl"), fit = $("fit"), statusEl = $("status");
+  const gl = canvas.getContext("webgl2", { antialias: false, alpha: false, premultipliedAlpha: false });
+
+  const state = {
+    iter: 5, appearance: "auto", platform: "iphone", look: 1, motion: 1, seed: 3.7, strength: 1, duration: 8, toggles: "system", glow: "none",
+    speed: 1, t: 0, playing: false, done: [false, false, true, false, true],
+  };
+  try {
+    const saved = JSON.parse(localStorage.getItem("washlab.v1") || "{}");
+    for (const k of ["iter", "appearance", "platform", "look", "motion", "seed", "strength", "duration", "speed", "toggles", "glow"]) {
+      if (k in saved) state[k] = saved[k];
+    }
+    if (state.iter >= ITERATIONS.length) state.iter = ITERATIONS.length - 1;
+  } catch (e) { /* storage unavailable: defaults */ }
+  const persist = () => {
+    try {
+      const { iter, appearance, platform, look, motion, seed, strength, duration, speed, toggles, glow } = state;
+      localStorage.setItem("washlab.v1", JSON.stringify({ iter, appearance, platform, look, motion, seed, strength, duration, speed, toggles, glow }));
+    } catch (e) { /* ignore */ }
+  };
+
+  // ---- WebGL ---------------------------------------------------------------------------
+  const programs = new Map();
+  const VERT = `#version 300 es
+void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+  function compile(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      const log = gl.getShaderInfoLog(sh); gl.deleteShader(sh); throw new Error(log);
+    }
+    return sh;
+  }
+  function program(index) {
+    if (programs.has(index)) return programs.get(index);
+    let entry;
+    try {
+      const p = gl.createProgram();
+      gl.attachShader(p, compile(gl.VERTEX_SHADER, VERT));
+      gl.attachShader(p, compile(gl.FRAGMENT_SHADER, ITERATIONS[index].glsl));
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+      const u = {};
+      for (const n of ["uCanvasPx", "uScale", "uSize", "uTime", "uDuration", "uSeed", "uDark", "uLook", "uMotion", "uStrength", "uBase", "uA", "uB", "uGlow"]) {
+        u[n] = gl.getUniformLocation(p, n);
+      }
+      entry = { p, u };
+    } catch (e) {
+      entry = { error: String(e.message || e) };
+    }
+    programs.set(index, entry);
+    return entry;
+  }
+
+  function isDark() {
+    if (state.appearance !== "auto") return state.appearance === "dark";
+    const root = document.documentElement.getAttribute("data-theme");
+    if (root === "dark") return true;
+    if (root === "light") return false;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function baseColor() {
+    const dark = isDark(), mac = state.platform === "mac";
+    const hex = mac ? (dark ? "2b2b2b" : "ececec") : (dark ? "000000" : "f2f2f7");
+    return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).concat([1]);
+  }
+
+  let scale = 1, fitScale = 1, dirty = true, lastFrame = 0, fps = 0;
+  function layout() {
+    const d = DEVICES[state.platform];
+    device.style.width = d.w + "px"; device.style.height = d.h + "px";
+    const availW = fit.clientWidth, availH = Math.max(320, window.innerHeight - fit.getBoundingClientRect().top - 90);
+    fitScale = Math.min(availW / d.w, availH / d.h, 1);
+    device.style.transform = `scale(${fitScale})`;
+    fit.style.height = Math.ceil(d.h * fitScale) + "px";
+    scale = Math.min(2, (window.devicePixelRatio || 1) * fitScale);
+    canvas.width = Math.round(d.w * scale); canvas.height = Math.round(d.h * scale);
+    dirty = true;
+  }
+
+  function draw(now) {
+    const entry = program(state.iter);
+    if (entry.error) { setStatus("Shader failed to compile:\n" + entry.error, true); return; }
+    const d = DEVICES[state.platform];
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.useProgram(entry.p);
+    const u = entry.u;
+    gl.uniform2f(u.uCanvasPx, canvas.width, canvas.height);
+    gl.uniform1f(u.uScale, scale);
+    gl.uniform2f(u.uSize, d.w, d.h);
+    gl.uniform1f(u.uTime, state.t);
+    gl.uniform1f(u.uDuration, state.duration);
+    gl.uniform1f(u.uSeed, state.seed);
+    gl.uniform1f(u.uDark, isDark() ? 1 : 0);
+    gl.uniform1f(u.uLook, state.look);
+    if (u.uMotion) gl.uniform1f(u.uMotion, state.motion);
+    gl.uniform1f(u.uStrength, state.strength);
+    gl.uniform4fv(u.uBase, baseColor());
+    gl.uniform4fv(u.uA, COLORS.amber); gl.uniform4fv(u.uB, COLORS.lavender); gl.uniform4fv(u.uGlow, COLORS.honey);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    applyGlow(state.duration > 0 ? state.t / state.duration : 0, now);
+    if (now && lastFrame) fps = 0.9 * fps + 0.1 * (1000 / Math.max(1, now - lastFrame));
+    lastFrame = now || 0;
+    updateReadout();
+  }
+
+  function tick(now) {
+    requestAnimationFrame(tick);
+    if (state.playing) {
+      const dt = lastTick ? (now - lastTick) / 1000 : 0;
+      state.t = Math.min(state.duration, state.t + dt * state.speed);
+      if (state.t >= state.duration) { state.playing = false; fps = 0; }
+      dirty = true;
+    }
+    lastTick = now;
+    if (glowEasing) dirty = true;
+    if (dirty) { dirty = false; draw(now); }
+  }
+  let lastTick = 0;
+
+  // ---- Card glow -----------------------------------------------------------------------
+  // Two candidates for the "completed day" border, on the wash's clock (tau = t / duration).
+  // A "peak": the halo rises to a peak around the middle of the wash and settles to a resting
+  // rim. B "rim": the rim is drawn round the perimeter, starting from the corner the wave
+  // enters, with a bright head at the drawing tip, then settles. Both keep the rim at rest.
+  const ease = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  // The rim follows the day's progress at rest; the last completion is the flourish, which runs
+  // on the wash's clock from the level the day had before it to full.
+  let glowFrom = 0;        // progress before the flourish began
+  const progress = () => state.done.filter(Boolean).length / state.done.length;
+  const PAD = 48;   // how far the halo may reach outside the card, in points
+  function roundedRectPath(w, h, r, inset) {
+    // Clockwise from the bottom-right corner: along the bottom, up the left, across the top,
+    // down the right. A negative inset grows the rectangle outward, keeping its corners
+    // concentric with the card's. Coordinates include the PAD offset of the overlay.
+    const x0 = PAD + inset, y0 = PAD + inset, x1 = PAD + w - inset, y1 = PAD + h - inset, rr = Math.max(0, r - inset);
+    return `M ${x1} ${y1 - rr} A ${rr} ${rr} 0 0 1 ${x1 - rr} ${y1} L ${x0 + rr} ${y1} A ${rr} ${rr} 0 0 1 ${x0} ${y1 - rr} ` +
+           `L ${x0} ${y0 + rr} A ${rr} ${rr} 0 0 1 ${x0 + rr} ${y0} L ${x1 - rr} ${y0} A ${rr} ${rr} 0 0 1 ${x1} ${y0 + rr} Z`;
+  }
+  let rimSerial = 0;
+  function ensureRim(card) {
+    let svg = card.querySelector("svg.rim");
+    if (!svg) {
+      const id = "rim" + (rimSerial++);
+      svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("class", "rim"); svg.dataset.id = id;
+      // The halo is blurred, then masked to the outside of the card, so it only ever emits
+      // outward from the edge.
+      // Two thin strokes on the edge, blurred wide and masked to the outside: the light is
+      // brightest at the border and falls off like a diffuse strip, with no band of its own.
+      svg.innerHTML = `<defs>` +
+        `<filter id="${id}-near" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="6"/></filter>` +
+        `<filter id="${id}-far" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="18"/></filter>` +
+        `<mask id="${id}-outside"><rect class="all" fill="white"/><path class="inside" fill="black"/></mask></defs>` +
+        `<g mask="url(#${id}-outside)"><path class="halo far" filter="url(#${id}-far)"/><path class="halo near" filter="url(#${id}-near)"/></g>` +
+        `<path class="base"/><path class="line"/><circle class="head" r="3.5"/>`;
+      card.append(svg);
+    }
+    const w = card.clientWidth, h = card.clientHeight;
+    if (svg.dataset.size !== `${w}x${h}`) {
+      svg.dataset.size = `${w}x${h}`;
+      const r = state.platform === "mac" ? 0 : 18;
+      svg.setAttribute("viewBox", `0 0 ${w + 2 * PAD} ${h + 2 * PAD}`);
+      svg.querySelector(".all").setAttribute("width", w + 2 * PAD); svg.querySelector(".all").setAttribute("height", h + 2 * PAD);
+      svg.querySelector(".inside").setAttribute("d", roundedRectPath(w, h, r, 0));
+      const edge = roundedRectPath(w, h, r, 0.8);
+      for (const sel of [".base", ".line", ".halo.near", ".halo.far"]) svg.querySelector(sel).setAttribute("d", edge);
+      const len = svg.querySelector(".line").getTotalLength();
+      svg.dataset.len = len; svg.dataset.r = r;
+      for (const sel of [".base", ".line"]) svg.querySelector(sel).setAttribute("stroke-dasharray", String(len));
+    }
+    return svg;
+  }
+  // Resting values ease toward their targets (a toggled chore moves the fill gracefully, never
+  // in a step); the flourish's own stroke is driven straight from the wash clock.
+  const glowDisp = { baseA: 0, baseFill: 0, haloA: 0 };
+  let glowEasing = false, lastGlowTime = 0;
+  function applyGlow(tau, now) {
+    const dt = lastGlowTime ? Math.min(0.1, (now - lastGlowTime) / 1000) : 0.016; lastGlowTime = now || 0;
+    const k = 1 - Math.exp(-dt / 0.22);
+    let baseA = 0, baseFill = 0, lineA = 0, lineFill = 0, haloA = 0, headA = 0;
+    const p = progress();
+    const complete = p >= 1;
+    const flourish = complete && tau < 1 ? tau : (complete ? 1 : -1);
+    if (state.glow === "peak") {
+      if (flourish >= 0) {
+        const rise = ease(0.05, 0.55, flourish), settle = ease(0.60, 1.0, flourish);
+        const lift = glowFrom + (1 - glowFrom) * ease(0.05, 0.6, flourish);
+        baseA = 0.25 + 0.35 * lift; baseFill = 1;
+        haloA = 0.12 * glowFrom + rise * (1 - 0.7 * settle) * 0.55;
+      } else {
+        baseA = p > 0 ? 0.25 + 0.35 * p : 0; baseFill = 1; haloA = 0.12 * p;
+      }
+    } else if (state.glow === "rim") {
+      if (flourish >= 0) {
+        // The flourish retraces the whole perimeter, over the resting fraction underneath.
+        baseA = 0.3; baseFill = glowFrom;
+        lineFill = ease(0.10, 0.72, flourish); lineA = 0.65; headA = lineFill < 1 ? 1 : 0;
+        const settleGlow = ease(0.72, 0.92, flourish);
+        haloA = 0.08 + 0.12 * lineFill + 0.20 * settleGlow * (1 - 0.4 * ease(0.92, 1.0, flourish));
+      } else {
+        baseA = p > 0 ? 0.45 : 0; baseFill = p; haloA = 0.14 * p;
+      }
+    }
+    // Ease the resting values; snap while the clock drives them.
+    const target = { baseA, baseFill, haloA };
+    let maxDelta = 0;
+    for (const key of Object.keys(target)) {
+      const next = flourish >= 0 ? target[key] : glowDisp[key] + (target[key] - glowDisp[key]) * k;
+      maxDelta = Math.max(maxDelta, Math.abs(target[key] - next));
+      glowDisp[key] = next;
+    }
+    glowEasing = maxDelta > 0.002;
+    const dark = device.dataset.appearance === "dark";
+    const tone = dark ? 1.1 : 0.85;
+    for (const card of document.querySelectorAll(".card.glows")) {
+      const svg = ensureRim(card);
+      const near = svg.querySelector(".halo.near"), far = svg.querySelector(".halo.far");
+      const base = svg.querySelector(".base"), line = svg.querySelector(".line"), head = svg.querySelector(".head");
+      const len = parseFloat(svg.dataset.len);
+      base.setAttribute("stroke-width", "1.4"); base.setAttribute("stroke-opacity", String(Math.min(1, glowDisp.baseA * tone)));
+      base.setAttribute("stroke-dashoffset", String(len * (1 - glowDisp.baseFill)));
+      line.setAttribute("stroke-width", "1.6"); line.setAttribute("stroke-opacity", String(Math.min(1, lineA * tone)));
+      line.setAttribute("stroke-dashoffset", String(len * (1 - lineFill)));
+      near.setAttribute("stroke-width", "3"); near.setAttribute("stroke-opacity", String(Math.min(1, glowDisp.haloA * 1.6 * tone)));
+      far.setAttribute("stroke-width", "3"); far.setAttribute("stroke-opacity", String(Math.min(1, glowDisp.haloA * 1.1 * tone)));
+      if (headA > 0) {
+        const pt = line.getPointAtLength(len * lineFill);
+        head.setAttribute("cx", pt.x); head.setAttribute("cy", pt.y); head.setAttribute("fill", "rgb(var(--honey))");
+        head.setAttribute("stroke-width", "4"); head.setAttribute("stroke-opacity", "0.3"); head.setAttribute("fill-opacity", "0.95");
+      } else { head.setAttribute("fill-opacity", "0"); head.setAttribute("stroke-opacity", "0"); }
+    }
+  }
+
+  // ---- UI ------------------------------------------------------------------------------
+  function setStatus(text, error) { statusEl.textContent = text; statusEl.classList.toggle("error", !!error); }
+  function updateReadout() {
+    $("scrub").value = state.t; $("scrub").max = state.duration;
+    $("readout").textContent = `${state.t.toFixed(2)} s / ${state.duration.toFixed(2)} s` + (state.playing ? ` \u00b7 ${Math.round(fps)} fps` : "");
+    const it = ITERATIONS[state.iter];
+    if (!program(state.iter).error) {
+      setStatus(`${it.id} \u00b7 look ${state.look} \u00b7 seed ${state.seed} \u00b7 ${canvas.width}\u00d7${canvas.height} px \u00b7 ${isDark() ? "dark" : "light"} \u00b7 ${state.platform}`);
+    }
+  }
+  function replay() { state.t = 0; state.playing = true; lastTick = 0; dirty = true; }
+  function fire() { replay(); }
+
+  function renderChores() {
+    const host = $("chores"); host.innerHTML = "";
+    CHORES.forEach(([name, last], i) => {
+      const row = document.createElement("div"); row.className = "row" + (state.done[i] ? " done" : "");
+      const text = document.createElement("div"); text.className = "text";
+      text.innerHTML = `<div class="name"></div><div class="last"></div>`;
+      text.querySelector(".name").textContent = name; text.querySelector(".last").textContent = last;
+      const sw = document.createElement("button"); sw.className = "switch"; sw.setAttribute("role", "switch");
+      sw.setAttribute("aria-checked", String(state.done[i])); sw.setAttribute("aria-label", name);
+      sw.addEventListener("click", () => {
+        const wasComplete = state.done.every(Boolean), before = progress();
+        state.done[i] = !state.done[i];
+        const isComplete = state.done.every(Boolean);
+        renderChores(); dirty = true;
+        if (!wasComplete && isComplete) { glowFrom = before; fire(); }
+      });
+      row.append(text, sw); host.append(row);
+    });
+  }
+  $("markAll").addEventListener("click", () => {
+    const wasComplete = state.done.every(Boolean), before = progress();
+    state.done = state.done.map(() => true); renderChores(); dirty = true;
+    if (!wasComplete) { glowFrom = before; fire(); }
+  });
+  $("reset").addEventListener("click", () => { state.done = [false, false, true, false, true]; glowFrom = 0; renderChores(); dirty = true; });
+
+  const iters = $("iters");
+  ITERATIONS.forEach((it, i) => {
+    const b = document.createElement("button"); b.className = "iter"; b.type = "button";
+    b.innerHTML = `<span class="num"></span><span class="title"></span><span class="date"></span>`;
+    b.querySelector(".num").textContent = it.id.slice(0, 2); b.querySelector(".title").textContent = it.title; b.querySelector(".date").textContent = it.date;
+    b.addEventListener("click", () => selectIteration(i));
+    iters.append(b);
+  });
+  function selectIteration(i) {
+    state.iter = i;
+    [...iters.children].forEach((b, k) => b.setAttribute("aria-pressed", String(k === i)));
+    const it = ITERATIONS[i];
+    $("note").textContent = it.note + (it.file ? `  (${it.file})` : "");
+    const look = $("look"); look.innerHTML = "";
+    it.looks.forEach((name, k) => { const o = document.createElement("option"); o.value = k; o.textContent = `${k} \u00b7 ${name}`; look.append(o); });
+    if (state.look >= it.looks.length) state.look = 0;
+    look.value = state.look;
+    $("glsl").textContent = it.glsl;
+    noteMotion();
+    // Each iteration was tuned at its own length and, later, with chosen motion and look; the
+    // controls stay editable after.
+    state.duration = it.duration; $("duration").value = it.duration;
+    const d = it.defaults || {};
+    if ("look" in d) { state.look = d.look; look.value = d.look; }
+    if ("motion" in d) { state.motion = d.motion; [...$("motion").children].forEach((b) => b.setAttribute("aria-pressed", String(parseFloat(b.dataset.motion) === d.motion))); }
+    if ("duration" in d) { state.duration = d.duration; $("duration").value = d.duration; }
+    persist(); replay();
+  }
+
+  function seg(id, attr, key, after) {
+    const host = $(id);
+    [...host.children].forEach((b) => b.addEventListener("click", () => {
+      [...host.children].forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      state[key] = attr === "speed" || attr === "motion" ? parseFloat(b.dataset[attr]) : b.dataset[attr];
+      persist(); if (after) after(); dirty = true;
+    }));
+    [...host.children].forEach((b) => b.setAttribute("aria-pressed", String(String(b.dataset[attr]) === String(state[key]))));
+  }
+  function applyAppearance() { device.dataset.appearance = isDark() ? "dark" : "light"; dirty = true; }
+  function applyPlatform() {
+    device.dataset.platform = state.platform;
+    state.strength = DEVICES[state.platform].strength; $("strength").value = state.strength;
+    layout(); replay();
+  }
+  seg("speed", "speed", "speed");
+  seg("motion", "motion", "motion", () => { noteMotion(); replay(); });
+  seg("toggles", "toggles", "toggles", () => { device.dataset.toggles = state.toggles; });
+  seg("glow", "glow", "glow", () => { dirty = true; });
+  function noteMotion() {
+    const it = ITERATIONS[state.iter];
+    $("motionNote").textContent = it.glsl.includes("uMotion, uStrength") ? "" : "This iteration predates the motion switch; it always expands and retreats.";
+  }
+  seg("appearance", "appearance", "appearance", applyAppearance);
+  seg("platform", "platform", "platform", applyPlatform);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyAppearance);
+  new MutationObserver(applyAppearance).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  $("replay").addEventListener("click", () => { glowFrom = state.done.every(Boolean) ? glowFrom : 0; replay(); });
+  $("pause").addEventListener("click", () => { state.playing = !state.playing; lastTick = 0; $("pause").textContent = state.playing ? "Pause" : "Play"; dirty = true; });
+  $("scrub").addEventListener("input", (e) => { state.playing = false; state.t = parseFloat(e.target.value); dirty = true; });
+  $("look").addEventListener("change", (e) => { state.look = parseInt(e.target.value, 10); persist(); dirty = true; });
+  $("seed").value = state.seed;
+  $("seed").addEventListener("change", (e) => { state.seed = parseFloat(e.target.value) || 0; persist(); dirty = true; });
+  $("newSeed").addEventListener("click", () => { state.seed = Math.round(Math.random() * 640) / 10; $("seed").value = state.seed; persist(); replay(); });
+  $("strength").value = state.strength;
+  $("strength").addEventListener("input", (e) => { state.strength = parseFloat(e.target.value); persist(); dirty = true; });
+  $("duration").value = state.duration;
+  $("duration").addEventListener("change", (e) => { state.duration = Math.max(0.5, parseFloat(e.target.value) || 3.2); persist(); replay(); });
+  $("copy").addEventListener("click", async () => {
+    const flags = `--seed ${state.seed} --look ${state.look} --motion ${state.motion}${isDark() ? " --dark" : ""} --duration ${state.duration} --times ${state.t.toFixed(2)}`;
+    const text = `tools/wash-lab/run.sh /tmp/wash ${flags}`;
+    try { await navigator.clipboard.writeText(text); setStatus("Copied: " + text); }
+    catch (e) { setStatus(text); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.target.matches("input, select, textarea")) return;
+    if (e.code === "Space") { e.preventDefault(); $("pause").click(); }
+    if (e.key === "ArrowRight") { state.playing = false; state.t = Math.min(state.duration, state.t + 1 / 60); dirty = true; }
+    if (e.key === "ArrowLeft") { state.playing = false; state.t = Math.max(0, state.t - 1 / 60); dirty = true; }
+    if (e.key.toLowerCase() === "r") replay();
+  });
+
+  const now = new Date();
+  $("date").textContent = now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" });
+
+  if (!gl) { setStatus("WebGL2 is not available in this browser.", true); return; }
+  new ResizeObserver(layout).observe(fit);
+  window.addEventListener("resize", layout);
+  device.dataset.platform = state.platform; device.dataset.appearance = isDark() ? "dark" : "light"; device.dataset.toggles = state.toggles;
+  renderChores(); layout(); selectIteration(state.iter);
+  // A hook for scripted checks (the wash lab's WebKit snapshots): set state, then draw once.
+  window.__washlab = { state, draw, layout, renderChores, setGlowFrom: (v) => { glowFrom = v; } };
+  requestAnimationFrame(tick);
+})();
+</script>

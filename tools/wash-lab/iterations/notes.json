@@ -1,0 +1,83 @@
+{
+  "01-water-swash": {
+    "title": "Water swash",
+    "date": "Nov 4",
+    "note": "First pass at the beach idea, taken literally: a crisp lobed front with a foam line and lace, a darker wet line ahead of it, caustic glints in the water, a wet sheen after the backwash. Set aside: you asked for gas, not water.",
+    "looks": [
+      "Shore",
+      "No foam",
+      "Diagonal"
+    ],
+    "duration": 2.6
+  },
+  "02-gas-billow": {
+    "title": "Gas billow",
+    "date": "Nov 5",
+    "note": "After your steer (diffuse, glowy, matte, lit; gradients, no boundary lines). Same wave motion, now a feathered front and soft billows mixed in OKLab. Amber sits high and lavender low, like the icon, with a honey bloom at the leading edge. In dark mode amber glows in the thick cores and thin gas falls to lavender.",
+    "looks": [
+      "Billow",
+      "Calm",
+      "Diagonal"
+    ],
+    "duration": 2.6
+  },
+  "03-lit-gas": {
+    "title": "Lit gas, from the corner",
+    "date": "Nov 5",
+    "note": "Your notes on 02: enter from the lower right, linger longer. Now rolls in from the lower trailing corner and holds about a second with a slow breath before draining (3.2 s total). Lit from where it enters: three short light taps through the gas give Beer-law shadowing with a soft powder term, so billows read as matte and lit, never glossy. Triangular dither against banding.",
+    "looks": [
+      "Corner",
+      "Calm",
+      "Straight up"
+    ],
+    "duration": 3.2
+  },
+  "04-lamp": {
+    "title": "Lit gas with a lamp",
+    "date": "Nov 5",
+    "note": "Builds on 03. A soft honey lamp sits just off the corner the wave enters from: its light spills onto the page a beat before the gas arrives, the gas nearest it scatters it, and it holds through the linger. In dark mode the lamp adds opacity (light adds, shadow no longer takes away), so the cores glow and the amber comes back near the corner. Your pick (Nov 5): roll-through, calm look, about 8 s; those are now this iteration's defaults here and in the app.",
+    "looks": [
+      "Corner",
+      "Calm",
+      "Straight up"
+    ],
+    "duration": 3.2,
+    "defaults": {
+      "motion": 1,
+      "look": 1,
+      "duration": 8
+    }
+  },
+  "05-nebula": {
+    "title": "Nebula volume",
+    "date": "Nov 5",
+    "duration": 8,
+    "defaults": {
+      "motion": 1,
+      "look": 1,
+      "duration": 8
+    },
+    "looks": [
+      "Corner",
+      "Calm",
+      "Straight up"
+    ],
+    "note": "An attempt at the cosmos note: four parallax slices composited as a small volume, each lit by two taps toward the star, with luminous filaments, an absorption-only dust field that silhouettes against the glow behind it, and thin bright rims where clumps face the light. First cut overexposed and grey; rebalanced once. Costs about 2.3x iteration 04. Your pick as the basis (Nov 5)."
+  },
+  "06-night-haze": {
+    "title": "Nebula, night haze",
+    "date": "Nov 5",
+    "duration": 8,
+    "defaults": {
+      "motion": 1,
+      "look": 1,
+      "duration": 8
+    },
+    "looks": [
+      "Corner",
+      "Calm",
+      "Straight up"
+    ],
+    "note": "05 with a dark-mode strategy; light mode is identical. Over a light page the gas tints its way in, over black it switched on. So at night a dusky lavender haze stands in for the light page and arrives with the front, the gas lightness is compressed into the same contrast band as daytime, the front and tail are wider, and the star glow is broader and dimmer."
+  }
+}
