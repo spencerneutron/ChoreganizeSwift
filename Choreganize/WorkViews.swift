@@ -12,6 +12,9 @@ struct ChoreRowView: View {
     var date: Date = Date()
     /// Briefly tinted when a widget deep-link (CG-05) targets this chore.
     var highlighted: Bool = false
+    /// Called when the user turns the toggle on, before the completion is recorded. DayPage
+    /// uses it to tell a local completion from a synced one (the completion wash).
+    var onComplete: (() -> Void)? = nil
     /// #59: resolves a Household completion's `completedBy` to a member name
     /// ("by Sydney"); returns nil for Solo, legacy, and the user's own completions.
     @ObservedObject private var completers = CompleterDirectory.shared
@@ -79,12 +82,14 @@ struct ChoreRowView: View {
             if showToggle {
                 if locked {
                     Toggle(isOn: .constant(chore.isCompleted(on: date))) { content }
+                        .toggleLook()
                         .disabled(true)
                 } else {
                     Toggle(isOn: Binding(
                         get: { chore.isCompleted(on: date) },
                         set: { newValue in
                             if newValue {
+                                onComplete?()
                                 chore.recordCompletion(on: date, in: context)
                             } else {
                                 chore.removeCompletion(on: date, in: context)
@@ -92,6 +97,7 @@ struct ChoreRowView: View {
                         })) {
                             content
                         }
+                        .toggleLook()
                 }
             } else {
                 content
@@ -507,6 +513,11 @@ struct DayPage: View {
     /// #127: where the Quick Add ghost is; read only by the section slots.
     @State private var quickAdd = QuickAddTracker()
     @State private var quickAddRequest: QuickAddRequest?
+    /// The completion wash: when it started (nil = resting), its seed, and when the user
+    /// last completed something on this page (a wash needs a local cause).
+    @State private var washStart: Date?
+    @State private var washSeed: Float = 0
+    @State private var lastLocalCompletion: Date?
 
     // Bottom clearance for the floating mode switcher (the iPhone pill), scaled with
     // Dynamic Type so larger text still clears it. With the modes in the system tab bar
@@ -568,6 +579,39 @@ struct DayPage: View {
         }
     }
 
+    #if DEBUG
+    /// Screenshot and recording hooks (see `CompletionWash`); today's focused page only.
+    private var debugFrozenTime: Double? {
+        isToday && handlesDeepLinks ? CompletionWash.debugFrozenTime : nil
+    }
+
+    @MainActor
+    private func runDebugWashHooks() async {
+        guard isToday, handlesDeepLinks else { return }
+        if CompletionWash.debugFrozenTime != nil {
+            washStart = .now   // never cleared: the layer pins the time
+        } else if let delay = CompletionWash.debugDemoDelay {
+            try? await Task.sleep(for: .seconds(delay))
+            if !Task.isCancelled { startWash() }
+        }
+    }
+    #else
+    private var debugFrozenTime: Double? { nil }
+    #endif
+
+    /// Plays the wash and clears it afterwards, unless a newer wash replaced it.
+    @MainActor
+    private func startWash() {
+        washSeed = Float.random(in: 0...64)
+        let start = Date.now
+        washStart = start
+        WashHaptics.play()
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(CompletionWash.duration + 0.1))
+            if washStart == start { washStart = nil }
+        }
+    }
+
     var body: some View {
         let active = model.activeHousehold
         let scopedLocks = Array(lockedDays).inScope(active)
@@ -578,6 +622,7 @@ struct DayPage: View {
         // done" acts on exactly this set, so locked/past days (toggles disabled) and
         // already-completed rows are untouched.
         let incompleteChores = dayChores.filter { !$0.isCompleted(on: date) }
+        let dayComplete = !dayChores.isEmpty && incompleteChores.isEmpty
         let finishDay = {
             DayLock.lock(date, existing: scopedLocks, household: active, in: context)
             AccessibilityNotification.Announcement("Day finished").post()
@@ -624,7 +669,8 @@ struct DayPage: View {
             if groups.isEmpty {
                 Section {
                     ForEach(dayChores, id: \.objectID) { chore in
-                        ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore)
+                        ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore,
+                                     onComplete: { lastLocalCompletion = .now })
                     }
                 } header: {
                     if !showsOneOffs { Text(header) }
@@ -636,7 +682,8 @@ struct DayPage: View {
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                     Section {
                         ForEach(group.chores, id: \.objectID) { chore in
-                            ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore)
+                            ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore,
+                                     onComplete: { lastLocalCompletion = .now })
                         }
                     } header: {
                         if index == 0 && !showsOneOffs {
@@ -665,6 +712,7 @@ struct DayPage: View {
                     if !isLocked && !incompleteChores.isEmpty {
                         Button {
                             let ids = Set(incompleteChores.map(\.objectID))
+                            lastLocalCompletion = .now
                             withAnimation {
                                 BulkChoreOps.markAllDone(ids, on: date, in: context)
                             }
@@ -734,6 +782,28 @@ struct DayPage: View {
             }
         }
         .compatInsetGroupedList()
+        // The wash draws behind the cards, so the list's own background goes and the layer
+        // paints it (identical at rest). The Mac's inset list background isn't confirmed to
+        // be `controlBackgroundColor`, so there it only hides while a wash plays.
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #else
+        .scrollContentBackground(washStart == nil ? .automatic : .hidden)
+        #endif
+        .background {
+            CompletionWashLayer(start: washStart, seed: washSeed,
+                                base: Color.washPageBase, frozenTime: debugFrozenTime)
+                .ignoresSafeArea()
+        }
+        .onChange(of: dayComplete) { old, new in
+            if WashTrigger.shouldWash(wasComplete: old, isComplete: new, isLocked: isLocked,
+                                      lastLocalCompletion: lastLocalCompletion, now: .now) {
+                startWash()
+            }
+        }
+        #if DEBUG
+        .task { await runDebugWashHooks() }
+        #endif
         #if os(iOS)
         // #127: each section's Quick Add slot is the gap between sections on days
         // that offer it, so the list adds no spacing of its own there.
@@ -787,7 +857,8 @@ struct DayPage: View {
         }
         #if os(iOS)
         .sheet(isPresented: $showPhotoCheck) {
-            PhotoCheckView(date: date, chores: incompleteChores)
+            PhotoCheckView(date: date, chores: incompleteChores,
+                           willCommit: { lastLocalCompletion = .now })
         }
         #endif
         #if os(macOS)
@@ -812,6 +883,17 @@ struct DayPage: View {
             consumeDeepLink(model.deepLinkChore, proxy: proxy, in: dayChores)
         }
         }
+    }
+}
+
+private extension Color {
+    /// The page colour under the wash, matching the list's resting background.
+    static var washPageBase: Color {
+        #if os(iOS)
+        compatGroupedBackground
+        #else
+        compatCardBackground
+        #endif
     }
 }
 

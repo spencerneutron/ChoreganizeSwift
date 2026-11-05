@@ -10,6 +10,9 @@ struct PhotoCheckView: View {
     let date: Date
     /// Today's open, in-scope chores (the DayPage's "incomplete" set).
     let chores: [CDChore]
+    /// Called just before the confirmed chores are recorded, so the page can tell this
+    /// local completion from a synced one (the completion wash).
+    var willCommit: (() -> Void)? = nil
 
     @Environment(\.managedObjectContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -233,6 +236,7 @@ struct PhotoCheckView: View {
 
     private func markDone() {
         guard !check.selected.isEmpty else { return }
+        willCommit?()
         BulkChoreOps.markAllDone(check.selected, on: date, in: context)
         Log.info("Photo check-off: marked \(check.selected.count) of \(check.items.count) chore(s) done")
         successHaptic.success()

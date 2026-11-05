@@ -574,6 +574,10 @@ enum GlowPrewarm {
                                                       .float(0), .float(1),   // slot, slots
                                                       .float(0), .float(1))   // tilt, intensity
             try? await shader.compile(as: .colorEffect)
+            // The completion wash, with the argument kinds the real call uses.
+            let wash = CompletionWash.shader(size: CGSize(width: 1, height: 1), time: 0, seed: 0,
+                                             dark: false, look: 0, strength: 1)
+            try? await wash.compile(as: .colorEffect)
         }
     }
 }
