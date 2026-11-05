@@ -109,9 +109,6 @@ struct CalendarHomeView: View {
                     .padding(.leading, insets.leading)
                     .frame(width: spread ? split.leadingWidth : 0)
                     .clipped()
-                    // The day's grouped background runs from the edge to the fold (and under
-                    // the bottom safe area): one page of the book, not a card in a margin.
-                    .background(Color.compatGroupedBackground.ignoresSafeArea())
                     .opacity(spread ? 1 : 0)
                     .accessibilityHidden(!spread)
             }
@@ -124,6 +121,23 @@ struct CalendarHomeView: View {
                 .padding(.trailing, insets.trailing)
                 .frame(maxWidth: .infinity)
         }
+        // The day's completion wash crosses both pages and the fold. Under it, the day's
+        // grouped background runs from the edge to the fold (and under the bottom safe area):
+        // one page of the book, not a card in a margin; the month keeps the plain background.
+        .completionWashHost(base: spread ? Self.spreadBase(split: split, width: geo.size.width)
+                                         : AnyShapeStyle(Color.compatBackground))
+    }
+
+    /// The spread's backdrop: grouped up to the fold, plain from there (a hard-stop gradient,
+    /// so the wash shader reads each page's own colour under it).
+    private static func spreadBase(split: SpreadSplit, width: CGFloat) -> AnyShapeStyle {
+        let fold = width > 0 ? min(max(split.leadingWidth / width, 0), 1) : 0.5
+        return AnyShapeStyle(LinearGradient(stops: [
+            .init(color: .compatGroupedBackground, location: 0),
+            .init(color: .compatGroupedBackground, location: fold),
+            .init(color: .compatBackground, location: fold),
+            .init(color: .compatBackground, location: 1),
+        ], startPoint: .leading, endPoint: .trailing))
     }
     #endif
 
@@ -226,6 +240,8 @@ private struct CalendarDayDestination: View {
 
     var body: some View {
         DayPage(date: date)
+            // Pushed on its own, it draws its own wash, whatever the month around it hosts.
+            .environment(\.hostsCompletionWash, false)
             .compatNavigationBarVisibility(.visible)
             .onPreferenceChange(DayPagePresentingKey.self) { presenting = $0; moveIfReady() }
             #if os(iOS)

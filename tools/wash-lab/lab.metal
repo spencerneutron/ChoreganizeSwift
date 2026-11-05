@@ -7,6 +7,10 @@
 #define WASH_SRC "../../Choreganize/ChoreWash.metal"
 #endif
 #include WASH_SRC
+#ifndef RIM_SRC
+#define RIM_SRC "../../Choreganize/SectionRim.metal"
+#endif
+#include RIM_SRC
 
 struct LabParams {
     float2 size;        // canvas in points
@@ -70,5 +74,41 @@ kernel void lab(texture2d<half, access::write> out [[texture(0)]],
             c = mix(c, half4(0.0h, 0.48h, 1.0h, 1.0h), half(smoothstep(aa, -aa, label)));
         }
     }
+    out.write(c, gid);
+}
+
+// Rim mode: renders the app's shipping `sectionRim` shader, then the card ON TOP of it, as the
+// app layers them (the rim sits behind an opaque List card).
+struct RimParams {
+    float2 size;        // canvas in points
+    float2 cardSize;
+    float radius;
+    float reach;
+    float scale;
+    float dark;
+    float rtl;
+    float baseFill, baseA, lineFill, lineA, headA, haloLevel;
+    float4 page;
+    float4 card;
+    float4 tint;
+};
+
+kernel void rimLab(texture2d<half, access::write> out [[texture(0)]],
+                   constant RimParams& P [[buffer(0)]],
+                   uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= out.get_width() || gid.y >= out.get_height()) { return; }
+    float2 pos = (float2(gid) + 0.5) / P.scale;
+    // The layer is the card outset by the reach, centred on the canvas.
+    float2 layerSize = P.cardSize + 2.0 * P.reach;
+    float2 origin = (P.size - layerSize) * 0.5;
+    float2 local = pos - origin;
+    half4 rim = sectionRim(local, half4(0.0h), P.cardSize, P.radius, P.reach, P.rtl, P.dark, P.scale,
+                           P.baseFill, P.baseA, P.lineFill, P.lineA, P.headA, P.haloLevel, half4(P.tint));
+    if (local.x < 0 || local.y < 0 || local.x > layerSize.x || local.y > layerSize.y) { rim = half4(0.0h); }
+    half4 c = half4(half3(P.page.rgb) * (1.0h - rim.a) + rim.rgb, 1.0h);   // premultiplied over the page
+    float aa = 0.6 / P.scale;
+    float2 centre = P.size * 0.5;
+    float d = roundedRect(pos, centre - P.cardSize * 0.5, P.cardSize, P.radius);
+    c = mix(c, half4(P.card), half(smoothstep(aa, -aa, d)));
     out.write(c, gid);
 }

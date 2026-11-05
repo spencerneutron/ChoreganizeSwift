@@ -28,6 +28,10 @@ struct ChoreganizeApp: App {
         // Pre-compile the calendar's perfect-day glow shader so the first 100%-day bar
         // doesn't hitch on first use (#57).
         GlowPrewarm.run()
+        #if os(iOS)
+        // And the section rim's, which draws as soon as a day page with progress appears.
+        SectionRim.prewarm()
+        #endif
     }
 
     var body: some Scene {

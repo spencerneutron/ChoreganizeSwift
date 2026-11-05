@@ -82,7 +82,6 @@ struct ChoreRowView: View {
             if showToggle {
                 if locked {
                     Toggle(isOn: .constant(chore.isCompleted(on: date))) { content }
-                        .toggleLook()
                         .disabled(true)
                 } else {
                     Toggle(isOn: Binding(
@@ -97,12 +96,14 @@ struct ChoreRowView: View {
                         })) {
                             content
                         }
-                        .toggleLook()
                 }
             } else {
                 content
             }
         }
+        // The system switch in the app's lavender (the accent): "on" is evening, the day's
+        // promise kept (docs/STYLE.md §7.1).
+        .tint(.accentColor)
         .padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -148,6 +149,9 @@ struct WeekView: View {
     @State private var rail = DayRailTracker()
     #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// A completion wash is playing on a page. Paging (and the Duo's day rail) waits for it
+    /// to end: the wash is drawn by the page, so a swipe would carry it away mid-play.
+    @State private var washPlaying = false
 
     /// Index of today within `dates` (today is the middle of the range).
     private var todayIndex: Int {
@@ -193,6 +197,7 @@ struct WeekView: View {
 
     /// Pages to a spread picked on the day rail (a drag, or VoiceOver's adjust).
     private func select(spread right: Int) {
+        guard !washPlaying else { return }
         focusIndex = right
         if reduceMotion {
             position.scrollTo(id: right)
@@ -245,12 +250,20 @@ struct WeekView: View {
                         // Each page == the safe-area-bounded container vertically: gives the
                         // nested List its bounded width AND height (it scrolls vertically within).
                         .frame(width: geo.size.width, height: geo.size.height)
+                        // The page draws its days' completion wash, so on a spread it crosses
+                        // both days and the fold, whichever day finished.
+                        .completionWashHost(base: Color.washPageBase)
+                        // Only the paging freezes during a wash; each day's list still scrolls.
+                        .environment(\.isScrollEnabled, true)
                     }
                 }
                 .scrollTargetLayout()
             }
             // Snap to each page, one per swipe.
             .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
+            // No paging while a wash plays (it's drawn by the page and would scroll away).
+            .scrollDisabled(washPlaying)
+            .onPreferenceChange(WashRequestKey.self) { washPlaying = $0 != nil }
             .scrollPosition($position)            // place the pager (layout switches, deep link)
             .defaultScrollAnchor(.center)         // first layout centers today (the middle page)
             .scrollIndicators(.hidden)
@@ -294,6 +307,8 @@ struct WeekView: View {
                             focusedRight: focusIndex,
                             spreadDescription: { spreadDescription(right: $0) },
                             onSelect: { select(spread: $0) })
+                        // Held still while a wash plays, like the pager.
+                        .allowsHitTesting(!washPlaying)
                         .frame(width: min(bar, Self.maxRailWidth))
                         .frame(width: bar)
                 }
@@ -392,7 +407,7 @@ private struct EdgePage: View {
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.compatGroupedBackground)
+            // No background of its own: the spread's wash host paints the page.
     }
 }
 
@@ -503,6 +518,17 @@ struct DayPage: View {
     /// Whether this page acts on a widget deep link (CG-05). False for a two-day spread's
     /// left page, which is about to make way for the spread with today on the right.
     var handlesDeepLinks = true
+    /// This day's completions. A completion is a relationship of the fetched chores, which
+    /// `@FetchRequest` doesn't report, so without this the page never re-renders when one is
+    /// added or removed (a toggle, a sync, the widget): its day state (Mark all done, the
+    /// section rims, the wash's "day complete" edge) would go stale.
+    @FetchRequest private var dayCompletions: FetchedResults<CDCompletion>
+
+    init(date: Date, handlesDeepLinks: Bool = true) {
+        self.date = date
+        self.handlesDeepLinks = handlesDeepLinks
+        _dayCompletions = FetchRequest(fetchRequest: dayCompletionsFetchRequest(on: date))
+    }
     @State private var showConfirmation = false
     @State private var showDoneAlert = false
     @State private var showLogSheet = false
@@ -518,6 +544,16 @@ struct DayPage: View {
     @State private var washStart: Date?
     @State private var washSeed: Float = 0
     @State private var lastLocalCompletion: Date?
+    /// When this page last fired a wash (re-checking the last chore can fire it again, see
+    /// `WashTrigger.refireInterval`).
+    @State private var lastWash: Date?
+    /// A two-page container draws the wash across both pages (`completionWashHost`); this
+    /// page then raises a `WashRequest` instead of drawing its own.
+    @Environment(\.hostsCompletionWash) private var washHosted
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The section rims (iOS): where each section card is, and the flourishes playing.
+    @State private var rimTracker = SectionRimTracker()
+    @State private var rimFlourishes: [String: SectionRimFlourish] = [:]
 
     // Bottom clearance for the floating mode switcher (the iPhone pill), scaled with
     // Dynamic Type so larger text still clears it. With the modes in the system tab bar
@@ -605,14 +641,23 @@ struct DayPage: View {
         washSeed = Float.random(in: 0...64)
         let start = Date.now
         washStart = start
+        lastWash = start
         WashHaptics.play()
+        // The wash is decorative and hidden from VoiceOver, so say what it celebrates.
+        AccessibilityNotification.Announcement("Day complete").post()
+        // Under Reduce Motion or Low Power the fade is all that plays, so it ends sooner (and
+        // so does the paging freeze that a playing wash puts on the Work view).
+        let fades = reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled
+        let length = fades ? CompletionWashLayer.fadeDuration : CompletionWash.duration
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(CompletionWash.duration + 0.1))
+            try? await Task.sleep(for: .seconds(length + 0.1))
             if washStart == start { washStart = nil }
         }
     }
 
     var body: some View {
+        // Read, so a completion added or removed re-renders the page (see `dayCompletions`).
+        let _ = dayCompletions.count
         let active = model.activeHousehold
         let scopedLocks = Array(lockedDays).inScope(active)
         let inScopeChores = Array(chores).inScope(active)
@@ -650,19 +695,33 @@ struct DayPage: View {
         let canAddOneOff = OneOffLimit.canAdd(
             existing: scopedOneOffs.count,
             unlimited: OneOffLimit.isUnlimited(household: active, personalUnlimited: oneOffsUnlimitedPersonal))
+        // The Hub "Group tasks by" preference (#60). `.none` (or an empty day) keeps the
+        // single dated section; otherwise one section per group, the date riding the
+        // first group's header so it stays visible (WeekView shows no date of its own).
+        let groups = grouping == .none ? [] : grouping.sections(for: dayChores)
+        // Each section card's rim follows its own progress (docs/completion-wash BEHAVIOR §3).
+        // Section titles can repeat (a room named "No Room" beside chores with no room), so
+        // the rim keys each section by its title plus the occurrence.
+        let rimIDs = SectionRimSpec.uniqueIDs(groups.map(\.id))
+        let rimSections: [SectionRimSpec] = (groups.isEmpty
+            ? (dayChores.isEmpty ? [] : [(id: "", chores: dayChores)])
+            : zip(rimIDs, groups).map { (id: $0, chores: $1.chores) }).map { section in
+                let done = section.chores.filter { $0.isCompleted(on: date) }.count
+                return SectionRimSpec(id: section.id, rows: section.chores.map { AnyHashable($0.objectID) },
+                                      fraction: Double(done) / Double(section.chores.count),
+                                      flourish: rimFlourishes[section.id])
+            }
+        let rimFractions = Dictionary(rimSections.map { ($0.id, $0.fraction) }, uniquingKeysWith: { first, _ in first })
+        let dayChoreIDs = Set(dayChores.compactMap(\.id))
 
         ScrollViewReader { proxy in
         List {
             let weekdayName = date.formatted(.dateTime.weekday(.wide))
             let dateText = date.formatted(date: .abbreviated, time: .omitted)
             let header = "\(weekdayName), \(dateText)"
-            // The Hub "Group tasks by" preference (#60). `.none` (or an empty day) keeps the
-            // single dated section; otherwise one section per group, the date riding the
-            // first group's header so it stays visible (WeekView shows no date of its own).
-            let groups = grouping == .none ? [] : grouping.sections(for: dayChores)
             // #128: one-offs are the first section and take the date header with them.
             if showsOneOffs {
-                OneOffsSection(oneOffs: scopedOneOffs, dateHeader: header, canAdd: canAddOneOff,
+                OneOffsSection(oneOffs: scopedOneOffs, dateHeader: header, dateLocked: isLocked, canAdd: canAddOneOff,
                                onAdd: { oneOffSheet = .new },
                                onEdit: { oneOffSheet = .edit($0) })
             }
@@ -671,31 +730,36 @@ struct DayPage: View {
                     ForEach(dayChores, id: \.objectID) { chore in
                         ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore,
                                      onComplete: { lastLocalCompletion = .now })
+                            .sectionRimRow(rimTracker, row: chore.objectID)
                     }
                 } header: {
-                    if !showsOneOffs { Text(header) }
+                    if !showsOneOffs { DayDateHeader(text: header, locked: isLocked) }
                 } footer: {
                     quickAddSlot(id: "", key: .all, sectionName: nil,
                                  emptyDay: dayChores.isEmpty, offered: offersQuickAdd)
                 }
             } else {
-                ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                // Keyed by the unique ids: two sections can share a title.
+                ForEach(Array(zip(rimIDs, groups).enumerated()), id: \.element.0) { index, entry in
+                    let group = entry.1
                     Section {
                         ForEach(group.chores, id: \.objectID) { chore in
                             ChoreRowView(chore: chore, locked: isLocked, date: date, highlighted: highlightedChore != nil && chore.id == highlightedChore,
                                      onComplete: { lastLocalCompletion = .now })
+                                .sectionRimRow(rimTracker, row: chore.objectID)
                         }
                     } header: {
                         if index == 0 && !showsOneOffs {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(header).font(.headline).textCase(nil).foregroundStyle(.primary)
+                                DayDateHeader(text: header, locked: isLocked)
+                                    .font(.headline).textCase(nil).foregroundStyle(.primary)
                                 Text(group.title)
                             }
                         } else {
                             Text(group.title)
                         }
                     } footer: {
-                        quickAddSlot(id: group.id, key: group.key, sectionName: group.title,
+                        quickAddSlot(id: rimIDs[index], key: group.key, sectionName: group.title,
                                      emptyDay: false, offered: offersQuickAdd)
                     }
                 }
@@ -791,13 +855,56 @@ struct DayPage: View {
         .scrollContentBackground(washStart == nil ? .automatic : .hidden)
         #endif
         .background {
-            CompletionWashLayer(start: washStart, seed: washSeed,
-                                base: Color.washPageBase, frozenTime: debugFrozenTime)
-                .ignoresSafeArea()
+            if !washHosted {
+                CompletionWashLayer(start: washStart, seed: washSeed,
+                                    base: Color.washPageBase, frozenTime: debugFrozenTime)
+                    .ignoresSafeArea()
+            }
+            #if os(iOS)
+            // Over the wash (when this page draws it) and under the cards.
+            SectionRimLayer(tracker: rimTracker, sections: rimSections)
+            #endif
+        }
+        .preference(key: WashRequestKey.self,
+                    value: washHosted ? washStart.map { WashRequest(start: $0, seed: washSeed,
+                                                                    frozenTime: debugFrozenTime) } : nil)
+        #if os(iOS)
+        // A section the user's own tap finished retraces its rim (the flourish); one finished
+        // by a sync, a widget or a locked day just eases to full.
+        .onChange(of: rimFractions) { old, new in
+            // A section that drops below full loses its flourish, so a later synced re-check
+            // eases to full instead of resuming it.
+            for (id, fraction) in new where fraction < 1 { rimFlourishes[id] = nil }
+            let now = Date.now
+            let finished = SectionRimTrigger.flourishes(old: old, new: new, isLocked: isLocked,
+                                                        lastLocalCompletion: lastLocalCompletion,
+                                                        now: now)
+            guard !finished.isEmpty else { return }
+            for (id, from) in finished {
+                rimFlourishes[id] = SectionRimFlourish(start: now, from: from)
+            }
+            // The rim is hidden from VoiceOver, so say what it marks, unless the wash plays
+            // for this same completion (its "Day complete" says it). This change may run just
+            // before or just after the wash's, hence "fired a moment ago, or about to".
+            let washPlays = dayComplete && (lastWash.map {
+                now.timeIntervalSince($0) < 0.5 || now.timeIntervalSince($0) >= WashTrigger.refireInterval
+            } ?? true)
+            if !washPlays {
+                for (id, group) in zip(rimIDs, groups) where finished[id] != nil {
+                    AccessibilityNotification.Announcement("\(group.title) complete").post()
+                }
+            }
+        }
+        #endif
+        // A chore added to the day (Quick Add, another device) is new work: finishing it may
+        // earn the wash again right away, inside the 30 s re-fire limit.
+        .onChange(of: dayChoreIDs) { old, new in
+            if WashTrigger.rearms(oldChores: old, newChores: new) { lastWash = nil }
         }
         .onChange(of: dayComplete) { old, new in
             if WashTrigger.shouldWash(wasComplete: old, isComplete: new, isLocked: isLocked,
-                                      lastLocalCompletion: lastLocalCompletion, now: .now) {
+                                      lastLocalCompletion: lastLocalCompletion, lastWash: lastWash,
+                                      now: .now) {
                 startWash()
             }
         }
@@ -886,7 +993,40 @@ struct DayPage: View {
     }
 }
 
-private extension Color {
+/// A day page's date line. A locked day (a past day, or one finished with Finish Day) shows a
+/// small lock at the line's trailing end, so a locked page reads as locked at a glance: with
+/// the lavender switches, a locked day's dimmed switches stand out less than green ones did.
+struct DayDateHeader: View {
+    let text: String
+    let locked: Bool
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(text)
+            if locked {
+                Spacer(minLength: 8)
+                Image(systemName: "lock.fill")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Locked")
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The completions recorded on `date`'s calendar day, for `DayPage` to observe.
+private func dayCompletionsFetchRequest(on date: Date) -> NSFetchRequest<CDCompletion> {
+    let calendar = Calendar.current
+    let start = calendar.startOfDay(for: date)
+    let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+    let request = NSFetchRequest<CDCompletion>(entityName: "CDCompletion")
+    request.predicate = NSPredicate(format: "date >= %@ AND date < %@", start as NSDate, end as NSDate)
+    request.sortDescriptors = [NSSortDescriptor(key: "date", ascending: true)]
+    return request
+}
+
+extension Color {
     /// The page colour under the wash, matching the list's resting background.
     static var washPageBase: Color {
         #if os(iOS)

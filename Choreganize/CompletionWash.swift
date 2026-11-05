@@ -78,15 +78,71 @@ enum CompletionWash {
 enum WashTrigger {
     /// How recent the user's own completion must be for it to count as the cause.
     static let window: TimeInterval = 3
+    /// Unchecking and re-checking the last chore fires it again, but at most this often per
+    /// page, so toggling back and forth doesn't replay it on every tap.
+    static let refireInterval: TimeInterval = 30
+
+    /// A chore added to the day since the last wash re-arms it at once (the re-fire limit
+    /// guards against toggling one chore back and forth, not against new work).
+    static func rearms(oldChores: Set<UUID>, newChores: Set<UUID>) -> Bool {
+        !newChores.isSubset(of: oldChores)
+    }
 
     /// A page-load, a sync from another household member and a widget completion all flip
     /// "complete" without a local action on this page, so a recent local completion is
-    /// required in addition to the false → true edge.
+    /// required in addition to the false → true edge. Any unlocked day qualifies, not only
+    /// today: the action is the user's, on the page they're looking at.
     static func shouldWash(wasComplete: Bool, isComplete: Bool, isLocked: Bool,
-                           lastLocalCompletion: Date?, now: Date) -> Bool {
+                           lastLocalCompletion: Date?, lastWash: Date? = nil, now: Date) -> Bool {
         guard !wasComplete, isComplete, !isLocked, let last = lastLocalCompletion else { return false }
         let age = now.timeIntervalSince(last)
-        return age >= 0 && age <= window
+        guard age >= 0 && age <= window else { return false }
+        if let lastWash, now.timeIntervalSince(lastWash) < refireInterval { return false }
+        return true
+    }
+}
+
+/// A wash a day page asks its container to draw, so that on a two-page spread (iPad, the
+/// open iPhone Duo) it crosses the whole display instead of stopping at the fold.
+struct WashRequest: Equatable {
+    var start: Date
+    var seed: Float
+    /// DEBUG: pins the wash at this many seconds in (see `CompletionWash.debugFrozenTime`).
+    var frozenTime: Double?
+}
+
+/// The wash the day pages inside a container have raised; the most recent one wins.
+struct WashRequestKey: PreferenceKey {
+    static let defaultValue: WashRequest? = nil
+    static func reduce(value: inout WashRequest?, nextValue: () -> WashRequest?) {
+        guard let next = nextValue() else { return }
+        if let current = value, current.start >= next.start { return }
+        value = next
+    }
+}
+
+private struct HostsCompletionWashKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// True inside a container that draws its day pages' washes itself (`completionWashHost`).
+    /// A day page there raises a `WashRequest` instead of drawing its own.
+    var hostsCompletionWash: Bool {
+        get { self[HostsCompletionWashKey.self] }
+        set { self[HostsCompletionWashKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Paints `base` behind this container and plays, over the whole of it, the wash any day
+    /// page inside raises. One page or two, the wash enters at the container's lower
+    /// trailing corner and leaves at its upper leading one.
+    func completionWashHost<S: ShapeStyle>(base: S) -> some View {
+        environment(\.hostsCompletionWash, true)
+            .backgroundPreferenceValue(WashRequestKey.self) { request in
+                CompletionWashLayer(start: request?.start, seed: request?.seed ?? 0,
+                                    base: base, frozenTime: request?.frozenTime)
+                    .ignoresSafeArea()
+            }
     }
 }
 
@@ -95,23 +151,23 @@ enum WashTrigger {
 struct CompletionWashLayer: View {
     var start: Date?
     var seed: Float
-    var base: Color
+    var base: AnyShapeStyle
     /// DEBUG: pins the wash at this many seconds in, instead of playing it.
     var frozenTime: Double?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
 
-    init(start: Date?, seed: Float, base: Color, frozenTime: Double? = nil) {
+    init<S: ShapeStyle>(start: Date?, seed: Float, base: S, frozenTime: Double? = nil) {
         self.start = start
         self.seed = seed
-        self.base = base
+        self.base = AnyShapeStyle(base)
         self.frozenTime = frozenTime
     }
 
     var body: some View {
         ZStack {
-            base
+            Rectangle().fill(base)
             if let start {
                 if reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled {
                     fade(from: start)
@@ -151,9 +207,12 @@ struct CompletionWashLayer: View {
         }
     }
 
-    /// Peaks at 0.7 by 0.4 s, gone by 1.4 s.
+    /// How long the Reduce Motion / Low Power fade lasts.
+    static let fadeDuration: Double = 1.4
+
+    /// Peaks at 0.7 by 0.4 s, gone by `fadeDuration`.
     static func fadeOpacity(at t: Double) -> Double {
-        let peak = 0.7, rise = 0.4, total = 1.4
+        let peak = 0.7, rise = 0.4, total = fadeDuration
         if t <= 0 || t >= total { return 0 }
         return t < rise ? peak * t / rise : peak * (1 - (t - rise) / (total - rise))
     }

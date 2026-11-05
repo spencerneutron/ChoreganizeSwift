@@ -154,6 +154,8 @@ struct PoofBurst: View {
 struct OneOffsSection: View {
     let oneOffs: [CDOneOff]
     var dateHeader: String?
+    /// The day is locked (finished): the date line shows a small lock.
+    var dateLocked = false
     let canAdd: Bool
     let onAdd: () -> Void
     let onEdit: (CDOneOff) -> Void
@@ -177,7 +179,8 @@ struct OneOffsSection: View {
         } header: {
             VStack(alignment: .leading, spacing: 4) {
                 if let dateHeader {
-                    Text(dateHeader).font(.headline).textCase(nil).foregroundStyle(Color.primary)
+                    DayDateHeader(text: dateHeader, locked: dateLocked)
+                        .font(.headline).textCase(nil).foregroundStyle(Color.primary)
                 }
                 OneOffsHeader(canAdd: canAdd, onAdd: onAdd)
             }
