@@ -246,7 +246,10 @@ struct MacPhotoCheckSheet: View {
 
     private func markDone() {
         guard !check.selected.isEmpty else { return }
-        BulkChoreOps.markAllDone(check.selected, on: Date(), in: context)
+        // The user's own check-off: today's page may play the completion wash for it.
+        let today = Date()
+        NotificationCenter.default.post(name: .choreganizeLocalCompletion, object: today)
+        BulkChoreOps.markAllDone(check.selected, on: today, in: context)
         Log.info("Photo check-off (Mac): marked \(check.selected.count) of \(check.items.count) chore(s) done")
         dismiss()
     }

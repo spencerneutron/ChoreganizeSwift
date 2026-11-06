@@ -1,0 +1,625 @@
+<title>Wash Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: a scaled device stage on the left, a control rail on the right; stacks on phones. */
+  :root {
+    --bg: #f3f1ec;
+    --fg: #22222a;
+    --muted: #6d6b76;
+    --line: #ddd9cf;
+    --panel: #fbfaf7;
+    --accent: #c48500;        /* amber, stepped for contrast on light */
+    --accent-2: #6f72c9;      /* periwinkle, stepped */
+    --ok: #2f9e4f;
+    --font: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16161a; --fg: #ecebf2; --muted: #9b99a6; --line: #2d2d35; --panel: #1f1f25;
+      --accent: #ffc233; --accent-2: #aeb4ff; --ok: #4cd964; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16161a; --fg: #ecebf2; --muted: #9b99a6; --line: #2d2d35; --panel: #1f1f25;
+    --accent: #ffc233; --accent-2: #aeb4ff; --ok: #4cd964; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px;
+    line-height: 1.45;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 12px 24px;
+  }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  .top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .top .sub { color: var(--muted); }
+  .lab { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .lab { grid-template-columns: 1fr; } }
+
+  /* Stage */
+  .stage { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .fit { position: relative; width: 100%; min-height: 320px; }
+  .device {
+    position: absolute; top: 0; left: 0; transform-origin: top left; overflow: hidden;
+    border-radius: 34px; box-shadow: 0 0 0 1px var(--line), 0 20px 60px rgba(0,0,0,0.18);
+    --screen-bg: #f2f2f7; --card: #ffffff; --ink: #1c1c1e; --ink-2: #8a8a8e; --sep: #e5e5ea; --blue: #007aff;
+    --switch-off: #e9e9eb; --green: #34c759; --pill: rgba(255,255,255,0.72);
+    --promise-off: #e8dfc8; --promise-on: #7370cf;   /* off: the system grey with a gold hint; on: 4.1:1 vs a white thumb */
+  }
+  .device[data-appearance="dark"] {
+    --screen-bg: #000000; --card: #1c1c1e; --ink: #f2f2f7; --ink-2: #8d8d93; --sep: #38383a; --blue: #0a84ff;
+    --switch-off: #39393d; --pill: rgba(44,44,46,0.78);
+    --promise-off: #433d31; --promise-on: #8285df;   /* off: the system dark grey with a gold hint; on: 3.5:1 vs a white thumb */
+  }
+  .device[data-platform="mac"] {
+    border-radius: 10px;
+    --screen-bg: #ececec; --card: transparent; --sep: #d6d6d6;
+  }
+  .device[data-platform="mac"][data-appearance="dark"] { --screen-bg: #2b2b2b; --sep: #3f3f41; }
+  .device canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .screen { position: absolute; inset: 0; color: var(--ink); font-family: var(--font); }
+  .status-bar { height: 54px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 30px 2px; font-weight: 600; font-size: 15px; }
+  .device[data-platform="mac"] .status-bar { display: none; }
+  .nav { display: flex; justify-content: space-between; align-items: center; padding: 6px 20px 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--pill); backdrop-filter: blur(16px); border-radius: 999px; padding: 7px 12px; font-weight: 600; font-size: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .device[data-platform="mac"] .nav { display: none; }
+  .content { padding: 4px 32px 0; }
+  .device[data-platform="mac"] .content { padding: 18px 24px 0; max-width: 760px; }
+  .device[data-platform="ipad"] .content { padding: 4px 120px 0; }
+  .date { font-size: 16px; font-weight: 600; color: var(--ink-2); padding: 10px 0 6px; }
+  .device[data-platform="mac"] .date { color: var(--ink); font-size: 13px; }
+  .card { background: var(--card); border-radius: 18px; margin-bottom: 20px; position: relative; --honey: 255, 217, 120; }
+  .card > :first-child { border-top-left-radius: 18px; border-top-right-radius: 18px; }
+  /* By day the rim is honey; by night lavender, which sits quieter on black than honey does. */
+  .device[data-appearance="dark"] .card { --honey: 174, 180, 255; }
+  .card .rim { position: absolute; left: -48px; top: -48px; width: calc(100% + 96px); height: calc(100% + 96px); pointer-events: none; overflow: visible; }
+  .card .rim path, .card .rim circle { fill: none; stroke: rgb(var(--honey)); stroke-linecap: round; }
+  .card .rim mask path { fill: black; stroke: none; }
+  .device[data-platform="mac"] .card { border-radius: 0; margin-bottom: 12px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; min-height: 66px; }
+  .row + .row { border-top: 1px solid var(--sep); }
+  .device[data-platform="mac"] .row { padding: 6px 4px; min-height: 40px; }
+  .row .name { font-weight: 500; font-size: 17px; }
+  .row .last { font-size: 12px; color: var(--ink-2); }
+  .row.done .text { opacity: 0.5; }
+  .device[data-platform="mac"] .row .name { font-size: 13px; }
+  .device[data-platform="mac"] .row .last { font-size: 11px; }
+  .switch { width: 51px; height: 31px; border-radius: 999px; background: var(--switch-off); position: relative; border: 0; padding: 0; cursor: pointer; flex: none; transition: background 0.2s; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.25); transition: transform 0.2s; }
+  .switch[aria-checked="true"] { background: var(--green); }
+  .device[data-toggles="promise"] .switch { background: var(--promise-off); }
+  .device[data-toggles="promise"] .switch[aria-checked="true"] { background: var(--promise-on); }
+  .device[data-toggles="promise"] .switch::before { content: ""; position: absolute; inset: 0; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06); }
+  .switch[aria-checked="true"]::after { transform: translateX(20px); }
+  .switch:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .device[data-platform="mac"] .switch { width: 16px; height: 16px; border-radius: 4px; background: transparent; border: 1px solid var(--ink-2); order: -1; }
+  .device[data-platform="mac"] .switch::after { display: none; }
+  .device[data-platform="mac"] .switch[aria-checked="true"] { background: var(--blue); border-color: var(--blue); }
+  .device[data-platform="mac"][data-toggles="promise"] .switch { border-radius: 50%; border-color: var(--promise-off); background: transparent; }
+  .device[data-platform="mac"][data-toggles="promise"] .switch[aria-checked="true"] { background: var(--promise-on); border-color: var(--promise-on); }
+  .device[data-platform="mac"] .row { justify-content: flex-start; }
+  .device[data-platform="mac"] .row .text { flex: 1; }
+  .action { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--blue); font-size: 17px; background: none; border: 0; width: 100%; text-align: left; font-family: inherit; cursor: pointer; }
+  .action + .action { border-top: 1px solid var(--sep); }
+  .action .glyph { width: 22px; text-align: center; }
+  .device[data-platform="mac"] .action { font-size: 13px; padding: 6px 4px; }
+  .mode-pill { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); }
+  .device[data-platform="ipad"] .mode-pill, .device[data-platform="mac"] .mode-pill { display: none; }
+
+  /* Transport */
+  .transport { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .transport input[type="range"] { flex: 1 1 160px; min-width: 120px; accent-color: var(--accent); }
+  .readout { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; min-width: 150px; }
+  button.btn, .seg button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--fg); cursor: pointer;
+  }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #1a1200; font-weight: 600; }
+  :root[data-theme="dark"] button.btn.primary { color: #1a1200; }
+  button.btn:focus-visible, .seg button:focus-visible, .iter:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+  .seg { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+  .seg button { border: 0; border-radius: 0; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+
+  /* Panel */
+  .panel { display: flex; flex-direction: column; gap: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; min-width: 0; }
+  .iters { display: flex; flex-direction: column; gap: 6px; }
+  .iter { text-align: left; font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 10px; padding: 8px 10px; cursor: pointer; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline; }
+  .iter[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .iter .num { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+  .iter .date { color: var(--muted); font-size: 12px; padding: 0; }
+  .note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .field { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 8px; margin-top: 6px; }
+  .field label { color: var(--muted); font-size: 12px; }
+  .field input[type="number"], .field select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); width: 100%; }
+  .field input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .status { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: pre-wrap; word-break: break-word; margin: 0; }
+  .status.error { color: #c2311f; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details pre { font-family: var(--mono); font-size: 11px; max-height: 240px; overflow: auto; background: var(--bg); padding: 8px; border-radius: 8px; }
+  kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
+  @media (prefers-reduced-motion: reduce) { .switch, .switch::after { transition: none; } }
+</style>
+
+<header class="top">
+  <h1>Wash Lab</h1>
+  <span class="sub">Choreganize completion wash, rendered in WebGL from each saved Metal iteration. Tap the last open toggle to fire it.</span>
+</header>
+
+<main class="lab">
+  <section class="stage">
+    <div class="fit" id="fit">
+      <div class="device" id="device" data-appearance="light" data-platform="iphone">
+        <canvas id="gl"></canvas>
+        <div class="screen">
+          <div class="status-bar"><span>9:41</span><span>&#9679;&#9679;&#9679; &#8980; &#9646;</span></div>
+          <div class="nav"><span class="chip">&#9711; Personal</span><span class="chip">&#8862;</span></div>
+          <div class="content">
+            <div class="date" id="date">Wednesday, Nov 5, 2026</div>
+            <div class="card glows" id="chores"></div>
+            <div class="card">
+              <button class="action" id="markAll"><span class="glyph">&#9745;</span>Mark all done</button>
+              <button class="action" id="reset"><span class="glyph">&#8634;</span>Reset chores</button>
+              <button class="action"><span class="glyph">&#9873;</span>Finish Day</button>
+            </div>
+          </div>
+          <span class="chip mode-pill">&#9776; Work</span>
+        </div>
+      </div>
+    </div>
+    <div class="transport">
+      <button class="btn primary" id="replay">Replay</button>
+      <button class="btn" id="pause">Pause</button>
+      <input type="range" id="scrub" min="0" max="3.2" step="0.01" value="0" aria-label="Time">
+      <span class="readout" id="readout">0.00 s / 3.20 s</span>
+      <div class="seg" id="speed" role="group" aria-label="Speed">
+        <button data-speed="0.25">&frac14;&times;</button><button data-speed="0.5">&frac12;&times;</button><button data-speed="1" aria-pressed="true">1&times;</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div>
+      <h2>Iteration</h2>
+      <div class="iters" id="iters"></div>
+      <p class="note" id="note"></p>
+    </div>
+    <div>
+      <h2>Appearance</h2>
+      <div class="seg" id="appearance" role="group" aria-label="Appearance">
+        <button data-appearance="light">Light</button><button data-appearance="dark">Dark</button><button data-appearance="auto" aria-pressed="true">Page</button>
+      </div>
+    </div>
+    <div>
+      <h2>Card glow</h2>
+      <div class="seg" id="glow" role="group" aria-label="Card glow">
+        <button data-glow="none" aria-pressed="true">None</button><button data-glow="peak">A Peak, settle</button><button data-glow="rim">B Perimeter fill</button>
+      </div>
+      <p class="note">A gentle light on a section card's edge from outside, honey (#ffd978) by day and lavender (#aeb4ff) by night, like a diffuse strip: brightest at the border, falling off smoothly, never into the card. The glow marks a finished section (each grouped card has its own); the wash marks the finished day; the action rows are controls and get neither. Toggling a chore eases the rim between levels. At rest it follows the day's progress (2 of 5 done shows 40%). Finishing the last chore is the flourish, on the wash's clock. A: the halo swells to a peak and settles to the "completed day" border. B: the border is retraced round the whole perimeter from the corner the wave enters, with a bright head, over the resting fraction, then settles. Toggling a chore off takes it back.</p>
+    </div>
+    <div>
+      <h2>Toggles</h2>
+      <div class="seg" id="toggles" role="group" aria-label="Toggle colours">
+        <button data-toggles="system" aria-pressed="true">System green</button><button data-toggles="promise">Promise</button>
+      </div>
+      <p class="note">Promise: off = the system grey warmed a hint toward gold (morning, a promise unfulfilled; it must not read as active), on = a lavender a shade softer than the icon's (evening, fulfilled).</p>
+    </div>
+    <div>
+      <h2>Motion</h2>
+      <div class="seg" id="motion" role="group" aria-label="Motion">
+        <button data-motion="0" aria-pressed="true">Expand, retreat</button><button data-motion="1">Roll through</button>
+      </div>
+      <p class="note" id="motionNote"></p>
+    </div>
+    <div>
+      <h2>Device</h2>
+      <div class="seg" id="platform" role="group" aria-label="Device">
+        <button data-platform="iphone" aria-pressed="true">iPhone</button><button data-platform="ipad">iPad 13&Prime;</button><button data-platform="mac">Mac</button>
+      </div>
+    </div>
+    <div>
+      <h2>Shape</h2>
+      <div class="field"><label for="look">Look</label><select id="look"></select></div>
+      <div class="field"><label for="seed">Seed</label><div style="display:flex;gap:6px"><input type="number" id="seed" step="0.1" value="3.7"><button class="btn" id="newSeed">New</button></div></div>
+      <div class="field"><label for="strength">Strength</label><input type="range" id="strength" min="0" max="1" step="0.05" value="1"></div>
+      <div class="field"><label for="duration">Duration</label><input type="number" id="duration" step="0.1" min="0.5" max="10" value="3.2"></div>
+    </div>
+    <div>
+      <h2>Mac lab</h2>
+      <button class="btn" id="copy">Copy run.sh flags</button>
+      <p class="note">Renders this exact frame from the shipping Metal file. <kbd>Space</kbd> replay/pause, <kbd>&larr;</kbd> <kbd>&rarr;</kbd> step a frame.</p>
+    </div>
+    <p class="status" id="status">Loading&hellip;</p>
+    <details><summary>Converted GLSL</summary><pre id="glsl"></pre></details>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const ITERATIONS = [{"id": "01-water-swash", "title": "Water swash", "date": "Nov 4", "note": "First pass at the beach idea, taken literally: a crisp lobed front with a foam line and lace, a darker wet line ahead of it, caustic glints in the water, a wet sheen after the backwash. Set aside: you asked for gas, not water.", "looks": ["Shore", "No foam", "Diagonal"], "duration": 2.6, "defaults": {}, "file": "tools/wash-lab/iterations/01-water-swash.metal", "glsl": "#version 300 es\nprecision highp float;\nprecision highp int;\nfloat saturate(float x) { return clamp(x, 0.0, 1.0); }\nvec2 saturate(vec2 x) { return clamp(x, 0.0, 1.0); }\nvec3 saturate(vec3 x) { return clamp(x, 0.0, 1.0); }\n\n// Completion wash: a one-shot celebration drawn behind a day's cards when its last open chore\n// is completed. Its motion is a wave washing up a beach, seen from above: it rolls in from the\n// bottom edge, fills the screen, swirls, then drains back down. Its material is a lit, matte\n// gas: the app icon's two colours billow and blend in soft gradients with a warm glow at the\n// leading edge. There are no hard edges, foam lines or highlights.\n//\n// Used as a SwiftUI `colorEffect` on a rectangle filled with the list's background, so\n// `position` (points) and `color` (the background pixel) are implicit. Custom parameters\n// follow in order:\n//   size      the layer's size in points\n//   time      seconds since the wash started\n//   duration  the whole effect's length in seconds (it is transparent at and after it)\n//   seed      varies the billows from one wash to the next\n//   colorA    the warm colour (amber), colorB the cool colour (lavender), glow the bloom (honey)\n//   dark      1 in dark appearance, else 0\n//   look      DEBUG look variant: 0 billow (default), 1 calm (smoother haze), 2 diagonal\n//   strength  0...1 opacity scale (1 on iOS; lower where rows sit on the background, e.g. Mac)\n//\n// Colours are mixed in OKLab (Bj?rn Ottosson) so amber and lavender meet without the grey\n// midpoint of an sRGB blend. Inputs are taken as gamma-encoded sRGB, the working space of the\n// incoming pixel.\n//\n// Cost: pixels well ahead of the rolling front return early. Covered pixels evaluate 16\n// value-noise lookups (a two-layer domain warp of 3-octave fBm, plus the front's lobes).\n\n// Integer lattice hash ? 0...1. Stable on every GPU (sin-based hashes band at large inputs).\nfloat hash(vec2 cell) {\n    uvec2 q = uvec2(ivec2(cell)) * uvec2(1597334673u, 3812015801u);\n    uint n = (q.x ^ q.y) * 1597334673u;\n    return float(n) * (1.0 / 4294967295.0);\n}\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    float a = hash(i);\n    float b = hash(i + vec2(1, 0));\n    float c = hash(i + vec2(0, 1));\n    float d = hash(i + vec2(1, 1));\n    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);\n}\n\n// Fractal noise normalised to 0...1 (mean ? 0.5). Each octave is rotated to hide the grid.\nfloat fbm(vec2 p, int octaves) {\n    float value = 0.0;\n    float amplitude = 0.5;\n    float total = 0.0;\n    const mat2 turn = mat2(0.8, 0.6, -0.6, 0.8);\n    for (int k = 0; k < octaves; k++) {\n        value += amplitude * noise(p);\n        total += amplitude;\n        p = turn * p * 2.03 + 17.1;\n        amplitude *= 0.5;\n    }\n    return value / total;\n}\n\n// sRGB transfer functions, per channel (scalar on purpose: the wash lab converts this file to\n// WebGL, where vector comparisons are spelled differently).\nfloat toLinear1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.04045 ? a / 12.92 : pow((a + 0.055) / 1.055, 2.4));\n}\n\nfloat toGamma1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.0031308 ? a * 12.92 : 1.055 * pow(a, 1.0 / 2.4) - 0.055);\n}\n\nvec3 toLinear(vec3 c) { return vec3(toLinear1(c.r), toLinear1(c.g), toLinear1(c.b)); }\nvec3 toGamma(vec3 c) { return vec3(toGamma1(c.r), toGamma1(c.g), toGamma1(c.b)); }\n\nfloat cubeRoot(float x) { return sign(x) * pow(abs(x), 1.0 / 3.0); }\n\nvec3 toOklab(vec3 rgb) {\n    vec3 c = toLinear(rgb);\n    float l = cubeRoot(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b);\n    float m = cubeRoot(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b);\n    float s = cubeRoot(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);\n    return vec3(0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,\n                  1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,\n                  0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);\n}\n\nvec3 fromOklab(vec3 lab) {\n    float l = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;\n    float m = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;\n    float s = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;\n    l = l * l * l; m = m * m * m; s = s * s * s;\n    vec3 c = vec3( 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,\n                      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,\n                      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s);\n    return toGamma(c);\n}\n\nvec4 choreWash(vec2 position, vec4 color,\n                                 vec2 size, float time, float duration, float seed,\n                                 vec4 colorA, vec4 colorB, vec4 glow,\n                                 float dark, float look, float strength) {\n    float tau = time / max(duration, 0.001);\n    if (tau <= 0.0 || tau >= 1.0) { return color; }\n\n    float height = max(size.y, 1.0);\n    float up = 1.0 - position.y / height;\n    if (look > 1.5) {\n        up = 0.72 * up + 0.28 * (position.x / max(size.x, 1.0));\n    }\n    vec2 p = position / 320.0;\n\n    float climb = 1.0 - pow(1.0 - saturate(tau / 0.40), 3.0);\n    float drain = saturate((tau - 0.52) / 0.36);\n    drain *= drain;\n    float reach = mix(-0.16, 1.24, climb) - 1.5 * drain;\n\n    float lobes = 0.11 * (noise(vec2(p.x * 2.1 + seed, time * 0.35)) - 0.5)\n                + 0.06 * (noise(vec2(p.x * 5.3 - seed, time * 0.6 + 4.0)) - 0.5);\n    float depth = reach + lobes - up;\n\n    if (drain <= 0.0 && depth < -0.05) { return color; }\n\n    vec2 q0 = p + vec2(seed * 1.7, reach * (height / 320.0) * 0.55);\n\n    vec2 q = vec2(fbm(q0 * 1.1 + time * vec2(0.10, 0.05), 3),\n                      fbm(q0 * 1.1 + vec2(5.2, 1.3) - time * vec2(0.06, 0.12), 3));\n    vec2 r = vec2(fbm(q0 * 1.1 + 3.2 * q + vec2(1.7, 9.2) + 0.25 * time, 3),\n                      fbm(q0 * 1.1 + 3.2 * q + vec2(8.3, 2.8) - 0.21 * time, 3));\n    float swirl = fbm(q0 * 1.1 + 3.0 * r, 4);\n\n    float under = saturate(depth);\n    float field = swirl + under * 0.22 - 0.15;\n    float mixer = smoothstep(0.42, 0.58, field);\n    vec3 water = fromOklab(mix(toOklab(vec3(colorA.rgb)),\n                                       toOklab(vec3(colorB.rgb)), mixer));\n\n    float shallow = exp(-max(depth, 0.0) / 0.045);\n    water = mix(water, vec3(glow.rgb), 0.38 * shallow * (1.0 - drain));\n\n    float ridge = 1.0 - abs(2.0 * fbm(q0 * 2.6 + 1.6 * r + time * 0.3, 3) - 1.0);\n    float caustic = pow(ridge, 14.0) * 0.45 * (1.0 - drain);\n    water += caustic * (1.0 - water);\n\n    float soft = mix(0.006, 0.08, saturate(drain * 1.6));\n    float cover = smoothstep(-soft * 0.3, soft, depth);\n    float alpha = cover * (0.62 + 0.26 * smoothstep(0.0, 0.12, depth));\n    if (dark > 0.5) {\n        float core = smoothstep(0.04, 0.22, abs(field - 0.5));\n        alpha = cover * mix(0.28, 0.92, core);\n    }\n\n    float foam = 0.0;\n    float depthPts = depth * height;\n    if (look < 0.5 || look > 1.5) {\n        float bubbles = smoothstep(0.38, 0.56, fbm(q0 * 15.0 + vec2(seed * 3.1, -time * 0.9), 2));\n        float lace = fbm(q0 * 6.0 + vec2(seed * 1.3, -time * 0.7), 3);\n        float line = smoothstep(-1.0, 1.2, depthPts) * exp(-max(depthPts, 0.0) / 10.0) * (1.0 - drain);\n        float edge = line * (0.45 + 0.55 * bubbles);\n        float trail = step(0.0, depth) * exp(-depth / 0.08) * smoothstep(0.56, 0.70, lace) * bubbles\n                    * 0.8 * (1.0 - drain);\n        float strand = step(depth, 0.0) * drain * (1.0 - drain) * 2.4\n                     * smoothstep(0.60, 0.74, lace) * bubbles * exp(depth / 0.25);\n        foam = saturate(max(max(edge, trail), strand));\n    }\n\n    float wet = step(depth, 0.0) * smoothstep(0.0, 0.3, drain) * (1.0 - smoothstep(0.55, 1.0, tau))\n              * 0.22 * smoothstep(-1.3, -0.02, depth);\n    alpha = max(alpha, wet);\n\n    vec3 foamColor = dark > 0.5 ? mix(vec3(glow.rgb), vec3(1.0), 0.45) * 0.92\n                                  : mix(vec3(1.0), vec3(glow.rgb), 0.22);\n    vec3 tint = mix(water, foamColor, foam);\n    alpha = max(alpha, foam * 0.95);\n    alpha *= (1.0 - smoothstep(0.9, 1.0, tau)) * strength;\n\n    vec3 base = vec3(color.rgb);\n    float wetLine = smoothstep(-8.0, -0.5, depthPts) * (1.0 - smoothstep(-0.5, 0.5, depthPts)) * (1.0 - drain);\n    base = mix(base, base * (dark > 0.5 ? 1.0 : 0.9) * mix(vec3(1.0), vec3(colorB.rgb), 0.25),\n               wetLine * (1.0 - smoothstep(0.9, 1.0, tau)));\n    return vec4(vec3(mix(base, tint, alpha)), color.a);\n}\n\nuniform vec2 uCanvasPx;\nuniform float uScale;\nuniform vec2 uSize;\nuniform float uTime, uDuration, uSeed, uDark, uLook, uMotion, uStrength;\nuniform vec4 uBase, uA, uB, uGlow;\nout vec4 outColor;\nvoid main() {\n    vec2 px = vec2(gl_FragCoord.x, uCanvasPx.y - gl_FragCoord.y);\n    outColor = choreWash(px / uScale, uBase, uSize, uTime, uDuration, uSeed,\n                         uA, uB, uGlow, uDark, uLook, uStrength);\n}\n"}, {"id": "02-gas-billow", "title": "Gas billow", "date": "Nov 5", "note": "After your steer (diffuse, glowy, matte, lit; gradients, no boundary lines). Same wave motion, now a feathered front and soft billows mixed in OKLab. Amber sits high and lavender low, like the icon, with a honey bloom at the leading edge. In dark mode amber glows in the thick cores and thin gas falls to lavender.", "looks": ["Billow", "Calm", "Diagonal"], "duration": 2.6, "defaults": {}, "file": "tools/wash-lab/iterations/02-gas-billow.metal", "glsl": "#version 300 es\nprecision highp float;\nprecision highp int;\nfloat saturate(float x) { return clamp(x, 0.0, 1.0); }\nvec2 saturate(vec2 x) { return clamp(x, 0.0, 1.0); }\nvec3 saturate(vec3 x) { return clamp(x, 0.0, 1.0); }\n\n// Completion wash: a one-shot celebration drawn behind a day's cards when its last open chore\n// is completed. Its motion is a wave washing up a beach, seen from above: it rolls in from the\n// bottom edge, fills the screen, swirls, then drains back down. Its material is a lit, matte\n// gas: the app icon's two colours billow and blend in soft gradients with a warm glow at the\n// leading edge. There are no hard edges, foam lines or highlights.\n//\n// Used as a SwiftUI `colorEffect` on a rectangle filled with the list's background, so\n// `position` (points) and `color` (the background pixel) are implicit. Custom parameters\n// follow in order:\n//   size      the layer's size in points\n//   time      seconds since the wash started\n//   duration  the whole effect's length in seconds (it is transparent at and after it)\n//   seed      varies the billows from one wash to the next\n//   colorA    the warm colour (amber), colorB the cool colour (lavender), glow the bloom (honey)\n//   dark      1 in dark appearance, else 0\n//   look      DEBUG look variant: 0 billow (default), 1 calm (smoother haze), 2 diagonal\n//   strength  0...1 opacity scale (1 on iOS; lower where rows sit on the background, e.g. Mac)\n//\n// Colours are mixed in OKLab (Bj?rn Ottosson) so amber and lavender meet without the grey\n// midpoint of an sRGB blend. Inputs are taken as gamma-encoded sRGB, the working space of the\n// incoming pixel.\n//\n// Cost: pixels well ahead of the rolling front return early. Covered pixels evaluate 16\n// value-noise lookups (a two-layer domain warp of 3-octave fBm, plus the front's lobes).\n\n// Integer lattice hash ? 0...1. Stable on every GPU (sin-based hashes band at large inputs).\nfloat hash(vec2 cell) {\n    uvec2 q = uvec2(ivec2(cell)) * uvec2(1597334673u, 3812015801u);\n    uint n = (q.x ^ q.y) * 1597334673u;\n    return float(n) * (1.0 / 4294967295.0);\n}\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    float a = hash(i);\n    float b = hash(i + vec2(1, 0));\n    float c = hash(i + vec2(0, 1));\n    float d = hash(i + vec2(1, 1));\n    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);\n}\n\n// Fractal noise normalised to 0...1 (mean ? 0.5). Each octave is rotated to hide the grid.\nfloat fbm(vec2 p, int octaves) {\n    float value = 0.0;\n    float amplitude = 0.5;\n    float total = 0.0;\n    const mat2 turn = mat2(0.8, 0.6, -0.6, 0.8);\n    for (int k = 0; k < octaves; k++) {\n        value += amplitude * noise(p);\n        total += amplitude;\n        p = turn * p * 2.03 + 17.1;\n        amplitude *= 0.5;\n    }\n    return value / total;\n}\n\n// sRGB transfer functions, per channel (scalar on purpose: the wash lab converts this file to\n// WebGL, where vector comparisons are spelled differently).\nfloat toLinear1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.04045 ? a / 12.92 : pow((a + 0.055) / 1.055, 2.4));\n}\n\nfloat toGamma1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.0031308 ? a * 12.92 : 1.055 * pow(a, 1.0 / 2.4) - 0.055);\n}\n\nvec3 toLinear(vec3 c) { return vec3(toLinear1(c.r), toLinear1(c.g), toLinear1(c.b)); }\nvec3 toGamma(vec3 c) { return vec3(toGamma1(c.r), toGamma1(c.g), toGamma1(c.b)); }\n\nfloat cubeRoot(float x) { return sign(x) * pow(abs(x), 1.0 / 3.0); }\n\nvec3 toOklab(vec3 rgb) {\n    vec3 c = toLinear(rgb);\n    float l = cubeRoot(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b);\n    float m = cubeRoot(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b);\n    float s = cubeRoot(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);\n    return vec3(0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,\n                  1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,\n                  0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);\n}\n\nvec3 fromOklab(vec3 lab) {\n    float l = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;\n    float m = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;\n    float s = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;\n    l = l * l * l; m = m * m * m; s = s * s * s;\n    vec3 c = vec3( 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,\n                      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,\n                      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s);\n    return toGamma(c);\n}\n\nvec4 choreWash(vec2 position, vec4 color,\n                                 vec2 size, float time, float duration, float seed,\n                                 vec4 colorA, vec4 colorB, vec4 glow,\n                                 float dark, float look, float strength) {\n    float tau = time / max(duration, 0.001);\n    if (tau <= 0.0 || tau >= 1.0) { return color; }\n\n    float height = max(size.y, 1.0);\n    // How far up the screen, as a fraction: 0 at the bottom edge, 1 at the top. The diagonal\n    // look rolls in from the bottom-leading corner instead.\n    float up = 1.0 - position.y / height;\n    if (look > 1.5) {\n        up = 0.72 * up + 0.28 * (position.x / max(size.x, 1.0));\n    }\n    // Feature units: one unit ? a phone's width, so billows keep their physical size on an iPad\n    // or a Mac instead of stretching.\n    vec2 p = position / 320.0;\n\n    // The wave's motion: it rushes in and slows (ease-out), lingers, then drains back with\n    // gathering speed (ease-in).\n    float climb = 1.0 - pow(1.0 - saturate(tau / 0.40), 3.0);\n    float drain = saturate((tau - 0.50) / 0.40);\n    drain *= drain;\n    float reach = mix(-0.30, 1.40, climb) - 1.75 * drain;\n\n    // Well ahead of the rolling front there's nothing to draw.\n    if (drain <= 0.0 && reach - up < -0.40) { return color; }\n\n    // The gas carries its pattern: it rides up with the wave and back down as it drains.\n    vec2 q0 = p * 0.85 + vec2(seed * 1.7, reach * (height / 320.0) * 0.5);\n\n    // Domain-warped fBm (Inigo Quilez), low frequency and few octaves: big soft billows that\n    // swirl and fold into each other, with no fine detail or hard seams. The calm look warps\n    // less, for a smoother haze.\n    float warp = look > 0.5 && look < 1.5 ? 1.6 : 2.6;\n    vec2 q = vec2(fbm(q0 + time * vec2(0.12, 0.04), 3),\n                      fbm(q0 + vec2(5.2, 1.3) - time * vec2(0.05, 0.10), 3));\n    vec2 r = vec2(fbm(q0 + warp * q + vec2(1.7, 9.2) + 0.22 * time, 3),\n                      fbm(q0 + warp * q + vec2(8.3, 2.8) - 0.18 * time, 3));\n    float density = fbm(q0 + 2.4 * r, 3);\n\n    // The front is a wide billowing gradient rather than a line: the gas's own density pushes\n    // it ahead in places and holds it back in others.\n    float lobes = 0.07 * (noise(vec2(p.x * 1.6 + seed, time * 0.3)) - 0.5);\n    float depth = reach + lobes + 0.22 * (density - 0.5) - up;\n    float cover = smoothstep(-0.16, 0.24, depth);\n\n    // Colour: a broad OKLab gradient between the two colours, steered by the swirl. Like the\n    // app icon, amber sits high and lavender low, and amber also leads at the rolling front;\n    // the wide transition keeps them blending.\n    float thickness = smoothstep(0.2, 0.8, density);\n    float field = 0.55 * density + 0.45 * r.y + 0.40 * (0.42 - up)\n                - 0.22 * exp(-max(depth, 0.0) / 0.25);\n    float mixer = smoothstep(0.26, 0.74, field);\n    if (dark > 0.5) {\n        // At night thin gas falls to lavender, so amber only shows where it glows brightest\n        // (dim amber over black reads as khaki).\n        mixer = max(mixer, 1.0 - smoothstep(0.35, 0.85, thickness));\n    }\n    vec3 lab = mix(toOklab(vec3(colorA.rgb)), toOklab(vec3(colorB.rgb)), mixer);\n\n    // Lit and matte: a soft key light from the top-leading corner shades the billows by the\n    // slope of the warp field (a diffuse term only, no highlights).\n    vec3 normal = normalize(vec3((q - 0.5) * 1.2, 1.0));\n    float lambert = saturate(dot(normal, normalize(vec3(-0.45, -0.6, 0.65))));\n    lab.x *= mix(0.95, 1.05, lambert);\n    vec3 gas = fromOklab(lab);\n\n    // Glow: a broad warm bloom rides just behind the front (the App Store creative's honey\n    // highlight) and fades as the wave drains.\n    float bloom = exp(-pow((depth - 0.12) / 0.18, 2.0)) * (1.0 - 0.7 * drain);\n    gas = mix(gas, vec3(glow.rgb), 0.6 * bloom);\n\n    // Thicker gas is more opaque; thin gas lets the background through, so it reads as wisps.\n    float alpha;\n    if (dark > 0.5) {\n        // At night it glows: full-brightness colour in the thick cores, dark gaps between them\n        // (dimming amber over black would turn it mustard).\n        alpha = cover * mix(0.40, 0.95, thickness);\n    } else {\n        alpha = cover * mix(0.66, 0.92, thickness);\n    }\n    // As it drains it also thins out, and the whole thing eases away over the last tenth.\n    alpha *= 1.0 - 0.45 * drain;\n    alpha *= (1.0 - smoothstep(0.88, 1.0, tau)) * strength;\n\n    return vec4(vec3(mix(vec3(color.rgb), gas, alpha)), color.a);\n}\n\nuniform vec2 uCanvasPx;\nuniform float uScale;\nuniform vec2 uSize;\nuniform float uTime, uDuration, uSeed, uDark, uLook, uMotion, uStrength;\nuniform vec4 uBase, uA, uB, uGlow;\nout vec4 outColor;\nvoid main() {\n    vec2 px = vec2(gl_FragCoord.x, uCanvasPx.y - gl_FragCoord.y);\n    outColor = choreWash(px / uScale, uBase, uSize, uTime, uDuration, uSeed,\n                         uA, uB, uGlow, uDark, uLook, uStrength);\n}\n"}, {"id": "03-lit-gas", "title": "Lit gas, from the corner", "date": "Nov 5", "note": "Your notes on 02: enter from the lower right, linger longer. Now rolls in from the lower trailing corner and holds about a second with a slow breath before draining (3.2 s total). Lit from where it enters: three short light taps through the gas give Beer-law shadowing with a soft powder term, so billows read as matte and lit, never glossy. Triangular dither against banding.", "looks": ["Corner", "Calm", "Straight up"], "duration": 3.2, "defaults": {}, "file": "tools/wash-lab/iterations/03-lit-gas.metal", "glsl": "#version 300 es\nprecision highp float;\nprecision highp int;\nfloat saturate(float x) { return clamp(x, 0.0, 1.0); }\nvec2 saturate(vec2 x) { return clamp(x, 0.0, 1.0); }\nvec3 saturate(vec3 x) { return clamp(x, 0.0, 1.0); }\n\n// Completion wash: a one-shot celebration drawn behind a day's cards when its last open chore\n// is completed. Its motion is a wave washing up a beach, seen from above: it rolls in from the\n// lower trailing corner, fills the screen, lingers and turns, then drains back out. Its\n// material is a lit, matte gas: the app icon's two colours billow and blend in soft gradients,\n// lit from where the wave enters, with a warm glow at the leading edge. There are no hard\n// edges, foam lines or highlights.\n//\n// Used as a SwiftUI `colorEffect` on a rectangle filled with the list's background, so\n// `position` (points) and `color` (the background pixel) are implicit. Custom parameters\n// follow in order:\n//   size      the layer's size in points\n//   time      seconds since the wash started\n//   duration  the whole effect's length in seconds (it is transparent at and after it)\n//   seed      varies the billows from one wash to the next\n//   colorA    the warm colour (amber), colorB the cool colour (lavender), glow the bloom (honey)\n//   dark      1 in dark appearance, else 0\n//   look      DEBUG look variant: 0 corner (default), 1 calm (smoother haze), 2 straight up\n//   strength  0...1 opacity scale (1 on iOS; lower where rows sit on the background, e.g. Mac)\n//\n// Colours are mixed in OKLab (Bj?rn Ottosson) so amber and lavender meet without the grey\n// midpoint of an sRGB blend. Inputs are taken as gamma-encoded sRGB, the working space of the\n// incoming pixel.\n//\n// Cost: pixels well ahead of the rolling front return early. Covered pixels evaluate about 24\n// value-noise lookups (a two-layer domain warp of 3-octave fBm, three 2-octave light taps,\n// the front's lobes and the dither).\n\n// Integer lattice hash ? 0...1. Stable on every GPU (sin-based hashes band at large inputs).\nfloat hash(vec2 cell) {\n    uvec2 q = uvec2(ivec2(cell)) * uvec2(1597334673u, 3812015801u);\n    uint n = (q.x ^ q.y) * 1597334673u;\n    return float(n) * (1.0 / 4294967295.0);\n}\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    float a = hash(i);\n    float b = hash(i + vec2(1, 0));\n    float c = hash(i + vec2(0, 1));\n    float d = hash(i + vec2(1, 1));\n    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);\n}\n\n// Fractal noise normalised to 0...1 (mean ? 0.5). Each octave is rotated to hide the grid.\nfloat fbm(vec2 p, int octaves) {\n    float value = 0.0;\n    float amplitude = 0.5;\n    float total = 0.0;\n    const mat2 turn = mat2(0.8, 0.6, -0.6, 0.8);\n    for (int k = 0; k < octaves; k++) {\n        value += amplitude * noise(p);\n        total += amplitude;\n        p = turn * p * 2.03 + 17.1;\n        amplitude *= 0.5;\n    }\n    return value / total;\n}\n\n// sRGB transfer functions, per channel (scalar on purpose: the wash lab converts this file to\n// WebGL, where vector comparisons are spelled differently).\nfloat toLinear1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.04045 ? a / 12.92 : pow((a + 0.055) / 1.055, 2.4));\n}\n\nfloat toGamma1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.0031308 ? a * 12.92 : 1.055 * pow(a, 1.0 / 2.4) - 0.055);\n}\n\nvec3 toLinear(vec3 c) { return vec3(toLinear1(c.r), toLinear1(c.g), toLinear1(c.b)); }\nvec3 toGamma(vec3 c) { return vec3(toGamma1(c.r), toGamma1(c.g), toGamma1(c.b)); }\n\nfloat cubeRoot(float x) { return sign(x) * pow(abs(x), 1.0 / 3.0); }\n\nvec3 toOklab(vec3 rgb) {\n    vec3 c = toLinear(rgb);\n    float l = cubeRoot(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b);\n    float m = cubeRoot(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b);\n    float s = cubeRoot(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);\n    return vec3(0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,\n                  1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,\n                  0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);\n}\n\nvec3 fromOklab(vec3 lab) {\n    float l = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;\n    float m = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;\n    float s = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;\n    l = l * l * l; m = m * m * m; s = s * s * s;\n    vec3 c = vec3( 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,\n                      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,\n                      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s);\n    return toGamma(c);\n}\n\nvec4 choreWash(vec2 position, vec4 color,\n                                 vec2 size, float time, float duration, float seed,\n                                 vec4 colorA, vec4 colorB, vec4 glow,\n                                 float dark, float look, float strength) {\n    float tau = time / max(duration, 0.001);\n    if (tau <= 0.0 || tau >= 1.0) { return color; }\n\n    float width = max(size.x, 1.0);\n    float height = max(size.y, 1.0);\n    // How far the wave has to travel to reach this pixel, as a fraction: 0 at its origin, 1 at\n    // the far corner. By default it rolls in from the lower trailing corner (the \"straight\"\n    // look rises from the bottom edge instead).\n    vec2 uv = position / vec2(width, height);\n    float up = look > 1.5 ? 1.0 - uv.y : 0.68 * (1.0 - uv.y) + 0.32 * (1.0 - uv.x);\n    // Feature units: one unit ? a phone's width, so billows keep their physical size on an iPad\n    // or a Mac instead of stretching.\n    vec2 p = position / 320.0;\n\n    // The wave's motion: it rushes in and slows (ease-out), lingers while the gas keeps\n    // turning, then drains back with gathering speed (ease-in).\n    float climb = 1.0 - pow(1.0 - saturate(tau / 0.34), 3.0);\n    float drain = saturate((tau - 0.60) / 0.40);\n    drain *= drain;\n    // A slow breath while it lingers, so the front never sits still.\n    float breath = 0.025 * sin(time * 2.1 + seed);\n    float reach = mix(-0.30, 1.45, climb) + breath - 1.85 * drain;\n\n    // Well ahead of the rolling front there's nothing to draw.\n    if (drain <= 0.0 && reach - up < -0.42) { return color; }\n\n    // The gas carries its pattern: it rides in with the wave and back out as it drains, along\n    // the wave's own direction.\n    vec2 along = look > 1.5 ? vec2(0.0, 1.0) : normalize(vec2(0.32, 0.68));\n    vec2 q0 = p * 0.85 + vec2(seed * 1.7, seed * 0.6) + along * reach * (height / 320.0) * 0.5;\n\n    // Domain-warped fBm (Inigo Quilez), low frequency and few octaves: big soft billows that\n    // swirl and fold into each other, with no fine detail or hard seams. The calm look warps\n    // less, for a smoother haze.\n    float warp = look > 0.5 && look < 1.5 ? 1.6 : 2.6;\n    vec2 q = vec2(fbm(q0 + time * vec2(0.12, 0.04), 3),\n                      fbm(q0 + vec2(5.2, 1.3) - time * vec2(0.05, 0.10), 3));\n    vec2 r = vec2(fbm(q0 + warp * q + vec2(1.7, 9.2) + 0.22 * time, 3),\n                      fbm(q0 + warp * q + vec2(8.3, 2.8) - 0.18 * time, 3));\n    vec2 qd = q0 + 2.4 * r;\n    float density = fbm(qd, 3);\n\n    // The front is a wide billowing gradient rather than a line: the gas's own density pushes\n    // it ahead in places and holds it back in others.\n    float lobes = 0.07 * (noise(vec2(dot(p, vec2(along.y, -along.x)) * 1.6 + seed, time * 0.3)) - 0.5);\n    float depth = reach + lobes + 0.22 * (density - 0.5) - up;\n    float cover = smoothstep(-0.16, 0.24, depth);\n\n    // Lit, matte: light comes from where the wave enters. Three short steps toward the light\n    // sample how much gas is in the way (the same warp, fewer octaves), then Beer's law dims\n    // the shadowed side and a \"powder\" term keeps the lit faces soft rather than glossy.\n    vec2 toLight = look > 1.5 ? vec2(0.0, 0.55) : vec2(0.38, 0.40);\n    float shadowing = 0.0;\n    for (int k = 1; k <= 3; k++) {\n        shadowing += fbm(qd + toLight * float(k), 2);\n    }\n    shadowing = max(shadowing - 1.2, 0.0);            // only gas denser than average shadows\n    float beer = exp(-1.1 * shadowing);\n    float powder = 1.0 - exp(-2.5 * (shadowing + 0.3));\n    float lit = beer * powder;\n\n    // Colour: a broad OKLab gradient between the two colours, steered by the swirl. Amber\n    // leads at the front and sits high, like the icon; lavender gathers deep in the body. The\n    // wide transition keeps them blending, with chroma lifted through the middle so the blend\n    // stays a colour rather than a grey.\n    float thickness = smoothstep(0.2, 0.8, density);\n    float field = 0.55 * density + 0.45 * r.y + 0.30 * (0.45 - uv.y) - 0.26 * exp(-max(depth, 0.0) / 0.25);\n    float mixer = smoothstep(0.26, 0.74, field);\n    if (dark > 0.5) {\n        // At night thin gas falls to lavender, so amber only shows where it glows brightest\n        // (dim amber over black reads as khaki).\n        mixer = max(mixer, 1.0 - smoothstep(0.35, 0.85, thickness * (0.55 + 0.45 * lit)));\n    }\n    vec3 labA = toOklab(vec3(colorA.rgb));\n    vec3 labB = toOklab(vec3(colorB.rgb));\n    vec3 lab = mix(labA, labB, mixer);\n    lab.yz *= 1.0 + 0.30 * sin(3.14159 * mixer);\n    // Warm light, cool shadow: shadowed gas deepens toward a saturated periwinkle instead of\n    // greying, and lit faces lift a little.\n    vec3 labShadow = vec3(labB.x * 0.88, labB.yz * 1.3);\n    lab = mix(lab, labShadow, 0.38 * (1.0 - lit));\n    // In the dark the light adds rather than the shadow taking away, so the cores glow.\n    lab.x *= dark > 0.5 ? mix(1.0, 1.10, lit) : mix(0.94, 1.04, lit);\n    vec3 gas = fromOklab(lab);\n    // Lit faces catch a broad, matte warmth from the glow colour.\n    gas = mix(gas, vec3(glow.rgb), 0.22 * lit * thickness);\n\n    // Glow: a broad warm bloom rides just behind the front (the App Store creative's honey\n    // highlight), strongest on the lit faces, fading as the wave drains.\n    float bloom = exp(-pow((depth - 0.12) / 0.20, 2.0)) * (1.0 - 0.7 * drain) * (0.6 + 0.4 * lit);\n    gas = mix(gas, vec3(glow.rgb), 0.55 * bloom);\n\n    // Thicker gas is more opaque; thin gas lets the background through, so it reads as wisps.\n    float alpha = dark > 0.5 ? cover * mix(0.40, 0.95, thickness)\n                             : cover * mix(0.66, 0.92, thickness);\n    // As it drains it also thins out, and the whole thing eases away over the last tenth.\n    alpha *= 1.0 - 0.45 * drain;\n    alpha *= (1.0 - smoothstep(0.88, 1.0, tau)) * strength;\n\n    vec3 result = mix(vec3(color.rgb), gas, alpha);\n    // Triangular dither, about one step of 8-bit, so the soft gradients don't band on flat\n    // backgrounds (strongest in dark mode).\n    vec2 grain = position + time * 37.0;\n    float dither = (hash(floor(grain)) + hash(floor(grain + 71.0)) - 1.0) / 255.0;\n    result += dither * alpha;\n    return vec4(vec3(result), color.a);\n}\n\nuniform vec2 uCanvasPx;\nuniform float uScale;\nuniform vec2 uSize;\nuniform float uTime, uDuration, uSeed, uDark, uLook, uMotion, uStrength;\nuniform vec4 uBase, uA, uB, uGlow;\nout vec4 outColor;\nvoid main() {\n    vec2 px = vec2(gl_FragCoord.x, uCanvasPx.y - gl_FragCoord.y);\n    outColor = choreWash(px / uScale, uBase, uSize, uTime, uDuration, uSeed,\n                         uA, uB, uGlow, uDark, uLook, uStrength);\n}\n"}, {"id": "04-lamp", "title": "Lit gas with a lamp", "date": "Nov 5", "note": "Builds on 03. A soft honey lamp sits just off the corner the wave enters from: its light spills onto the page a beat before the gas arrives, the gas nearest it scatters it, and it holds through the linger. In dark mode the lamp adds opacity (light adds, shadow no longer takes away), so the cores glow and the amber comes back near the corner. Your pick (Nov 5): roll-through, calm look, about 8 s; those are now this iteration's defaults here and in the app.", "looks": ["Corner", "Calm", "Straight up"], "duration": 3.2, "defaults": {"motion": 1, "look": 1, "duration": 8}, "file": "tools/wash-lab/iterations/04-lamp.metal", "glsl": "#version 300 es\nprecision highp float;\nprecision highp int;\nfloat saturate(float x) { return clamp(x, 0.0, 1.0); }\nvec2 saturate(vec2 x) { return clamp(x, 0.0, 1.0); }\nvec3 saturate(vec3 x) { return clamp(x, 0.0, 1.0); }\n\n// Completion wash: a one-shot celebration drawn behind a day's cards when its last open chore\n// is completed. Its motion is a wave washing up a beach, seen from above: it rolls in from the\n// lower trailing corner, fills the screen, lingers and turns, then drains back out. Its\n// material is a lit, matte gas: the app icon's two colours billow and blend in soft gradients,\n// lit from where the wave enters, with a warm glow at the leading edge. There are no hard\n// edges, foam lines or highlights.\n//\n// Used as a SwiftUI `colorEffect` on a rectangle filled with the list's background, so\n// `position` (points) and `color` (the background pixel) are implicit. Custom parameters\n// follow in order:\n//   size      the layer's size in points\n//   time      seconds since the wash started\n//   duration  the whole effect's length in seconds (it is transparent at and after it)\n//   seed      varies the billows from one wash to the next\n//   colorA    the warm colour (amber), colorB the cool colour (lavender), glow the bloom (honey)\n//   dark      1 in dark appearance, else 0\n//   look      DEBUG look variant: 0 corner (default), 1 calm (smoother haze), 2 straight up\n//             (the lamp sits off the entry corner, or below the bottom edge for look 2)\n//   motion    0 = expand and retreat (rolls in, lingers, drains back out); 1 = roll-through (enters\n//             at the corner, slows through the middle, exits at the far corner, never reverses)\n//   strength  0...1 opacity scale (1 on iOS; lower where rows sit on the background, e.g. Mac)\n//\n// Colours are mixed in OKLab (Bj?rn Ottosson) so amber and lavender meet without the grey\n// midpoint of an sRGB blend. Inputs are taken as gamma-encoded sRGB, the working space of the\n// incoming pixel.\n//\n// Cost: pixels well ahead of the rolling front return early. Covered pixels evaluate about 24\n// value-noise lookups (a two-layer domain warp of 3-octave fBm, three 2-octave light taps,\n// the front's lobes and the dither).\n\n// Integer lattice hash ? 0...1. Stable on every GPU (sin-based hashes band at large inputs).\nfloat hash(vec2 cell) {\n    uvec2 q = uvec2(ivec2(cell)) * uvec2(1597334673u, 3812015801u);\n    uint n = (q.x ^ q.y) * 1597334673u;\n    return float(n) * (1.0 / 4294967295.0);\n}\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    float a = hash(i);\n    float b = hash(i + vec2(1, 0));\n    float c = hash(i + vec2(0, 1));\n    float d = hash(i + vec2(1, 1));\n    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);\n}\n\n// Fractal noise normalised to 0...1 (mean ? 0.5). Each octave is rotated to hide the grid.\nfloat fbm(vec2 p, int octaves) {\n    float value = 0.0;\n    float amplitude = 0.5;\n    float total = 0.0;\n    const mat2 turn = mat2(0.8, 0.6, -0.6, 0.8);\n    for (int k = 0; k < octaves; k++) {\n        value += amplitude * noise(p);\n        total += amplitude;\n        p = turn * p * 2.03 + 17.1;\n        amplitude *= 0.5;\n    }\n    return value / total;\n}\n\n// sRGB transfer functions, per channel (scalar on purpose: the wash lab converts this file to\n// WebGL, where vector comparisons are spelled differently).\nfloat toLinear1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.04045 ? a / 12.92 : pow((a + 0.055) / 1.055, 2.4));\n}\n\nfloat toGamma1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.0031308 ? a * 12.92 : 1.055 * pow(a, 1.0 / 2.4) - 0.055);\n}\n\nvec3 toLinear(vec3 c) { return vec3(toLinear1(c.r), toLinear1(c.g), toLinear1(c.b)); }\nvec3 toGamma(vec3 c) { return vec3(toGamma1(c.r), toGamma1(c.g), toGamma1(c.b)); }\n\nfloat cubeRoot(float x) { return sign(x) * pow(abs(x), 1.0 / 3.0); }\n\nvec3 toOklab(vec3 rgb) {\n    vec3 c = toLinear(rgb);\n    float l = cubeRoot(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b);\n    float m = cubeRoot(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b);\n    float s = cubeRoot(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);\n    return vec3(0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,\n                  1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,\n                  0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);\n}\n\nvec3 fromOklab(vec3 lab) {\n    float l = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;\n    float m = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;\n    float s = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;\n    l = l * l * l; m = m * m * m; s = s * s * s;\n    vec3 c = vec3( 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,\n                      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,\n                      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s);\n    return toGamma(c);\n}\n\nvec4 choreWash(vec2 position, vec4 color,\n                                 vec2 size, float time, float duration, float seed,\n                                 vec4 colorA, vec4 colorB, vec4 glow,\n                                 float dark, float look, float motion, float strength) {\n    float tau = time / max(duration, 0.001);\n    if (tau <= 0.0 || tau >= 1.0) { return color; }\n\n    float width = max(size.x, 1.0);\n    float height = max(size.y, 1.0);\n    // How far the wave has to travel to reach this pixel, as a fraction: 0 at its origin, 1 at\n    // the far corner. By default it rolls in from the lower trailing corner (the \"straight\"\n    // look rises from the bottom edge instead).\n    vec2 uv = position / vec2(width, height);\n    float up = look > 1.5 ? 1.0 - uv.y : 0.68 * (1.0 - uv.y) + 0.32 * (1.0 - uv.x);\n    // Feature units: one unit ? a phone's width, so billows keep their physical size on an iPad\n    // or a Mac instead of stretching.\n    vec2 p = position / 320.0;\n\n    // The wave's motion. Expand and retreat: it rushes in and slows (ease-out), lingers while\n    // the gas keeps turning, then drains back with gathering speed (ease-in). Roll-through: one\n    // monotonic pass that enters fast, slows through the middle and leaves fast, with a tail a\n    // screen-and-a-bit long so the whole cloud crosses and exits at the far corner.\n    bool rolls = motion > 0.5;\n    float climb = 1.0 - pow(1.0 - saturate(tau / 0.34), 3.0);\n    float drain = rolls ? 0.0 : saturate((tau - 0.60) / 0.40);\n    drain *= drain;\n    // A slow breath while it lingers, so the front never sits still.\n    float breath = 0.025 * sin(time * 2.1 + seed);\n    // Long enough that the tail clears the far corner only at the end of the duration.\n    const float cloudLength = 1.6;\n    float pass = tau + 0.12 * sin(6.28318 * tau);        // fast, slow, fast; still monotonic\n    float reach = rolls ? mix(-0.30, 1.45 + cloudLength + 0.05, pass) + breath\n                        : mix(-0.30, 1.45, climb) + breath - 1.85 * drain;\n    float tail = reach - cloudLength;                     // roll-through only: the cloud's back edge\n\n    // The light source: a soft honey lamp just off the corner the wave enters from, rising as\n    // the wave arrives and holding through the linger. It spills a little light ahead of the\n    // gas, so the glow arrives before the wash does.\n    vec2 origin = look > 1.5 ? vec2(0.5, 1.12) : vec2(1.06, 1.06);\n    vec2 toOrigin = (uv - origin) * vec2(width / height, 1.0);\n    float lamp = exp(-dot(toOrigin, toOrigin) / 0.34);\n    float lampEnv = smoothstep(0.0, 0.26, tau) * (1.0 - smoothstep(rolls ? 0.40 : 0.62, rolls ? 0.80 : 0.96, tau));\n    float lampGlow = lamp * lampEnv;\n\n    // Over black, honey at low opacity turns olive, so at night the spill is paler.\n    vec3 spillColor = dark > 0.5 ? mix(vec3(glow.rgb), vec3(1.0), 0.35) : vec3(glow.rgb);\n\n    // Well ahead of the rolling front (or, rolling through, well behind the tail) only the lamp's\n    // spill shows.\n    if ((drain <= 0.0 && reach - up < -0.42) || (rolls && tail - up > 0.42)) {\n        float spill = 0.30 * lampGlow * strength;\n        return vec4(vec3(mix(vec3(color.rgb), spillColor, spill)), color.a);\n    }\n\n    // The gas carries its pattern: it rides in with the wave and back out as it drains, along\n    // the wave's own direction.\n    vec2 along = look > 1.5 ? vec2(0.0, 1.0) : normalize(vec2(0.32, 0.68));\n    vec2 q0 = p * 0.85 + vec2(seed * 1.7, seed * 0.6) + along * reach * (height / 320.0) * 0.5;\n\n    // Domain-warped fBm (Inigo Quilez), low frequency and few octaves: big soft billows that\n    // swirl and fold into each other, with no fine detail or hard seams. The calm look warps\n    // less, for a smoother haze.\n    float warp = look > 0.5 && look < 1.5 ? 1.6 : 2.6;\n    vec2 q = vec2(fbm(q0 + time * vec2(0.12, 0.04), 3),\n                      fbm(q0 + vec2(5.2, 1.3) - time * vec2(0.05, 0.10), 3));\n    vec2 r = vec2(fbm(q0 + warp * q + vec2(1.7, 9.2) + 0.22 * time, 3),\n                      fbm(q0 + warp * q + vec2(8.3, 2.8) - 0.18 * time, 3));\n    vec2 qd = q0 + 2.4 * r;\n    float density = fbm(qd, 3);\n\n    // The front is a wide billowing gradient rather than a line: the gas's own density pushes\n    // it ahead in places and holds it back in others.\n    float lobes = 0.07 * (noise(vec2(dot(p, vec2(along.y, -along.x)) * 1.6 + seed, time * 0.3)) - 0.5);\n    float depth = reach + lobes + 0.22 * (density - 0.5) - up;\n    float cover = smoothstep(-0.16, 0.24, depth);\n    if (rolls) {\n        // The back edge is as soft as the front, so the cloud leaves the way it came.\n        float behind = tail + lobes + 0.22 * (density - 0.5) - up;\n        cover *= 1.0 - smoothstep(-0.24, 0.16, behind);\n    }\n\n    // Lit, matte: light comes from where the wave enters. Three short steps toward the light\n    // sample how much gas is in the way (the same warp, fewer octaves), then Beer's law dims\n    // the shadowed side and a \"powder\" term keeps the lit faces soft rather than glossy.\n    vec2 toLight = look > 1.5 ? vec2(0.0, 0.55) : vec2(0.38, 0.40);\n    float shadowing = 0.0;\n    for (int k = 1; k <= 3; k++) {\n        shadowing += fbm(qd + toLight * float(k), 2);\n    }\n    shadowing = max(shadowing - 1.2, 0.0);            // only gas denser than average shadows\n    float beer = exp(-1.1 * shadowing);\n    float powder = 1.0 - exp(-2.5 * (shadowing + 0.3));\n    float lit = beer * powder;\n\n    // Colour: a broad OKLab gradient between the two colours, steered by the swirl. Amber\n    // leads at the front and sits high, like the icon; lavender gathers deep in the body. The\n    // wide transition keeps them blending, with chroma lifted through the middle so the blend\n    // stays a colour rather than a grey.\n    float thickness = smoothstep(0.2, 0.8, density);\n    float field = 0.55 * density + 0.45 * r.y + 0.30 * (0.45 - uv.y) - 0.26 * exp(-max(depth, 0.0) / 0.25);\n    float mixer = smoothstep(0.26, 0.74, field);\n    if (dark > 0.5) {\n        // At night thin gas falls to lavender, so amber only shows where it glows brightest\n        // (dim amber over black reads as khaki).\n        mixer = max(mixer, 1.0 - smoothstep(0.30, 0.80, thickness * (0.55 + 0.45 * lit) + 0.3 * lampGlow));\n    }\n    vec3 labA = toOklab(vec3(colorA.rgb));\n    vec3 labB = toOklab(vec3(colorB.rgb));\n    vec3 lab = mix(labA, labB, mixer);\n    lab.yz *= 1.0 + 0.36 * sin(3.14159 * mixer);\n    // Warm light, cool shadow: shadowed gas deepens toward a saturated periwinkle instead of\n    // greying, and lit faces lift a little.\n    vec3 labShadow = vec3(labB.x * 0.88, labB.yz * 1.3);\n    lab = mix(lab, labShadow, 0.38 * (1.0 - lit));\n    // In the dark the light adds rather than the shadow taking away, so the cores glow.\n    lab.x *= dark > 0.5 ? mix(1.0, 1.14, lit) : mix(0.94, 1.04, lit);\n    // The lamp lights the gas nearest it: thick, lit gas scatters it most.\n    lab.x += (dark > 0.5 ? 0.14 : 0.06) * lampGlow * (0.4 + 0.6 * thickness * lit);\n    vec3 gas = fromOklab(lab);\n    // Lit faces catch a broad, matte warmth from the glow colour.\n    gas = mix(gas, vec3(glow.rgb), 0.22 * lit * thickness);\n\n    // Glow: a broad warm bloom rides just behind the front (the App Store creative's honey\n    // highlight), strongest on the lit faces, fading as the wave drains.\n    float bloom = exp(-pow((depth - 0.12) / 0.20, 2.0)) * (1.0 - 0.7 * drain) * (0.6 + 0.4 * lit);\n    gas = mix(gas, vec3(glow.rgb), 0.55 * bloom);\n    gas = mix(gas, vec3(glow.rgb), (dark > 0.5 ? 0.45 : 0.30) * lampGlow * (0.4 + 0.6 * thickness * lit));\n\n    // Thicker gas is more opaque; thin gas lets the background through, so it reads as wisps.\n    float alpha = dark > 0.5 ? cover * mix(0.40, 0.96, thickness)\n                             : cover * mix(0.72, 0.95, thickness);\n    // At night the lamp adds light, so lit gas near it is more opaque, not just warmer.\n    if (dark > 0.5) { alpha = max(alpha, cover * (0.5 + 0.5 * thickness) * lampGlow); }\n    // Ahead of the gas, the lamp's spill tints the page on its own.\n    float spill = (1.0 - cover) * 0.30 * lampGlow;\n    gas = mix(spillColor, gas, cover);\n    alpha = max(alpha, spill);\n    // As it drains it also thins out, and the whole thing eases away over the last tenth.\n    alpha *= 1.0 - 0.45 * drain;\n    alpha *= (1.0 - smoothstep(0.88, 1.0, tau)) * strength;\n\n    vec3 result = mix(vec3(color.rgb), gas, alpha);\n    // Triangular dither, about one step of 8-bit, so the soft gradients don't band on flat\n    // backgrounds (strongest in dark mode).\n    vec2 grain = position + time * 37.0;\n    float dither = (hash(floor(grain)) + hash(floor(grain + 71.0)) - 1.0) / 255.0;\n    result += dither * alpha;\n    return vec4(vec3(result), color.a);\n}\n\nuniform vec2 uCanvasPx;\nuniform float uScale;\nuniform vec2 uSize;\nuniform float uTime, uDuration, uSeed, uDark, uLook, uMotion, uStrength;\nuniform vec4 uBase, uA, uB, uGlow;\nout vec4 outColor;\nvoid main() {\n    vec2 px = vec2(gl_FragCoord.x, uCanvasPx.y - gl_FragCoord.y);\n    outColor = choreWash(px / uScale, uBase, uSize, uTime, uDuration, uSeed,\n                         uA, uB, uGlow, uDark, uLook, uMotion, uStrength);\n}\n"}, {"id": "05-nebula", "title": "Nebula volume", "date": "Nov 5", "note": "An attempt at the cosmos note: four parallax slices composited as a small volume, each lit by two taps toward the star, with luminous filaments, an absorption-only dust field that silhouettes against the glow behind it, and thin bright rims where clumps face the light. First cut overexposed and grey; rebalanced once. Costs about 2.3x iteration 04. Your pick as the basis (Nov 5).", "looks": ["Corner", "Calm", "Straight up"], "duration": 8, "defaults": {"motion": 1, "look": 1, "duration": 8}, "file": "tools/wash-lab/iterations/05-nebula.metal", "glsl": "#version 300 es\nprecision highp float;\nprecision highp int;\nfloat saturate(float x) { return clamp(x, 0.0, 1.0); }\nvec2 saturate(vec2 x) { return clamp(x, 0.0, 1.0); }\nvec3 saturate(vec3 x) { return clamp(x, 0.0, 1.0); }\n\n// Completion wash: a one-shot celebration drawn behind a day's cards when its last open chore\n// is completed. Its motion is a wave washing up a beach, seen from above: it rolls in from the\n// lower trailing corner, fills the screen, lingers and turns, then drains back out (or rolls\n// through). Its material is a nebula seen up close: a small volume of slices, each a lit,\n// matte gas in the app icon's two colours, with luminous filaments, dark dust lanes and thin\n// bright rims where clumps face the star that lights them. There are no hard edges or specular\n// highlights.\n//\n// Used as a SwiftUI `colorEffect` on a rectangle filled with the list's background, so\n// `position` (points) and `color` (the background pixel) are implicit. Custom parameters\n// follow in order:\n//   size      the layer's size in points\n//   time      seconds since the wash started\n//   duration  the whole effect's length in seconds (it is transparent at and after it)\n//   seed      varies the billows from one wash to the next\n//   colorA    the warm colour (amber), colorB the cool colour (lavender), glow the bloom (honey)\n//   dark      1 in dark appearance, else 0\n//   look      DEBUG look variant: 0 corner (default), 1 calm (smoother haze), 2 straight up\n//             (the lamp sits off the entry corner, or below the bottom edge for look 2)\n//   motion    0 = expand and retreat (rolls in, lingers, drains back out); 1 = roll-through (enters\n//             at the corner, slows through the middle, exits at the far corner, never reverses)\n//   strength  0...1 opacity scale (1 on iOS; lower where rows sit on the background, e.g. Mac)\n//\n// Colours are mixed in OKLab (Bj?rn Ottosson) so amber and lavender meet without the grey\n// midpoint of an sRGB blend. Inputs are taken as gamma-encoded sRGB, the working space of the\n// incoming pixel.\n//\n// Cost: pixels well ahead of the rolling front return early. Covered pixels evaluate about 54\n// value-noise lookups: a shared two-layer domain warp (12), the front (4), and four volume\n// slices of 9 each (3-octave density, two 2-octave light taps, a 2-octave dust field), plus\n// the dither.\n\n// Integer lattice hash ? 0...1. Stable on every GPU (sin-based hashes band at large inputs).\nfloat hash(vec2 cell) {\n    uvec2 q = uvec2(ivec2(cell)) * uvec2(1597334673u, 3812015801u);\n    uint n = (q.x ^ q.y) * 1597334673u;\n    return float(n) * (1.0 / 4294967295.0);\n}\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    float a = hash(i);\n    float b = hash(i + vec2(1, 0));\n    float c = hash(i + vec2(0, 1));\n    float d = hash(i + vec2(1, 1));\n    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);\n}\n\n// Fractal noise normalised to 0...1 (mean ? 0.5). Each octave is rotated to hide the grid.\nfloat fbm(vec2 p, int octaves) {\n    float value = 0.0;\n    float amplitude = 0.5;\n    float total = 0.0;\n    const mat2 turn = mat2(0.8, 0.6, -0.6, 0.8);\n    for (int k = 0; k < octaves; k++) {\n        value += amplitude * noise(p);\n        total += amplitude;\n        p = turn * p * 2.03 + 17.1;\n        amplitude *= 0.5;\n    }\n    return value / total;\n}\n\n// sRGB transfer functions, per channel (scalar on purpose: the wash lab converts this file to\n// WebGL, where vector comparisons are spelled differently).\nfloat toLinear1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.04045 ? a / 12.92 : pow((a + 0.055) / 1.055, 2.4));\n}\n\nfloat toGamma1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.0031308 ? a * 12.92 : 1.055 * pow(a, 1.0 / 2.4) - 0.055);\n}\n\nvec3 toLinear(vec3 c) { return vec3(toLinear1(c.r), toLinear1(c.g), toLinear1(c.b)); }\nvec3 toGamma(vec3 c) { return vec3(toGamma1(c.r), toGamma1(c.g), toGamma1(c.b)); }\n\nfloat cubeRoot(float x) { return sign(x) * pow(abs(x), 1.0 / 3.0); }\n\nvec3 toOklab(vec3 rgb) {\n    vec3 c = toLinear(rgb);\n    float l = cubeRoot(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b);\n    float m = cubeRoot(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b);\n    float s = cubeRoot(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);\n    return vec3(0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,\n                  1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,\n                  0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);\n}\n\nvec3 fromOklab(vec3 lab) {\n    float l = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;\n    float m = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;\n    float s = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;\n    l = l * l * l; m = m * m * m; s = s * s * s;\n    vec3 c = vec3( 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,\n                      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,\n                      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s);\n    return toGamma(c);\n}\n\nvec4 choreWash(vec2 position, vec4 color,\n                                 vec2 size, float time, float duration, float seed,\n                                 vec4 colorA, vec4 colorB, vec4 glow,\n                                 float dark, float look, float motion, float strength) {\n    float tau = time / max(duration, 0.001);\n    if (tau <= 0.0 || tau >= 1.0) { return color; }\n\n    float width = max(size.x, 1.0);\n    float height = max(size.y, 1.0);\n    // How far the wave has to travel to reach this pixel, as a fraction: 0 at its origin, 1 at\n    // the far corner. By default it rolls in from the lower trailing corner (the \"straight\"\n    // look rises from the bottom edge instead).\n    vec2 uv = position / vec2(width, height);\n    bool straight = look > 1.5;\n    float up = straight ? 1.0 - uv.y : 0.68 * (1.0 - uv.y) + 0.32 * (1.0 - uv.x);\n    // Feature units: one unit ? a phone's width, so billows keep their physical size on an iPad\n    // or a Mac instead of stretching.\n    vec2 p = position / 320.0;\n\n    // The wave's motion. Expand and retreat: it rushes in and slows (ease-out), lingers while\n    // the gas keeps turning, then drains back with gathering speed (ease-in). Roll-through: one\n    // monotonic pass that enters fast, slows through the middle and leaves fast, with a tail a\n    // screen-and-a-bit long so the whole cloud crosses and exits at the far corner.\n    bool rolls = motion > 0.5;\n    float climb = 1.0 - pow(1.0 - saturate(tau / 0.34), 3.0);\n    float drain = rolls ? 0.0 : saturate((tau - 0.60) / 0.40);\n    drain *= drain;\n    float breath = 0.025 * sin(time * 2.1 + seed);\n    // Long enough that the tail clears the far corner only at the end of the duration.\n    const float cloudLength = 1.6;\n    float pass = tau + 0.12 * sin(6.28318 * tau);\n    float reach = rolls ? mix(-0.30, 1.45 + cloudLength + 0.05, pass) + breath\n                        : mix(-0.30, 1.45, climb) + breath - 1.85 * drain;\n    float tail = reach - cloudLength;\n\n    // The light source: a star just off the corner the wave enters from. Its light spills onto\n    // the page a beat before the gas arrives and holds through the linger.\n    vec2 origin = straight ? vec2(0.5, 1.12) : vec2(1.06, 1.06);\n    vec2 toOrigin = (uv - origin) * vec2(width / height, 1.0);\n    float lamp = exp(-dot(toOrigin, toOrigin) / 0.34);\n    float lampEnv = smoothstep(0.0, 0.26, tau) * (1.0 - smoothstep(rolls ? 0.40 : 0.62, rolls ? 0.80 : 0.96, tau));\n    float lampGlow = lamp * lampEnv;\n    vec3 spillColor = dark > 0.5 ? mix(vec3(glow.rgb), vec3(1.0), 0.35) : vec3(glow.rgb);\n    vec3 page = vec3(color.rgb);\n    float fade = (1.0 - smoothstep(0.88, 1.0, tau)) * strength;\n\n    if ((drain <= 0.0 && reach - up < -0.42) || (rolls && tail - up > 0.42)) {\n        return vec4(vec3(mix(page, spillColor, 0.30 * lampGlow * strength)), color.a);\n    }\n\n    // One shared swirl for every layer: a two-layer domain warp (Inigo Quilez) in a frame that\n    // moves with the cloud, so the whole volume churns together.\n    vec2 along = straight ? vec2(0.0, 1.0) : normalize(vec2(0.32, 0.68));\n    float advect = reach * (height / 320.0);\n    vec2 base = p * 0.85 + vec2(seed * 1.7, seed * 0.6);\n    vec2 q0 = base + along * advect * 0.5;\n    float warp = look > 0.5 && look < 1.5 ? 1.6 : 2.6;\n    vec2 q = vec2(fbm(q0 + time * vec2(0.12, 0.04), 3),\n                      fbm(q0 + vec2(5.2, 1.3) - time * vec2(0.05, 0.10), 3));\n    vec2 r = vec2(fbm(q0 + warp * q + vec2(1.7, 9.2) + 0.22 * time, 3),\n                      fbm(q0 + warp * q + vec2(8.3, 2.8) - 0.18 * time, 3));\n    vec2 swirl = 2.4 * r;\n\n    // The front is a wide billowing gradient rather than a line: the gas's own density pushes\n    // it ahead in places and holds it back in others.\n    float densityC = fbm(q0 + swirl, 3);\n    float lobes = 0.07 * (noise(vec2(dot(p, vec2(along.y, -along.x)) * 1.6 + seed, time * 0.3)) - 0.5);\n    float depth = reach + lobes + 0.22 * (densityC - 0.5) - up;\n    float cover = smoothstep(-0.16, 0.24, depth);\n    if (rolls) {\n        float behind = tail + lobes + 0.22 * (densityC - 0.5) - up;\n        cover *= 1.0 - smoothstep(-0.24, 0.16, behind);\n    }\n\n    // The volume: four slices from far to near, composited with the \"over\" operator. Each slice\n    // is a warped density field with its own parallax (far slices drift slower and coarser),\n    // lit by two taps toward the star (Beer's law), coloured by density on an OKLab ramp (thin\n    // lavender ? amber ? a honey core), with a thin bright rim where a clump faces the light,\n    // like an ionisation front. A separate dust field only absorbs: it darkens the slices and\n    // the page behind it, so dark lanes silhouette against the glow.\n    vec3 labA = toOklab(vec3(colorA.rgb));\n    vec3 labB = toOklab(vec3(colorB.rgb));\n    vec3 labGlow = toOklab(vec3(glow.rgb));\n    vec2 toLight = straight ? vec2(0.0, 0.55) : vec2(0.36, 0.38);\n    vec3 pre = vec3(0.0);          // premultiplied colour of the gas so far\n    float opacity = 0.0;               // its coverage\n    vec3 pageShade = vec3(1.0);    // dust between the page and the viewer, tinted not grey\n    const vec3 dustTint = vec3(0.62, 0.60, 0.80);\n    for (int i = 0; i < 4; i++) {\n        float fi = float(i);\n        float zoom = 0.72 + 0.30 * fi;\n        vec2 qi = base * zoom + along * advect * (0.32 + 0.13 * fi) + vec2(11.3, 7.1) * fi\n                  + swirl * (0.75 + 0.12 * fi) + time * vec2(0.035, -0.02) * (fi + 1.0);\n        float d = fbm(qi, 3);\n        float toward = 0.5 * (fbm(qi + toLight * 0.5, 2) + fbm(qi + toLight * 1.1, 2));\n        float lit = exp(-1.4 * max(toward - d, 0.0));\n        float dust = smoothstep(0.55, 0.80, fbm(qi * 1.9 + vec2(5.0, 3.0) + fi, 2));\n        // Dust in this slice darkens everything behind it, toward a deep lavender rather than grey.\n        pre *= mix(vec3(1.0), dustTint, 0.6 * dust);\n        pageShade *= mix(vec3(1.0), mix(vec3(1.0), dustTint, 0.3), dark > 0.5 ? 0.0 : dust);\n\n        float body = smoothstep(0.56, 0.86, d);          // lavender until the dense cores turn amber\n        float em = pow(smoothstep(0.36, 0.90, d), 1.6);\n        float a = 1.0 - exp(-1.8 * em);\n        vec3 lab = mix(labB, labA, body);\n        lab.yz *= 1.0 + 0.30 * sin(3.14159 * body);\n        lab = mix(lab, labGlow, smoothstep(0.86, 0.98, d) * lit);\n        lab.x *= dark > 0.5 ? mix(0.88, 1.08, lit) : mix(0.90, 1.04, lit);\n        // The rim: thin gas on the lit side of a clump glows like an ionisation front.\n        float rim = smoothstep(0.26, 0.40, d) * (1.0 - smoothstep(0.40, 0.58, d)) * lit * lit;\n        lab = mix(lab, labGlow, 0.45 * rim);\n        vec3 c = fromOklab(lab);\n        pre = pre * (1.0 - a) + c * a;\n        opacity = opacity * (1.0 - a) + a;\n    }\n\n    // The star's light warms the gas nearest it and spills onto the bare page.\n    pre += vec3(glow.rgb) * (dark > 0.5 ? 0.35 : 0.22) * lampGlow * opacity;\n    vec3 gas = saturate(pre) + page * pageShade * (1.0 - opacity);\n    gas = mix(gas, spillColor, 0.30 * lampGlow * (1.0 - opacity));\n    float coverage = cover * fade;\n    vec3 result = mix(page, gas, coverage);\n\n    // Triangular dither, about one step of 8-bit, so the soft gradients don't band on flat\n    // backgrounds (strongest in dark mode).\n    vec2 grain = position + time * 37.0;\n    float dither = (hash(floor(grain)) + hash(floor(grain + 71.0)) - 1.0) / 255.0;\n    result += dither * coverage;\n    return vec4(vec3(result), color.a);\n}\n\nuniform vec2 uCanvasPx;\nuniform float uScale;\nuniform vec2 uSize;\nuniform float uTime, uDuration, uSeed, uDark, uLook, uMotion, uStrength;\nuniform vec4 uBase, uA, uB, uGlow;\nout vec4 outColor;\nvoid main() {\n    vec2 px = vec2(gl_FragCoord.x, uCanvasPx.y - gl_FragCoord.y);\n    outColor = choreWash(px / uScale, uBase, uSize, uTime, uDuration, uSeed,\n                         uA, uB, uGlow, uDark, uLook, uMotion, uStrength);\n}\n"}, {"id": "06-night-haze", "title": "Nebula, night haze", "date": "Nov 5", "note": "05 with a dark-mode strategy; light mode is identical. Over a light page the gas tints its way in, over black it switched on. So at night a dusky lavender haze stands in for the light page and arrives with the front, the gas lightness is compressed into the same contrast band as daytime, the front and tail are wider, and the star glow is broader and dimmer.", "looks": ["Corner", "Calm", "Straight up"], "duration": 8, "defaults": {"motion": 1, "look": 1, "duration": 8}, "file": "tools/wash-lab/iterations/06-night-haze.metal", "glsl": "#version 300 es\nprecision highp float;\nprecision highp int;\nfloat saturate(float x) { return clamp(x, 0.0, 1.0); }\nvec2 saturate(vec2 x) { return clamp(x, 0.0, 1.0); }\nvec3 saturate(vec3 x) { return clamp(x, 0.0, 1.0); }\n\n// Completion wash: a one-shot celebration drawn behind a day's cards when its last open chore\n// is completed. Its motion is a wave washing up a beach, seen from above: it rolls in from the\n// lower trailing corner, fills the screen, lingers and turns, then drains back out (or rolls\n// through). Its material is a nebula seen up close: a small volume of slices, each a lit,\n// matte gas in the app icon's two colours, with luminous filaments, dark dust lanes and thin\n// bright rims where clumps face the star that lights them. There are no hard edges or specular\n// highlights.\n//\n// Used as a SwiftUI `colorEffect` on a rectangle filled with the list's background, so\n// `position` (points) and `color` (the background pixel) are implicit. Custom parameters\n// follow in order:\n//   size      the layer's size in points\n//   time      seconds since the wash started\n//   duration  the whole effect's length in seconds (it is transparent at and after it)\n//   seed      varies the billows from one wash to the next\n//   colorA    the warm colour (amber), colorB the cool colour (lavender), glow the bloom (honey)\n//   dark      1 in dark appearance, else 0\n//   look      DEBUG look variant: 0 corner (default), 1 calm (smoother haze), 2 straight up\n//             (the lamp sits off the entry corner, or below the bottom edge for look 2)\n//   motion    0 = expand and retreat (rolls in, lingers, drains back out); 1 = roll-through (enters\n//             at the corner, slows through the middle, exits at the far corner, never reverses)\n//   strength  0...1 opacity scale (1 on iOS; lower where rows sit on the background, e.g. Mac)\n//\n// Colours are mixed in OKLab (Bj?rn Ottosson) so amber and lavender meet without the grey\n// midpoint of an sRGB blend. Inputs are taken as gamma-encoded sRGB, the working space of the\n// incoming pixel.\n//\n// Cost: pixels well ahead of the rolling front return early. Covered pixels evaluate about 54\n// value-noise lookups: a shared two-layer domain warp (12), the front (4), and four volume\n// slices of 9 each (3-octave density, two 2-octave light taps, a 2-octave dust field), plus\n// the dither.\n\n// Integer lattice hash ? 0...1. Stable on every GPU (sin-based hashes band at large inputs).\nfloat hash(vec2 cell) {\n    uvec2 q = uvec2(ivec2(cell)) * uvec2(1597334673u, 3812015801u);\n    uint n = (q.x ^ q.y) * 1597334673u;\n    return float(n) * (1.0 / 4294967295.0);\n}\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    float a = hash(i);\n    float b = hash(i + vec2(1, 0));\n    float c = hash(i + vec2(0, 1));\n    float d = hash(i + vec2(1, 1));\n    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);\n}\n\n// Fractal noise normalised to 0...1 (mean ? 0.5). Each octave is rotated to hide the grid.\nfloat fbm(vec2 p, int octaves) {\n    float value = 0.0;\n    float amplitude = 0.5;\n    float total = 0.0;\n    const mat2 turn = mat2(0.8, 0.6, -0.6, 0.8);\n    for (int k = 0; k < octaves; k++) {\n        value += amplitude * noise(p);\n        total += amplitude;\n        p = turn * p * 2.03 + 17.1;\n        amplitude *= 0.5;\n    }\n    return value / total;\n}\n\n// sRGB transfer functions, per channel (scalar on purpose: the wash lab converts this file to\n// WebGL, where vector comparisons are spelled differently).\nfloat toLinear1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.04045 ? a / 12.92 : pow((a + 0.055) / 1.055, 2.4));\n}\n\nfloat toGamma1(float c) {\n    float a = abs(c);\n    return sign(c) * (a <= 0.0031308 ? a * 12.92 : 1.055 * pow(a, 1.0 / 2.4) - 0.055);\n}\n\nvec3 toLinear(vec3 c) { return vec3(toLinear1(c.r), toLinear1(c.g), toLinear1(c.b)); }\nvec3 toGamma(vec3 c) { return vec3(toGamma1(c.r), toGamma1(c.g), toGamma1(c.b)); }\n\nfloat cubeRoot(float x) { return sign(x) * pow(abs(x), 1.0 / 3.0); }\n\nvec3 toOklab(vec3 rgb) {\n    vec3 c = toLinear(rgb);\n    float l = cubeRoot(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b);\n    float m = cubeRoot(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b);\n    float s = cubeRoot(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);\n    return vec3(0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,\n                  1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,\n                  0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);\n}\n\nvec3 fromOklab(vec3 lab) {\n    float l = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;\n    float m = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;\n    float s = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;\n    l = l * l * l; m = m * m * m; s = s * s * s;\n    vec3 c = vec3( 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,\n                      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,\n                      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s);\n    return toGamma(c);\n}\n\nvec4 choreWash(vec2 position, vec4 color,\n                                 vec2 size, float time, float duration, float seed,\n                                 vec4 colorA, vec4 colorB, vec4 glow,\n                                 float dark, float look, float motion, float strength) {\n    float tau = time / max(duration, 0.001);\n    if (tau <= 0.0 || tau >= 1.0) { return color; }\n\n    float width = max(size.x, 1.0);\n    float height = max(size.y, 1.0);\n    // How far the wave has to travel to reach this pixel, as a fraction: 0 at its origin, 1 at\n    // the far corner. By default it rolls in from the lower trailing corner (the \"straight\"\n    // look rises from the bottom edge instead).\n    vec2 uv = position / vec2(width, height);\n    bool straight = look > 1.5;\n    float up = straight ? 1.0 - uv.y : 0.68 * (1.0 - uv.y) + 0.32 * (1.0 - uv.x);\n    // Feature units: one unit ? a phone's width, so billows keep their physical size on an iPad\n    // or a Mac instead of stretching.\n    vec2 p = position / 320.0;\n\n    // The wave's motion. Expand and retreat: it rushes in and slows (ease-out), lingers while\n    // the gas keeps turning, then drains back with gathering speed (ease-in). Roll-through: one\n    // monotonic pass that enters fast, slows through the middle and leaves fast, with a tail a\n    // screen-and-a-bit long so the whole cloud crosses and exits at the far corner.\n    bool rolls = motion > 0.5;\n    float climb = 1.0 - pow(1.0 - saturate(tau / 0.34), 3.0);\n    float drain = rolls ? 0.0 : saturate((tau - 0.60) / 0.40);\n    drain *= drain;\n    float breath = 0.025 * sin(time * 2.1 + seed);\n    // Long enough that the tail clears the far corner only at the end of the duration.\n    const float cloudLength = 1.6;\n    float pass = tau + 0.12 * sin(6.28318 * tau);\n    float reach = rolls ? mix(-0.30, 1.45 + cloudLength + 0.05, pass) + breath\n                        : mix(-0.30, 1.45, climb) + breath - 1.85 * drain;\n    float tail = reach - cloudLength;\n\n    // The light source: a star just off the corner the wave enters from. Its light spills onto\n    // the page a beat before the gas arrives and holds through the linger.\n    vec2 origin = straight ? vec2(0.5, 1.12) : vec2(1.06, 1.06);\n    vec2 toOrigin = (uv - origin) * vec2(width / height, 1.0);\n    // At night the star's glow is broader and dimmer, so it arrives as gradually as the gas.\n    float lamp = exp(-dot(toOrigin, toOrigin) / (dark > 0.5 ? 0.55 : 0.34));\n    float lampEnv = smoothstep(0.0, 0.26, tau) * (1.0 - smoothstep(rolls ? 0.40 : 0.62, rolls ? 0.80 : 0.96, tau));\n    float lampGlow = lamp * lampEnv;\n    vec3 spillColor = dark > 0.5 ? mix(vec3(glow.rgb), vec3(1.0), 0.35) : vec3(glow.rgb);\n    vec3 page = vec3(color.rgb);\n    float fade = (1.0 - smoothstep(0.88, 1.0, tau)) * strength;\n\n    if ((drain <= 0.0 && reach - up < -0.42) || (rolls && tail - up > 0.42)) {\n        return vec4(vec3(mix(page, spillColor, 0.30 * lampGlow * strength)), color.a);\n    }\n\n    // One shared swirl for every layer: a two-layer domain warp (Inigo Quilez) in a frame that\n    // moves with the cloud, so the whole volume churns together.\n    vec2 along = straight ? vec2(0.0, 1.0) : normalize(vec2(0.32, 0.68));\n    float advect = reach * (height / 320.0);\n    vec2 base = p * 0.85 + vec2(seed * 1.7, seed * 0.6);\n    vec2 q0 = base + along * advect * 0.5;\n    float warp = look > 0.5 && look < 1.5 ? 1.6 : 2.6;\n    vec2 q = vec2(fbm(q0 + time * vec2(0.12, 0.04), 3),\n                      fbm(q0 + vec2(5.2, 1.3) - time * vec2(0.05, 0.10), 3));\n    vec2 r = vec2(fbm(q0 + warp * q + vec2(1.7, 9.2) + 0.22 * time, 3),\n                      fbm(q0 + warp * q + vec2(8.3, 2.8) - 0.18 * time, 3));\n    vec2 swirl = 2.4 * r;\n\n    // The front is a wide billowing gradient rather than a line: the gas's own density pushes\n    // it ahead in places and holds it back in others.\n    float densityC = fbm(q0 + swirl, 3);\n    float lobes = 0.07 * (noise(vec2(dot(p, vec2(along.y, -along.x)) * 1.6 + seed, time * 0.3)) - 0.5);\n    float depth = reach + lobes + 0.22 * (densityC - 0.5) - up;\n    // Over a light page the gas tints its way in; over black it would switch on. So at night\n    // the front and tail are wider, and (below) a dim ambient haze arrives with them.\n    float soft = dark > 0.5 ? 1.8 : 1.0;\n    float cover = smoothstep(-0.16 * soft, 0.24 * soft, depth);\n    if (rolls) {\n        float behind = tail + lobes + 0.22 * (densityC - 0.5) - up;\n        cover *= 1.0 - smoothstep(-0.24 * soft, 0.16 * soft, behind);\n    }\n\n    // The volume: four slices from far to near, composited with the \"over\" operator. Each slice\n    // is a warped density field with its own parallax (far slices drift slower and coarser),\n    // lit by two taps toward the star (Beer's law), coloured by density on an OKLab ramp (thin\n    // lavender ? amber ? a honey core), with a thin bright rim where a clump faces the light,\n    // like an ionisation front. A separate dust field only absorbs: it darkens the slices and\n    // the page behind it, so dark lanes silhouette against the glow.\n    vec3 labA = toOklab(vec3(colorA.rgb));\n    vec3 labB = toOklab(vec3(colorB.rgb));\n    vec3 labGlow = toOklab(vec3(glow.rgb));\n    vec2 toLight = straight ? vec2(0.0, 0.55) : vec2(0.36, 0.38);\n    vec3 pre = vec3(0.0);          // premultiplied colour of the gas so far\n    float opacity = 0.0;               // its coverage\n    vec3 pageShade = vec3(1.0);    // dust between the page and the viewer, tinted not grey\n    const vec3 dustTint = vec3(0.62, 0.60, 0.80);\n    for (int i = 0; i < 4; i++) {\n        float fi = float(i);\n        float zoom = 0.72 + 0.30 * fi;\n        vec2 qi = base * zoom + along * advect * (0.32 + 0.13 * fi) + vec2(11.3, 7.1) * fi\n                  + swirl * (0.75 + 0.12 * fi) + time * vec2(0.035, -0.02) * (fi + 1.0);\n        float d = fbm(qi, 3);\n        float toward = 0.5 * (fbm(qi + toLight * 0.5, 2) + fbm(qi + toLight * 1.1, 2));\n        float lit = exp(-1.4 * max(toward - d, 0.0));\n        float dust = smoothstep(0.55, 0.80, fbm(qi * 1.9 + vec2(5.0, 3.0) + fi, 2));\n        // Dust in this slice darkens everything behind it, toward a deep lavender rather than grey.\n        pre *= mix(vec3(1.0), dustTint, 0.6 * dust);\n        pageShade *= mix(vec3(1.0), mix(vec3(1.0), dustTint, 0.3), dark > 0.5 ? 0.0 : dust);\n\n        float body = smoothstep(0.56, 0.86, d);          // lavender until the dense cores turn amber\n        float em = pow(smoothstep(0.36, 0.90, d), 1.6);\n        float a = 1.0 - exp(-1.8 * em);\n        vec3 lab = mix(labB, labA, body);\n        lab.yz *= 1.0 + 0.30 * sin(3.14159 * body);\n        lab = mix(lab, labGlow, smoothstep(0.86, 0.98, d) * lit);\n        // Night keeps the gas within the same contrast band as day: lightness is compressed so\n        // the cores read as peaks above the haze rather than flashes out of black.\n        lab.x *= dark > 0.5 ? 0.74 * mix(0.88, 1.10, lit) : mix(0.90, 1.04, lit);\n        // The rim: thin gas on the lit side of a clump glows like an ionisation front.\n        float rim = smoothstep(0.26, 0.40, d) * (1.0 - smoothstep(0.40, 0.58, d)) * lit * lit;\n        lab = mix(lab, labGlow, 0.45 * rim);\n        vec3 c = fromOklab(lab);\n        pre = pre * (1.0 - a) + c * a;\n        opacity = opacity * (1.0 - a) + a;\n    }\n\n    // The star's light warms the gas nearest it and spills onto the bare page.\n    pre += vec3(glow.rgb) * (dark > 0.5 ? 0.35 : 0.22) * lampGlow * opacity;\n    // Under the gas: the shaded page by day; by night a dusky lavender haze that stands in for\n    // the light page, so thin gas deepens out of it instead of appearing from nothing.\n    vec3 ambient = fromOklab(vec3(0.33, labB.yz * 0.7));\n    vec3 under = dark > 0.5 ? mix(page, ambient, 0.85) : page * pageShade;\n    vec3 gas = saturate(pre) + under * (1.0 - opacity);\n    gas = mix(gas, spillColor, 0.30 * lampGlow * (1.0 - opacity));\n    float coverage = cover * fade;\n    vec3 result = mix(page, gas, coverage);\n\n    // Triangular dither, about one step of 8-bit, so the soft gradients don't band on flat\n    // backgrounds (strongest in dark mode).\n    vec2 grain = position + time * 37.0;\n    float dither = (hash(floor(grain)) + hash(floor(grain + 71.0)) - 1.0) / 255.0;\n    result += dither * coverage;\n    return vec4(vec3(result), color.a);\n}\n\nuniform vec2 uCanvasPx;\nuniform float uScale;\nuniform vec2 uSize;\nuniform float uTime, uDuration, uSeed, uDark, uLook, uMotion, uStrength;\nuniform vec4 uBase, uA, uB, uGlow;\nout vec4 outColor;\nvoid main() {\n    vec2 px = vec2(gl_FragCoord.x, uCanvasPx.y - gl_FragCoord.y);\n    outColor = choreWash(px / uScale, uBase, uSize, uTime, uDuration, uSeed,\n                         uA, uB, uGlow, uDark, uLook, uMotion, uStrength);\n}\n"}];
+  const DEVICES = {
+    iphone: { w: 402, h: 874, strength: 1 },
+    ipad: { w: 1032, h: 1376, strength: 1 },
+    mac: { w: 1180, h: 760, strength: 0.55 },
+  };
+  const COLORS = { amber: [1, 0.761, 0.2, 1], lavender: [0.682, 0.706, 1, 1], honey: [1, 0.851, 0.471, 1] };
+  const CHORES = [
+    ["Make the beds", "Nov 4, 2026"], ["Mop the kitchen", "Nov 4, 2026"], ["Take out the trash", "Never completed"],
+    ["Tidy the living room", "Nov 3, 2026 \u2013 Picked up the toys"], ["Wash the dishes", "Nov 4, 2026 \u2013 Ran the dishwasher twice"],
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const device = $("device"), canvas = $("gl"), fit = $("fit"), statusEl = $("status");
+  const gl = canvas.getContext("webgl2", { antialias: false, alpha: false, premultipliedAlpha: false });
+
+  const state = {
+    iter: 5, appearance: "auto", platform: "iphone", look: 1, motion: 1, seed: 3.7, strength: 1, duration: 8, toggles: "system", glow: "none",
+    speed: 1, t: 0, playing: false, done: [false, false, true, false, true],
+  };
+  try {
+    const saved = JSON.parse(localStorage.getItem("washlab.v1") || "{}");
+    for (const k of ["iter", "appearance", "platform", "look", "motion", "seed", "strength", "duration", "speed", "toggles", "glow"]) {
+      if (k in saved) state[k] = saved[k];
+    }
+    if (state.iter >= ITERATIONS.length) state.iter = ITERATIONS.length - 1;
+  } catch (e) { /* storage unavailable: defaults */ }
+  const persist = () => {
+    try {
+      const { iter, appearance, platform, look, motion, seed, strength, duration, speed, toggles, glow } = state;
+      localStorage.setItem("washlab.v1", JSON.stringify({ iter, appearance, platform, look, motion, seed, strength, duration, speed, toggles, glow }));
+    } catch (e) { /* ignore */ }
+  };
+
+  // ---- WebGL ---------------------------------------------------------------------------
+  const programs = new Map();
+  const VERT = `#version 300 es
+void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+  function compile(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      const log = gl.getShaderInfoLog(sh); gl.deleteShader(sh); throw new Error(log);
+    }
+    return sh;
+  }
+  function program(index) {
+    if (programs.has(index)) return programs.get(index);
+    let entry;
+    try {
+      const p = gl.createProgram();
+      gl.attachShader(p, compile(gl.VERTEX_SHADER, VERT));
+      gl.attachShader(p, compile(gl.FRAGMENT_SHADER, ITERATIONS[index].glsl));
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+      const u = {};
+      for (const n of ["uCanvasPx", "uScale", "uSize", "uTime", "uDuration", "uSeed", "uDark", "uLook", "uMotion", "uStrength", "uBase", "uA", "uB", "uGlow"]) {
+        u[n] = gl.getUniformLocation(p, n);
+      }
+      entry = { p, u };
+    } catch (e) {
+      entry = { error: String(e.message || e) };
+    }
+    programs.set(index, entry);
+    return entry;
+  }
+
+  function isDark() {
+    if (state.appearance !== "auto") return state.appearance === "dark";
+    const root = document.documentElement.getAttribute("data-theme");
+    if (root === "dark") return true;
+    if (root === "light") return false;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function baseColor() {
+    const dark = isDark(), mac = state.platform === "mac";
+    const hex = mac ? (dark ? "2b2b2b" : "ececec") : (dark ? "000000" : "f2f2f7");
+    return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).concat([1]);
+  }
+
+  let scale = 1, fitScale = 1, dirty = true, lastFrame = 0, fps = 0;
+  function layout() {
+    const d = DEVICES[state.platform];
+    device.style.width = d.w + "px"; device.style.height = d.h + "px";
+    const availW = fit.clientWidth, availH = Math.max(320, window.innerHeight - fit.getBoundingClientRect().top - 90);
+    fitScale = Math.min(availW / d.w, availH / d.h, 1);
+    device.style.transform = `scale(${fitScale})`;
+    fit.style.height = Math.ceil(d.h * fitScale) + "px";
+    scale = Math.min(2, (window.devicePixelRatio || 1) * fitScale);
+    canvas.width = Math.round(d.w * scale); canvas.height = Math.round(d.h * scale);
+    dirty = true;
+  }
+
+  function draw(now) {
+    const entry = program(state.iter);
+    if (entry.error) { setStatus("Shader failed to compile:\n" + entry.error, true); return; }
+    const d = DEVICES[state.platform];
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.useProgram(entry.p);
+    const u = entry.u;
+    gl.uniform2f(u.uCanvasPx, canvas.width, canvas.height);
+    gl.uniform1f(u.uScale, scale);
+    gl.uniform2f(u.uSize, d.w, d.h);
+    gl.uniform1f(u.uTime, state.t);
+    gl.uniform1f(u.uDuration, state.duration);
+    gl.uniform1f(u.uSeed, state.seed);
+    gl.uniform1f(u.uDark, isDark() ? 1 : 0);
+    gl.uniform1f(u.uLook, state.look);
+    if (u.uMotion) gl.uniform1f(u.uMotion, state.motion);
+    gl.uniform1f(u.uStrength, state.strength);
+    gl.uniform4fv(u.uBase, baseColor());
+    gl.uniform4fv(u.uA, COLORS.amber); gl.uniform4fv(u.uB, COLORS.lavender); gl.uniform4fv(u.uGlow, COLORS.honey);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    applyGlow(state.duration > 0 ? state.t / state.duration : 0, now);
+    if (now && lastFrame) fps = 0.9 * fps + 0.1 * (1000 / Math.max(1, now - lastFrame));
+    lastFrame = now || 0;
+    updateReadout();
+  }
+
+  function tick(now) {
+    requestAnimationFrame(tick);
+    if (state.playing) {
+      const dt = lastTick ? (now - lastTick) / 1000 : 0;
+      state.t = Math.min(state.duration, state.t + dt * state.speed);
+      if (state.t >= state.duration) { state.playing = false; fps = 0; }
+      dirty = true;
+    }
+    lastTick = now;
+    if (glowEasing) dirty = true;
+    if (dirty) { dirty = false; draw(now); }
+  }
+  let lastTick = 0;
+
+  // ---- Card glow -----------------------------------------------------------------------
+  // Two candidates for the "completed day" border, on the wash's clock (tau = t / duration).
+  // A "peak": the halo rises to a peak around the middle of the wash and settles to a resting
+  // rim. B "rim": the rim is drawn round the perimeter, starting from the corner the wave
+  // enters, with a bright head at the drawing tip, then settles. Both keep the rim at rest.
+  const ease = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  // The rim follows the day's progress at rest; the last completion is the flourish, which runs
+  // on the wash's clock from the level the day had before it to full.
+  let glowFrom = 0;        // progress before the flourish began
+  const progress = () => state.done.filter(Boolean).length / state.done.length;
+  const PAD = 48;   // how far the halo may reach outside the card, in points
+  function roundedRectPath(w, h, r, inset) {
+    // Clockwise from the bottom-right corner: along the bottom, up the left, across the top,
+    // down the right. A negative inset grows the rectangle outward, keeping its corners
+    // concentric with the card's. Coordinates include the PAD offset of the overlay.
+    const x0 = PAD + inset, y0 = PAD + inset, x1 = PAD + w - inset, y1 = PAD + h - inset, rr = Math.max(0, r - inset);
+    return `M ${x1} ${y1 - rr} A ${rr} ${rr} 0 0 1 ${x1 - rr} ${y1} L ${x0 + rr} ${y1} A ${rr} ${rr} 0 0 1 ${x0} ${y1 - rr} ` +
+           `L ${x0} ${y0 + rr} A ${rr} ${rr} 0 0 1 ${x0 + rr} ${y0} L ${x1 - rr} ${y0} A ${rr} ${rr} 0 0 1 ${x1} ${y0 + rr} Z`;
+  }
+  let rimSerial = 0;
+  function ensureRim(card) {
+    let svg = card.querySelector("svg.rim");
+    if (!svg) {
+      const id = "rim" + (rimSerial++);
+      svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("class", "rim"); svg.dataset.id = id;
+      // The halo is blurred, then masked to the outside of the card, so it only ever emits
+      // outward from the edge.
+      // Two thin strokes on the edge, blurred wide and masked to the outside: the light is
+      // brightest at the border and falls off like a diffuse strip, with no band of its own.
+      svg.innerHTML = `<defs>` +
+        `<filter id="${id}-near" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="6"/></filter>` +
+        `<filter id="${id}-far" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="18"/></filter>` +
+        `<mask id="${id}-outside"><rect class="all" fill="white"/><path class="inside" fill="black"/></mask></defs>` +
+        `<g mask="url(#${id}-outside)"><path class="halo far" filter="url(#${id}-far)"/><path class="halo near" filter="url(#${id}-near)"/></g>` +
+        `<path class="base"/><path class="line"/><circle class="head" r="3.5"/>`;
+      card.append(svg);
+    }
+    const w = card.clientWidth, h = card.clientHeight;
+    if (svg.dataset.size !== `${w}x${h}`) {
+      svg.dataset.size = `${w}x${h}`;
+      const r = state.platform === "mac" ? 0 : 18;
+      svg.setAttribute("viewBox", `0 0 ${w + 2 * PAD} ${h + 2 * PAD}`);
+      svg.querySelector(".all").setAttribute("width", w + 2 * PAD); svg.querySelector(".all").setAttribute("height", h + 2 * PAD);
+      svg.querySelector(".inside").setAttribute("d", roundedRectPath(w, h, r, 0));
+      const edge = roundedRectPath(w, h, r, 0.8);
+      for (const sel of [".base", ".line", ".halo.near", ".halo.far"]) svg.querySelector(sel).setAttribute("d", edge);
+      const len = svg.querySelector(".line").getTotalLength();
+      svg.dataset.len = len; svg.dataset.r = r;
+      for (const sel of [".base", ".line"]) svg.querySelector(sel).setAttribute("stroke-dasharray", String(len));
+    }
+    return svg;
+  }
+  // Resting values ease toward their targets (a toggled chore moves the fill gracefully, never
+  // in a step); the flourish's own stroke is driven straight from the wash clock.
+  const glowDisp = { baseA: 0, baseFill: 0, haloA: 0 };
+  let glowEasing = false, lastGlowTime = 0;
+  function applyGlow(tau, now) {
+    const dt = lastGlowTime ? Math.min(0.1, (now - lastGlowTime) / 1000) : 0.016; lastGlowTime = now || 0;
+    const k = 1 - Math.exp(-dt / 0.22);
+    let baseA = 0, baseFill = 0, lineA = 0, lineFill = 0, haloA = 0, headA = 0;
+    const p = progress();
+    const complete = p >= 1;
+    const flourish = complete && tau < 1 ? tau : (complete ? 1 : -1);
+    if (state.glow === "peak") {
+      if (flourish >= 0) {
+        const rise = ease(0.05, 0.55, flourish), settle = ease(0.60, 1.0, flourish);
+        const lift = glowFrom + (1 - glowFrom) * ease(0.05, 0.6, flourish);
+        baseA = 0.25 + 0.35 * lift; baseFill = 1;
+        haloA = 0.12 * glowFrom + rise * (1 - 0.7 * settle) * 0.55;
+      } else {
+        baseA = p > 0 ? 0.25 + 0.35 * p : 0; baseFill = 1; haloA = 0.12 * p;
+      }
+    } else if (state.glow === "rim") {
+      if (flourish >= 0) {
+        // The flourish retraces the whole perimeter, over the resting fraction underneath.
+        baseA = 0.3; baseFill = glowFrom;
+        lineFill = ease(0.10, 0.72, flourish); lineA = 0.65; headA = lineFill < 1 ? 1 : 0;
+        const settleGlow = ease(0.72, 0.92, flourish);
+        haloA = 0.08 + 0.12 * lineFill + 0.20 * settleGlow * (1 - 0.4 * ease(0.92, 1.0, flourish));
+      } else {
+        baseA = p > 0 ? 0.45 : 0; baseFill = p; haloA = 0.14 * p;
+      }
+    }
+    // Ease the resting values; snap while the clock drives them.
+    const target = { baseA, baseFill, haloA };
+    let maxDelta = 0;
+    for (const key of Object.keys(target)) {
+      const next = flourish >= 0 ? target[key] : glowDisp[key] + (target[key] - glowDisp[key]) * k;
+      maxDelta = Math.max(maxDelta, Math.abs(target[key] - next));
+      glowDisp[key] = next;
+    }
+    glowEasing = maxDelta > 0.002;
+    const dark = device.dataset.appearance === "dark";
+    const tone = dark ? 1.1 : 0.85;
+    for (const card of document.querySelectorAll(".card.glows")) {
+      const svg = ensureRim(card);
+      const near = svg.querySelector(".halo.near"), far = svg.querySelector(".halo.far");
+      const base = svg.querySelector(".base"), line = svg.querySelector(".line"), head = svg.querySelector(".head");
+      const len = parseFloat(svg.dataset.len);
+      base.setAttribute("stroke-width", "1.4"); base.setAttribute("stroke-opacity", String(Math.min(1, glowDisp.baseA * tone)));
+      base.setAttribute("stroke-dashoffset", String(len * (1 - glowDisp.baseFill)));
+      line.setAttribute("stroke-width", "1.6"); line.setAttribute("stroke-opacity", String(Math.min(1, lineA * tone)));
+      line.setAttribute("stroke-dashoffset", String(len * (1 - lineFill)));
+      near.setAttribute("stroke-width", "3"); near.setAttribute("stroke-opacity", String(Math.min(1, glowDisp.haloA * 1.6 * tone)));
+      far.setAttribute("stroke-width", "3"); far.setAttribute("stroke-opacity", String(Math.min(1, glowDisp.haloA * 1.1 * tone)));
+      if (headA > 0) {
+        const pt = line.getPointAtLength(len * lineFill);
+        head.setAttribute("cx", pt.x); head.setAttribute("cy", pt.y); head.setAttribute("fill", "rgb(var(--honey))");
+        head.setAttribute("stroke-width", "4"); head.setAttribute("stroke-opacity", "0.3"); head.setAttribute("fill-opacity", "0.95");
+      } else { head.setAttribute("fill-opacity", "0"); head.setAttribute("stroke-opacity", "0"); }
+    }
+  }
+
+  // ---- UI ------------------------------------------------------------------------------
+  function setStatus(text, error) { statusEl.textContent = text; statusEl.classList.toggle("error", !!error); }
+  function updateReadout() {
+    $("scrub").value = state.t; $("scrub").max = state.duration;
+    $("readout").textContent = `${state.t.toFixed(2)} s / ${state.duration.toFixed(2)} s` + (state.playing ? ` \u00b7 ${Math.round(fps)} fps` : "");
+    const it = ITERATIONS[state.iter];
+    if (!program(state.iter).error) {
+      setStatus(`${it.id} \u00b7 look ${state.look} \u00b7 seed ${state.seed} \u00b7 ${canvas.width}\u00d7${canvas.height} px \u00b7 ${isDark() ? "dark" : "light"} \u00b7 ${state.platform}`);
+    }
+  }
+  function replay() { state.t = 0; state.playing = true; lastTick = 0; dirty = true; }
+  function fire() { replay(); }
+
+  function renderChores() {
+    const host = $("chores"); host.innerHTML = "";
+    CHORES.forEach(([name, last], i) => {
+      const row = document.createElement("div"); row.className = "row" + (state.done[i] ? " done" : "");
+      const text = document.createElement("div"); text.className = "text";
+      text.innerHTML = `<div class="name"></div><div class="last"></div>`;
+      text.querySelector(".name").textContent = name; text.querySelector(".last").textContent = last;
+      const sw = document.createElement("button"); sw.className = "switch"; sw.setAttribute("role", "switch");
+      sw.setAttribute("aria-checked", String(state.done[i])); sw.setAttribute("aria-label", name);
+      sw.addEventListener("click", () => {
+        const wasComplete = state.done.every(Boolean), before = progress();
+        state.done[i] = !state.done[i];
+        const isComplete = state.done.every(Boolean);
+        renderChores(); dirty = true;
+        if (!wasComplete && isComplete) { glowFrom = before; fire(); }
+      });
+      row.append(text, sw); host.append(row);
+    });
+  }
+  $("markAll").addEventListener("click", () => {
+    const wasComplete = state.done.every(Boolean), before = progress();
+    state.done = state.done.map(() => true); renderChores(); dirty = true;
+    if (!wasComplete) { glowFrom = before; fire(); }
+  });
+  $("reset").addEventListener("click", () => { state.done = [false, false, true, false, true]; glowFrom = 0; renderChores(); dirty = true; });
+
+  const iters = $("iters");
+  ITERATIONS.forEach((it, i) => {
+    const b = document.createElement("button"); b.className = "iter"; b.type = "button";
+    b.innerHTML = `<span class="num"></span><span class="title"></span><span class="date"></span>`;
+    b.querySelector(".num").textContent = it.id.slice(0, 2); b.querySelector(".title").textContent = it.title; b.querySelector(".date").textContent = it.date;
+    b.addEventListener("click", () => selectIteration(i));
+    iters.append(b);
+  });
+  function selectIteration(i) {
+    state.iter = i;
+    [...iters.children].forEach((b, k) => b.setAttribute("aria-pressed", String(k === i)));
+    const it = ITERATIONS[i];
+    $("note").textContent = it.note + (it.file ? `  (${it.file})` : "");
+    const look = $("look"); look.innerHTML = "";
+    it.looks.forEach((name, k) => { const o = document.createElement("option"); o.value = k; o.textContent = `${k} \u00b7 ${name}`; look.append(o); });
+    if (state.look >= it.looks.length) state.look = 0;
+    look.value = state.look;
+    $("glsl").textContent = it.glsl;
+    noteMotion();
+    // Each iteration was tuned at its own length and, later, with chosen motion and look; the
+    // controls stay editable after.
+    state.duration = it.duration; $("duration").value = it.duration;
+    const d = it.defaults || {};
+    if ("look" in d) { state.look = d.look; look.value = d.look; }
+    if ("motion" in d) { state.motion = d.motion; [...$("motion").children].forEach((b) => b.setAttribute("aria-pressed", String(parseFloat(b.dataset.motion) === d.motion))); }
+    if ("duration" in d) { state.duration = d.duration; $("duration").value = d.duration; }
+    persist(); replay();
+  }
+
+  function seg(id, attr, key, after) {
+    const host = $(id);
+    [...host.children].forEach((b) => b.addEventListener("click", () => {
+      [...host.children].forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      state[key] = attr === "speed" || attr === "motion" ? parseFloat(b.dataset[attr]) : b.dataset[attr];
+      persist(); if (after) after(); dirty = true;
+    }));
+    [...host.children].forEach((b) => b.setAttribute("aria-pressed", String(String(b.dataset[attr]) === String(state[key]))));
+  }
+  function applyAppearance() { device.dataset.appearance = isDark() ? "dark" : "light"; dirty = true; }
+  function applyPlatform() {
+    device.dataset.platform = state.platform;
+    state.strength = DEVICES[state.platform].strength; $("strength").value = state.strength;
+    layout(); replay();
+  }
+  seg("speed", "speed", "speed");
+  seg("motion", "motion", "motion", () => { noteMotion(); replay(); });
+  seg("toggles", "toggles", "toggles", () => { device.dataset.toggles = state.toggles; });
+  seg("glow", "glow", "glow", () => { dirty = true; });
+  function noteMotion() {
+    const it = ITERATIONS[state.iter];
+    $("motionNote").textContent = it.glsl.includes("uMotion, uStrength") ? "" : "This iteration predates the motion switch; it always expands and retreats.";
+  }
+  seg("appearance", "appearance", "appearance", applyAppearance);
+  seg("platform", "platform", "platform", applyPlatform);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyAppearance);
+  new MutationObserver(applyAppearance).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  $("replay").addEventListener("click", () => { glowFrom = state.done.every(Boolean) ? glowFrom : 0; replay(); });
+  $("pause").addEventListener("click", () => { state.playing = !state.playing; lastTick = 0; $("pause").textContent = state.playing ? "Pause" : "Play"; dirty = true; });
+  $("scrub").addEventListener("input", (e) => { state.playing = false; state.t = parseFloat(e.target.value); dirty = true; });
+  $("look").addEventListener("change", (e) => { state.look = parseInt(e.target.value, 10); persist(); dirty = true; });
+  $("seed").value = state.seed;
+  $("seed").addEventListener("change", (e) => { state.seed = parseFloat(e.target.value) || 0; persist(); dirty = true; });
+  $("newSeed").addEventListener("click", () => { state.seed = Math.round(Math.random() * 640) / 10; $("seed").value = state.seed; persist(); replay(); });
+  $("strength").value = state.strength;
+  $("strength").addEventListener("input", (e) => { state.strength = parseFloat(e.target.value); persist(); dirty = true; });
+  $("duration").value = state.duration;
+  $("duration").addEventListener("change", (e) => { state.duration = Math.max(0.5, parseFloat(e.target.value) || 3.2); persist(); replay(); });
+  $("copy").addEventListener("click", async () => {
+    const flags = `--seed ${state.seed} --look ${state.look} --motion ${state.motion}${isDark() ? " --dark" : ""} --duration ${state.duration} --times ${state.t.toFixed(2)}`;
+    const text = `tools/wash-lab/run.sh /tmp/wash ${flags}`;
+    try { await navigator.clipboard.writeText(text); setStatus("Copied: " + text); }
+    catch (e) { setStatus(text); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.target.matches("input, select, textarea")) return;
+    if (e.code === "Space") { e.preventDefault(); $("pause").click(); }
+    if (e.key === "ArrowRight") { state.playing = false; state.t = Math.min(state.duration, state.t + 1 / 60); dirty = true; }
+    if (e.key === "ArrowLeft") { state.playing = false; state.t = Math.max(0, state.t - 1 / 60); dirty = true; }
+    if (e.key.toLowerCase() === "r") replay();
+  });
+
+  const now = new Date();
+  $("date").textContent = now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" });
+
+  if (!gl) { setStatus("WebGL2 is not available in this browser.", true); return; }
+  new ResizeObserver(layout).observe(fit);
+  window.addEventListener("resize", layout);
+  device.dataset.platform = state.platform; device.dataset.appearance = isDark() ? "dark" : "light"; device.dataset.toggles = state.toggles;
+  renderChores(); layout(); selectIteration(state.iter);
+  // A hook for scripted checks (the wash lab's WebKit snapshots): set state, then draw once.
+  window.__washlab = { state, draw, layout, renderChores, setGlowFrom: (v) => { glowFrom = v; } };
+  requestAnimationFrame(tick);
+})();
+</script>
